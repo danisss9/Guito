@@ -1,4 +1,12 @@
+.vscode
 node_modules
+public
+server
 src
 .gitignore
 .npmignore
+index.html
+svelte.config.js
+tsconfig.json
+tsconfig.node.json
+vite.config.ts

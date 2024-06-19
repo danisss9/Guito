@@ -1,6 +1,6 @@
 {
   "name": "easy-git-explorer",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Easily explore your git repositories.",
   "homepage": "https://github.com/danisss9/easy-git-explorer#readme",
   "repository": {
@@ -42,13 +42,11 @@
     "build:start": "npm run build && npm run start",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "publish": "npm publish --access public",
-    "release": "npm run build && npm run publish"
+    "release": "npm run build && npm publish --access public"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "@fastify/static": "^7.0.4",
-    "cors": "^2.8.5",
     "fastify": "^4.25.2",
     "open": "^10.0.3",
     "simple-git": "^3.25.0"
