@@ -40,7 +40,13 @@ void (async function main() {
   // Git Api
   app.get('/api/commits', (_req, resp) => {
     git.log({}, (err, data) => {
-      resp.type('application/json').send(data.all.map((e) => e.message));
+      resp.type('application/json').send(data.all);
+    });
+  });
+
+  app.get('/api/fetch', (_req, resp) => {
+    git.fetch({}, (err, data) => {
+      resp.type('application/json').send();
     });
   });
 

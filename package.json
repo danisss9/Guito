@@ -49,9 +49,15 @@
     "@fastify/static": "^7.0.4",
     "fastify": "^4.25.2",
     "open": "^10.0.3",
-    "simple-git": "^3.25.0"
+    "simple-git": "^3.25.0",
+    "svelte-material-ui": "^7.0.0"
   },
   "devDependencies": {
+    "@mdi/js": "^7.4.47",
+    "@smui/circular-progress": "^7.0.0",
+    "@smui/data-table": "^7.0.0",
+    "@smui/icon-button": "^7.0.0",
+    "@smui/tooltip": "^7.0.0",
     "@sveltejs/vite-plugin-svelte": "^3.0.1",
     "@tsconfig/svelte": "^5.0.2",
     "@types/node": "^20.11.5",
