@@ -4,8 +4,7 @@ public
 server
 src
 .gitignore
-.npmignore
-index.html
+/index.html
 svelte.config.js
 tsconfig.json
 tsconfig.node.json
