@@ -13,7 +13,7 @@
 </script>
 
 <IconButton class="material-icons">menu</IconButton>
-<h2>Easy Git Explorer</h2>
+<h2>Guito</h2>
 
 <div class="right-toolbar">
   <Wrapper>

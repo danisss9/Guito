@@ -1,17 +1,17 @@
 {
-  "name": "easy-git-explorer",
+  "name": "guito",
   "version": "0.2.1",
   "description": "Easily explore your git repositories.",
-  "homepage": "https://github.com/danisss9/easy-git-explorer#readme",
+  "homepage": "https://github.com/danisss9/guito#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/danisss9/easy-git-explorer.git"
+    "url": "https://github.com/danisss9/guito.git"
   },
   "bugs": {
-    "url": "https://github.com/danisss9/easy-git-explorer/issues"
+    "url": "https://github.com/danisss9/guito/issues"
   },
   "bin": {
-    "easy-git-explorer": "bin/index.js"
+    "guito": "bin/index.js"
   },
   "type": "module",
   "license": "MIT",

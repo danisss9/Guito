@@ -1,10 +1,10 @@
-# Easy Git Explorer
+# Guito
 
-Easily explore your git repositories.
+**G**u**IT**o ([**GUI**to](https://dicionario.priberam.org/guito)) is a free and simple git client.
 
 ## Table of Contents
 
-- [Easy Git Explorer](#easy-git-explorer)
+- [Guito](#guito)
   - [Table of Contents](#table-of-contents)
   - [Install](#install)
   - [Use](#use)
@@ -15,7 +15,7 @@ Easily explore your git repositories.
 ## Install
 
 ```cmd
-npm install -g easy-git-explorer
+npm install -g guito
 ```
 
 ## Use
@@ -23,7 +23,7 @@ npm install -g easy-git-explorer
 Run the following command on the folder where you git repository is:
 
 ```cmd
-npx easy-git-explorer
+npx guito
 ```
 
 ## Arguments
