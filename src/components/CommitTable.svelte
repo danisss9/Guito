@@ -24,9 +24,11 @@
       </Row>
     </Head>
     <Body>
-      {#each data as item (item.hash)}
+      {#each data as item, index (item.hash)}
         <Row on:click={() => onSelectCommit(item)} style="cursor: pointer;">
-          <Cell></Cell>
+          <Cell style="padding: 0;">
+            <CommitGraph {index} totalCommits={data.length} />
+          </Cell>
           <Cell>{item.message}</Cell>
           <Cell>{item.date}</Cell>
           <Cell>{item.author_name}</Cell>

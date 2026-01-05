@@ -75,7 +75,7 @@
     </h4>
     <Wrapper>
       <IconButton class="material-icons" on:click={onBranches} title="Manage branches">
-        source_fork
+        source
       </IconButton>
       <Tooltip>Branches</Tooltip>
     </Wrapper>
