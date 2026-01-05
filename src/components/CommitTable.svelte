@@ -1,6 +1,7 @@
 <script lang="ts">
   import DataTable, { Head, Body, Row, Cell } from '@smui/data-table';
   import CircularProgress from '@smui/circular-progress';
+  import CommitGraph from './CommitGraph.svelte';
   import type { Commit } from '../model/commit';
 
   export let data: Commit[];
