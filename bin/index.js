@@ -325,6 +325,70 @@ void (async function main() {
             resp.status(400).type('application/json').send({ error: err.message });
         }
     });
+    // ==================== Diff Viewer ====================
+    app.post('/api/commit/diff', async (req, resp) => {
+        try {
+            const { hash } = req.body;
+            if (!hash) {
+                return resp.status(400).type('application/json').send({ error: 'hash required' });
+            }
+            // Get raw diff using git show
+            const rawDiff = await git.show([hash]);
+            // Split by file sections (diff --git lines)
+            const files = [];
+            const sections = rawDiff.split(/(?=^diff --git)/m);
+            for (const section of sections) {
+                if (!section.trim())
+                    continue;
+                // Extract filename from "diff --git a/path b/path"
+                const fileMatch = section.match(/^diff --git a\/(.*?) b\/(.*)$/m);
+                if (!fileMatch)
+                    continue;
+                const filepath = fileMatch[2];
+                // Extract the actual diff content
+                const contentMatch = section.match(/^@@ .+? @@\s*\n([\s\S]*?)(?=^diff --git|$)/m);
+                if (!contentMatch) {
+                    // File may be binary or new
+                    files.push({
+                        path: filepath,
+                        original: '',
+                        modified: '',
+                        isBinary: section.includes('Binary files'),
+                    });
+                    continue;
+                }
+                const diffContent = contentMatch[1];
+                let original = '';
+                let modified = '';
+                // Parse unified diff format
+                const diffLines = diffContent.split('\n');
+                for (const line of diffLines) {
+                    if (line.startsWith('-') && !line.startsWith('---')) {
+                        original += line.substring(1) + '\n';
+                    }
+                    else if (line.startsWith('+') && !line.startsWith('+++')) {
+                        modified += line.substring(1) + '\n';
+                    }
+                    else if (!line.startsWith('\\')) {
+                        // Context lines appear in both
+                        const contextLine = line.substring(1) + '\n';
+                        original += contextLine;
+                        modified += contextLine;
+                    }
+                }
+                files.push({
+                    path: filepath,
+                    original: original.trimEnd(),
+                    modified: modified.trimEnd(),
+                });
+            }
+            resp.type('application/json').send({ hash, files });
+        }
+        catch (err) {
+            console.error('Diff error:', err.message);
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
     // Run the server
     app.listen({ port }, (err, address) => {
         if (err)

@@ -5,6 +5,7 @@
   import type { Commit } from '../model/commit';
 
   export let data: Commit[];
+  export let onSelectCommit: (commit: Commit) => void = () => {};
 </script>
 
 {#if data == null}
@@ -24,7 +25,7 @@
     </Head>
     <Body>
       {#each data as item (item.hash)}
-        <Row>
+        <Row on:click={() => onSelectCommit(item)} style="cursor: pointer;">
           <Cell></Cell>
           <Cell>{item.message}</Cell>
           <Cell>{item.date}</Cell>

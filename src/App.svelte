@@ -7,6 +7,7 @@
   import StashManager from './components/StashManager.svelte';
   import TagManager from './components/TagManager.svelte';
   import StageChanges from './components/StageChanges.svelte';
+  import CommitDiffViewer from './components/CommitDiffViewer.svelte';
   import type { Commit } from './model/commit';
   import type { BranchSummary } from './model/branch';
   import type { StashListSummary } from './model/stash';
@@ -26,6 +27,8 @@
   let stashManagerOpen = false;
   let tagManagerOpen = false;
   let stageChangesOpen = false;
+  let diffViewerOpen = false;
+  let selectedCommitForDiff: Commit | null = null;
 
   onMount(async () => {
     await loadData();
@@ -309,6 +312,11 @@
     });
     if (!resp.ok) throw new Error('Push failed');
   }
+
+  async function handleShowCommitDiff(commit: Commit) {
+    selectedCommitForDiff = commit;
+    diffViewerOpen = true;
+  }
 </script>
 
 <div class="main-container">
@@ -345,7 +353,7 @@
     />
   </div>
   <div class="content-container">
-    <CommitTable {data} />
+    <CommitTable {data} onSelectCommit={handleShowCommitDiff} />
   </div>
 </div>
 
@@ -386,6 +394,15 @@
   {status}
   onStage={handleStage}
   onUnstage={handleUnstage}
+/>
+
+<CommitDiffViewer
+  bind:open={diffViewerOpen}
+  commit={selectedCommitForDiff}
+  onClose={() => {
+    diffViewerOpen = false;
+    selectedCommitForDiff = null;
+  }}
 />
 
 <style>

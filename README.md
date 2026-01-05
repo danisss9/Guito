@@ -32,6 +32,10 @@ No arguments for now.
 
 ## Changelog
 
+**Version 0.3:**
+
+- added more git functionalities
+
 **Version 0.2:**
 
 - added header and table components
