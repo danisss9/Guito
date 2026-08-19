@@ -1,0 +1,50 @@
+:root {
+  --bg: #1e1e1e;
+  --bg-alt: #232323;
+  --bg-hover: #2a2d2e;
+  --border: #3c3c3c;
+  --text: #cccccc;
+  --text-bright: #e8e8e8;
+  --text-dim: #9d9d9d;
+  --accent: #3794ff;
+  --red: #f14c4c;
+  --mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}

@@ -1,8 +1,5 @@
-import './app.css';
-import App from './App.svelte';
+import { bootstrapApplication } from '@angular/platform-browser';
+import { appConfig } from './app/app.config';
+import { App } from './app/app';
 
-const app = new App({
-  target: document.getElementById('app')!,
-});
-
-export default app;
+bootstrapApplication(App, appConfig).catch((err) => console.error(err));

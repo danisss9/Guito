@@ -1,0 +1,81 @@
+<div class="table">
+  <div class="table-head">
+    <div class="head-cell cell-graph" [style.width.px]="graphWidth()">Graph</div>
+    <div class="head-cell cell-desc">Description</div>
+    <div class="head-cell cell-date">Date</div>
+    <div class="head-cell cell-author">Author</div>
+    <div class="head-cell cell-commit">Commit</div>
+  </div>
+
+  <div class="table-body">
+    @if (graphCommits().length === 0) {
+      <div class="empty">No commits to show</div>
+    } @else {
+      <svg class="graph" [attr.width]="graphWidth()" [attr.height]="graphHeight()" aria-hidden="true">
+        @for (edge of edges(); track $index) {
+          <path [attr.d]="edge.d" [attr.stroke]="edge.color" fill="none" stroke-width="2" />
+        }
+        @for (node of nodes(); track node.hash) {
+          @if (node.isHead) {
+            <circle
+              [attr.cx]="node.x"
+              [attr.cy]="node.y"
+              r="5.5"
+              fill="#1e1e1e"
+              [attr.stroke]="node.color"
+              stroke-width="2"
+            />
+          } @else {
+            <circle [attr.cx]="node.x" [attr.cy]="node.y" r="4" [attr.fill]="node.color" />
+          }
+        }
+      </svg>
+
+      @for (entry of graphCommits(); track entry.commit.hash) {
+        <div
+          class="row"
+          [class.selected]="entry.commit.hash === selectedHash()"
+          (click)="commitClick.emit(entry.commit)"
+        >
+          <div class="cell cell-graph" [style.width.px]="graphWidth()"></div>
+          <div class="cell cell-desc">
+            @for (badge of badges(entry.commit); track badge.name) {
+              <span [class]="'badge badge-' + badge.type">
+                @if (badge.type === 'head' || badge.type === 'local') {
+                  <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                } @else if (badge.type === 'tag') {
+                  <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
+                    <path
+                      d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"
+                    />
+                    <line x1="7" y1="7" x2="7.01" y2="7" />
+                  </svg>
+                }
+                <span class="badge-name">{{ badge.name }}</span>
+              </span>
+            }
+            <span class="message" [class.head]="isHead(entry.commit)">
+              {{ entry.commit.message }}
+            </span>
+          </div>
+          <div class="cell cell-date">{{ entry.commit.date | date: 'd MMM y HH:mm' }}</div>
+          <div class="cell cell-author" [title]="entry.commit.author_name">
+            {{ entry.commit.author_name }}
+          </div>
+          <div class="cell cell-commit" [title]="entry.commit.hash">
+            {{ entry.commit.hash.slice(0, 8) }}
+          </div>
+        </div>
+      }
+
+      @if (remaining() > 0) {
+        <button class="load-more" (click)="loadMore()">Load {{ remaining() }} more commits</button>
+      }
+    }
+  </div>
+</div>

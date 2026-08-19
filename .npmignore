@@ -1,11 +1,15 @@
+# Only the built bin/ folder is published to npm
+.angular
 .vscode
 node_modules
 public
 server
 src
-.gitignore
-/index.html
-svelte.config.js
+angular.json
+proxy.conf.json
 tsconfig.json
-tsconfig.node.json
-vite.config.ts
+tsconfig.app.json
+.gitignore
+.npmignore
+dist
+out-tsc

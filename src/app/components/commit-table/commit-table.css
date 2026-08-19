@@ -1,0 +1,188 @@
+.table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.table-head {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-bright);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.head-cell {
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.graph {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.row.selected {
+  background: #04395e;
+}
+
+.cell {
+  padding: 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text);
+  min-width: 0;
+}
+
+.cell-graph {
+  flex: none;
+}
+
+.cell-desc {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cell-date {
+  flex: none;
+  width: 128px;
+  text-align: right;
+  color: var(--text-dim);
+}
+
+.cell-author {
+  flex: none;
+  width: 150px;
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.cell-commit {
+  flex: none;
+  width: 84px;
+  text-align: right;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
+.message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+}
+
+.message.head {
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.badge-head {
+  background: #0078d4;
+  color: #fff;
+}
+
+.badge-local {
+  background: rgba(55, 148, 255, 0.14);
+  color: #4fc1ff;
+  border-color: rgba(55, 148, 255, 0.4);
+}
+
+.badge-remote {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b8b8b8;
+  border-color: #4a4a4a;
+}
+
+.badge-tag {
+  background: rgba(215, 186, 125, 0.12);
+  color: #d7ba7d;
+  border-color: rgba(215, 186, 125, 0.4);
+}
+
+.badge-icon {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.badge-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  color: var(--text-dim);
+}
+
+.load-more {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.load-more:hover {
+  background: var(--bg-hover);
+}

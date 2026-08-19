@@ -28,9 +28,20 @@ npx guito
 
 ## Arguments
 
-No arguments for now.
+| Argument          | Description                                |
+| ----------------- | ------------------------------------------ |
+| `--port <number>` | Port to serve the UI on (default: `8080`). |
+| `--no-open`       | Do not open the browser automatically.     |
 
 ## Changelog
+
+**Version 0.4:**
+
+- rebuilt the UI with Angular
+- added commit graph visualization
+- added branch filtering and remote branch toggle
+- added commit search
+- added commit diff viewer
 
 **Version 0.3:**
 
@@ -43,6 +54,28 @@ No arguments for now.
 **Version 0.1:**
 
 - published library
+
+## Development
+
+Install the dependencies and build everything:
+
+```cmd
+npm install
+npm run build
+npm start
+```
+
+To develop the UI with hot reload, run the API server and the Angular dev server in separate terminals:
+
+```cmd
+npm run dev:server
+```
+
+```cmd
+npm run dev
+```
+
+The UI dev server proxies `/api` requests to the API server.
 
 ## FAQs
 

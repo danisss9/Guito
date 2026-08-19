@@ -1,0 +1,52 @@
+<div class="app">
+  <header class="titlebar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4.5 2.5v11" stroke="#3794ff" stroke-width="1.6" fill="none" />
+        <path d="M4.5 11.5c4.5 0 4.5-7 7.5-7" stroke="#4ec9b0" stroke-width="1.6" fill="none" />
+        <circle cx="4.5" cy="3.5" r="1.7" fill="#3794ff" />
+        <circle cx="4.5" cy="8" r="1.7" fill="#3794ff" />
+        <circle cx="4.5" cy="12.5" r="1.7" fill="#3794ff" />
+        <circle cx="12" cy="4.5" r="1.7" fill="#4ec9b0" />
+      </svg>
+      <span class="title">Guito</span>
+    </div>
+    @if (repoName()) {
+      <span class="repo" [title]="repoName()">{{ repoName() }}</span>
+    }
+  </header>
+
+  <app-toolbar
+    [branches]="branches()"
+    [selectedBranch]="selectedBranch()"
+    [showRemote]="showRemote()"
+    [search]="search()"
+    [busy]="busy()"
+    (branchChange)="selectedBranch.set($event)"
+    (remoteToggle)="onRemoteToggle($event)"
+    (searchChange)="search.set($event)"
+    (refresh)="refresh()"
+    (remoteAction)="runRemoteAction($event)"
+  />
+
+  @if (error()) {
+    <div class="error-banner">{{ error() }}</div>
+  }
+
+  <main class="content">
+    <app-commit-table
+      [commits]="filteredCommits()"
+      [selectedHash]="selectedCommit()?.hash ?? ''"
+      (commitClick)="selectedCommit.set($event)"
+    />
+    @if (selectedCommit(); as commit) {
+      <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
+    }
+  </main>
+
+  @if (loading()) {
+    <div class="loading-overlay">
+      <div class="spinner"></div>
+    </div>
+  }
+</div>

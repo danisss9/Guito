@@ -1,5 +1,6 @@
 #! /usr/bin/env node
-import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -20,19 +21,57 @@ void (async function main() {
     });
     // Register cors
     await app.register(fastifyCors);
-    // Register static file provider
-    app.register(fastifyStatic, {
-        root: join(__dirname, 'ui'),
-    });
-    // Serve UI
-    app.get('/', (_req, resp) => resp.sendFile('index.html'));
+    // Register static file provider (supports both `ui/` and `ui/browser/` layouts)
+    const uiRoot = join(__dirname, 'ui');
+    const staticRoot = existsSync(join(uiRoot, 'browser', 'index.html'))
+        ? join(uiRoot, 'browser')
+        : uiRoot;
+    if (existsSync(staticRoot)) {
+        await app.register(fastifyStatic, { root: staticRoot });
+        // Serve UI
+        app.get('/', (_req, resp) => resp.sendFile('index.html'));
+    }
+    else {
+        app.get('/', (_req, resp) => resp.send('Guito API is running. Build the UI with `npm run build:ui`.'));
+    }
     // Initialize git lib
     const git = simpleGit(process.cwd());
+    // ==================== Repository ====================
+    app.get('/api/repo', async (_req, resp) => {
+        try {
+            const root = (await git.revparse(['--show-toplevel'])).trim();
+            resp.type('application/json').send({ root, name: basename(root) });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
     // ==================== Commits ====================
-    app.get('/api/commits', (_req, resp) => {
-        git.log({}, (err, data) => {
-            resp.type('application/json').send(data.all);
-        });
+    app.get('/api/commits', async (_req, resp) => {
+        try {
+            const log = await git.log({
+                format: {
+                    hash: '%H',
+                    date: '%aI',
+                    message: '%s',
+                    refs: '%D',
+                    body: '%b',
+                    author_name: '%aN',
+                    author_email: '%aE',
+                    parents: '%P',
+                },
+            });
+            const commits = log.all.map((commit) => ({
+                ...commit,
+                parents: String(commit.parents ?? '')
+                    .split(' ')
+                    .filter(Boolean),
+            }));
+            resp.type('application/json').send(commits);
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
     });
     app.post('/api/commit', async (req, resp) => {
         try {
@@ -113,6 +152,30 @@ void (async function main() {
         }
     });
     // ==================== Branches ====================
+    app.get('/api/branches/all', async (_req, resp) => {
+        try {
+            const raw = await git.raw([
+                'for-each-ref',
+                '--format=%(refname)%09%(objectname)%09%(HEAD)',
+                'refs/heads',
+                'refs/remotes',
+            ]);
+            const branches = raw
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((line) => {
+                const [refname, commit, headMarker] = line.split('\t');
+                const remote = refname.startsWith('refs/remotes/');
+                const name = refname.replace(/^refs\/(heads|remotes)\//, '');
+                return { name, commit, current: headMarker === '*', remote };
+            });
+            resp.type('application/json').send(branches);
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
     app.get('/api/branches', async (_req, resp) => {
         try {
             const branchSummary = await git.branchLocal();
@@ -290,10 +353,14 @@ void (async function main() {
         }
     });
     // ==================== Remote Operations ====================
-    app.get('/api/fetch', (_req, resp) => {
-        git.fetch({}, (err, data) => {
-            resp.type('application/json').send();
-        });
+    app.get('/api/fetch', async (_req, resp) => {
+        try {
+            await git.fetch();
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
     });
     app.post('/api/pull', async (req, resp) => {
         try {
@@ -332,60 +399,97 @@ void (async function main() {
             if (!hash) {
                 return resp.status(400).type('application/json').send({ error: 'hash required' });
             }
-            // Get raw diff using git show
-            const rawDiff = await git.show([hash]);
-            // Split by file sections (diff --git lines)
+            // Get the raw unified diff (diff against the first parent for merges)
+            const rawDiff = await git.raw([
+                'show',
+                '--no-color',
+                '--pretty=format:',
+                '--find-renames',
+                '--first-parent',
+                '-m',
+                hash,
+            ]);
             const files = [];
-            const sections = rawDiff.split(/(?=^diff --git)/m);
-            for (const section of sections) {
-                if (!section.trim())
+            const lines = rawDiff.split('\n');
+            let current = null;
+            let inHunk = false;
+            let oldLine = 0;
+            let newLine = 0;
+            const startFile = (line) => {
+                current = {
+                    path: '',
+                    oldPath: '',
+                    status: 'modified',
+                    lines: [],
+                    additions: 0,
+                    deletions: 0,
+                };
+                const match = line.match(/^diff --git a\/(.*) b\/(.*)$/);
+                if (match) {
+                    current.oldPath = match[1];
+                    current.path = match[2];
+                }
+                inHunk = false;
+            };
+            for (const line of lines) {
+                if (line.startsWith('diff --git ')) {
+                    if (current)
+                        files.push(current);
+                    startFile(line);
                     continue;
-                // Extract filename from "diff --git a/path b/path"
-                const fileMatch = section.match(/^diff --git a\/(.*?) b\/(.*)$/m);
-                if (!fileMatch)
+                }
+                if (!current)
                     continue;
-                const filepath = fileMatch[2];
-                // Extract the actual diff content
-                const contentMatch = section.match(/^@@ .+? @@\s*\n([\s\S]*?)(?=^diff --git|$)/m);
-                if (!contentMatch) {
-                    // File may be binary or new
-                    files.push({
-                        path: filepath,
-                        original: '',
-                        modified: '',
-                        isBinary: section.includes('Binary files'),
+                if (line.startsWith('@@')) {
+                    inHunk = true;
+                    const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                    if (match) {
+                        oldLine = parseInt(match[1], 10);
+                        newLine = parseInt(match[2], 10);
+                    }
+                    current.lines.push({ type: 'hunk', text: line });
+                    continue;
+                }
+                if (!inHunk) {
+                    // File meta headers (mode, index, rename, binary...)
+                    if (line.startsWith('new file mode'))
+                        current.status = 'added';
+                    else if (line.startsWith('deleted file mode'))
+                        current.status = 'deleted';
+                    else if (line.startsWith('rename from '))
+                        current.status = 'renamed';
+                    else if (line.startsWith('rename to '))
+                        current.path = line.slice('rename to '.length);
+                    else if (line.startsWith('Binary files') || line.startsWith('GIT binary patch'))
+                        current.status = 'binary';
+                    continue;
+                }
+                if (line.startsWith('\\')) {
+                    // "\ No newline at end of file"
+                    continue;
+                }
+                if (line.startsWith('+')) {
+                    current.lines.push({ type: 'add', newLine: newLine++, text: line.slice(1) });
+                    current.additions++;
+                }
+                else if (line.startsWith('-')) {
+                    current.lines.push({ type: 'del', oldLine: oldLine++, text: line.slice(1) });
+                    current.deletions++;
+                }
+                else {
+                    current.lines.push({
+                        type: 'context',
+                        oldLine: oldLine++,
+                        newLine: newLine++,
+                        text: line.slice(1),
                     });
-                    continue;
                 }
-                const diffContent = contentMatch[1];
-                let original = '';
-                let modified = '';
-                // Parse unified diff format
-                const diffLines = diffContent.split('\n');
-                for (const line of diffLines) {
-                    if (line.startsWith('-') && !line.startsWith('---')) {
-                        original += line.substring(1) + '\n';
-                    }
-                    else if (line.startsWith('+') && !line.startsWith('+++')) {
-                        modified += line.substring(1) + '\n';
-                    }
-                    else if (!line.startsWith('\\')) {
-                        // Context lines appear in both
-                        const contextLine = line.substring(1) + '\n';
-                        original += contextLine;
-                        modified += contextLine;
-                    }
-                }
-                files.push({
-                    path: filepath,
-                    original: original.trimEnd(),
-                    modified: modified.trimEnd(),
-                });
             }
+            if (current)
+                files.push(current);
             resp.type('application/json').send({ hash, files });
         }
         catch (err) {
-            console.error('Diff error:', err.message);
             resp.status(400).type('application/json').send({ error: err.message });
         }
     });

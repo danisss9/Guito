@@ -1,6 +1,6 @@
 {
   "name": "guito",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Easily explore your git repositories.",
   "homepage": "https://github.com/danisss9/guito#readme",
   "repository": {
@@ -34,43 +34,35 @@
     "ts"
   ],
   "scripts": {
-    "dev": "vite",
+    "ng": "ng",
+    "dev": "ng serve",
+    "dev:server": "tsc --project ./server/tsconfig.json && node bin/index.js --no-open",
     "start": "node bin/index.js",
     "build": "npm run build:ui && npm run build:server",
-    "build:ui": "vite build",
+    "build:ui": "ng build",
     "build:server": "tsc --project ./server/tsconfig.json",
     "build:start": "npm run build && npm run start",
-    "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
     "release": "npm run build && npm publish --access public"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "@fastify/static": "^7.0.4",
     "fastify": "^4.25.2",
-    "monaco-editor": "^0.55.1",
     "open": "^10.0.3",
-    "simple-git": "^3.25.0",
-    "svelte-material-ui": "^7.0.0"
+    "simple-git": "^3.25.0"
   },
   "devDependencies": {
-    "@mdi/js": "^7.4.47",
-    "@smui/button": "^7.0.0",
-    "@smui/checkbox": "^7.0.0",
-    "@smui/circular-progress": "^7.0.0",
-    "@smui/data-table": "^7.0.0",
-    "@smui/dialog": "^7.0.0",
-    "@smui/icon-button": "^7.0.0",
-    "@smui/list": "^7.0.0",
-    "@smui/textfield": "^7.0.0",
-    "@smui/tooltip": "^7.0.0",
-    "@sveltejs/vite-plugin-svelte": "^3.0.1",
-    "@tsconfig/svelte": "^5.0.2",
-    "@types/node": "^20.11.5",
-    "svelte": "^4.2.8",
-    "svelte-check": "^3.6.2",
-    "tslib": "^2.6.2",
-    "typescript": "^5.3.3",
-    "vite": "^5.0.8"
+    "@angular/build": "^20.0.0",
+    "@angular/cli": "^20.0.0",
+    "@angular/common": "^20.0.0",
+    "@angular/compiler": "^20.0.0",
+    "@angular/compiler-cli": "^20.0.0",
+    "@angular/core": "^20.0.0",
+    "@angular/platform-browser": "^20.0.0",
+    "@types/node": "^20.19.43",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.6.0",
+    "typescript": "~5.8.0",
+    "zone.js": "~0.15.0"
   }
 }

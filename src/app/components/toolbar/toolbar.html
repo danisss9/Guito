@@ -1,0 +1,84 @@
+<div class="toolbar">
+  <div class="group">
+    <label class="label" for="branch-select">Branches:</label>
+    <select
+      id="branch-select"
+      class="select"
+      [value]="selectedBranch()"
+      (change)="onBranchChange($event)"
+    >
+      <option value="">Show All</option>
+      @for (branch of visibleBranches(); track branch.name) {
+        <option [value]="branch.name">{{ branch.name }}</option>
+      }
+    </select>
+    <label class="checkbox">
+      <input
+        type="checkbox"
+        [checked]="showRemote()"
+        (change)="onRemoteToggle($event)"
+      />
+      <span>Show Remote Branches</span>
+    </label>
+  </div>
+
+  <div class="group">
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+      <input
+        type="text"
+        placeholder="Search commits"
+        [value]="search()"
+        (input)="onSearch($event)"
+      />
+    </div>
+
+    <button
+      class="icon-btn"
+      title="Fetch"
+      [disabled]="busy()"
+      (click)="remoteAction.emit('fetch')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+      </svg>
+    </button>
+
+    <button
+      class="icon-btn"
+      title="Pull"
+      [disabled]="busy()"
+      (click)="remoteAction.emit('pull')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="8 12 12 16 16 12" />
+        <line x1="12" y1="8" x2="12" y2="16" />
+      </svg>
+    </button>
+
+    <button
+      class="icon-btn"
+      title="Push"
+      [disabled]="busy()"
+      (click)="remoteAction.emit('push')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="16 12 12 8 8 12" />
+        <line x1="12" y1="16" x2="12" y2="8" />
+      </svg>
+    </button>
+
+    <button class="icon-btn" title="Refresh" (click)="refresh.emit()">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="23 4 23 10 17 10" />
+        <polyline points="1 20 1 14 7 14" />
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+      </svg>
+    </button>
+  </div>
+</div>

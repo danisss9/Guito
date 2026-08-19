@@ -1,7 +1,6 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "baseUrl": "./",
     "outDir": "../bin/",
     "strict": true,
     "noFallthroughCasesInSwitch": true,
@@ -9,14 +8,14 @@
     "sourceMap": false,
     "declaration": false,
     "declarationMap": false,
-    "downlevelIteration": true,
     "skipLibCheck": true,
     "experimentalDecorators": true,
-    "moduleResolution": "node",
+    "moduleResolution": "node10",
     "importHelpers": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "types": ["node"],
     "lib": ["es2020", "es2021.WeakRef"],
     "target": "es2020",
     "module": "es2020"
