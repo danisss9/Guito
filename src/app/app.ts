@@ -46,9 +46,7 @@ export class App {
     let list = this.commits();
 
     const selectedBranch = this.selectedBranch();
-    const visibleBranches = this.branches().filter(
-      (branch) => this.showRemote() || !branch.remote,
-    );
+    const visibleBranches = this.branches().filter((branch) => this.showRemote() || !branch.remote);
     const branchesToShow = selectedBranch
       ? visibleBranches.filter((branch) => branch.name === selectedBranch)
       : visibleBranches;
