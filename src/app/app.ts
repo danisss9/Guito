@@ -45,6 +45,26 @@ export class App {
   protected readonly filteredCommits = computed(() => {
     let list = this.commits();
 
+    const selectedBranch = this.selectedBranch();
+    const visibleBranches = this.branches().filter(
+      (branch) => this.showRemote() || !branch.remote,
+    );
+    const branchesToShow = selectedBranch
+      ? visibleBranches.filter((branch) => branch.name === selectedBranch)
+      : visibleBranches;
+
+    if (branchesToShow.length > 0) {
+      const visibleHashes = new Set<string>();
+      for (const branch of branchesToShow) {
+        for (const hash of this.ancestorsOf(branch.commit, list)) {
+          visibleHashes.add(hash);
+        }
+      }
+      list = list.filter((commit) => visibleHashes.has(commit.hash));
+    } else {
+      list = [];
+    }
+
     const query = this.search().trim().toLowerCase();
     if (query) {
       list = list.filter(
