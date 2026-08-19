@@ -12,10 +12,12 @@
     <div class="meta">
       <span class="avatar" [style.background]="avatarColor()">{{ initials() }}</span>
       <span class="author">{{ commit().author_name }}</span>
-      <span class="separator">•</span>
-      <span>{{ commit().date | date: 'd MMM y HH:mm' }}</span>
-      <span class="separator">•</span>
-      <code class="hash">{{ commit().hash.slice(0, 8) }}</code>
+      @if (!isWorking()) {
+        <span class="separator">•</span>
+        <span>{{ commit().date | date: 'd MMM y HH:mm' }}</span>
+        <span class="separator">•</span>
+        <code class="hash">{{ commit().hash.slice(0, 8) }}</code>
+      }
     </div>
 
     @if (commit().body.trim()) {
@@ -25,47 +27,42 @@
 
   <div class="detail-body">
     @if (loading()) {
-      <div class="state">Loading diff…</div>
+      <div class="state">Loading changes…</div>
     } @else if (error()) {
       <div class="state state-error">{{ error() }}</div>
     } @else if (diff(); as d) {
       @if (d.files.length === 0) {
-        <div class="state">No changes in this commit.</div>
-      }
-
-      @for (file of d.files; track file.path) {
-        <section class="file">
-          <header class="file-head">
-            <span [class]="'file-status status-' + file.status">{{ file.status }}</span>
-            <span class="file-path" [title]="file.path">{{ file.path }}</span>
-            <span class="file-counts">
-              @if (file.additions > 0) {
-                <span class="additions">+{{ file.additions }}</span>
-              }
-              @if (file.deletions > 0) {
-                <span class="deletions">−{{ file.deletions }}</span>
-              }
-            </span>
-          </header>
-
-          @if (file.status === 'binary') {
-            <div class="binary">Binary file not shown</div>
-          } @else {
-            <table class="diff-table">
-              <tbody>
-                @for (line of file.lines; track $index) {
-                  <tr [class]="'line-' + line.type">
-                    <td class="ln">{{ line.oldLine ?? '' }}</td>
-                    <td class="ln">{{ line.newLine ?? '' }}</td>
-                    <td class="marker">{{ marker(line.type) }}</td>
-                    <td class="text">{{ line.text }}</td>
-                  </tr>
+        <div class="state">No changes.</div>
+      } @else {
+        <div class="file-list">
+          @for (file of d.files; track file.path) {
+            <button class="file-row" type="button" (click)="openFile(file)">
+              <span [class]="'file-status status-' + file.status">{{ file.status }}</span>
+              <span class="file-path" [title]="file.path">{{ file.path }}</span>
+              <span class="file-counts">
+                @if (file.additions > 0) {
+                  <span class="additions">+{{ file.additions }}</span>
                 }
-              </tbody>
-            </table>
+                @if (file.deletions > 0) {
+                  <span class="deletions">−{{ file.deletions }}</span>
+                }
+              </span>
+              <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
           }
-        </section>
+        </div>
       }
     }
   </div>
 </aside>
+
+@if (dialogFile(); as file) {
+  <app-diff-dialog
+    [file]="file"
+    [originalRef]="originalRef()"
+    [modifiedRef]="modifiedRef()"
+    (closed)="dialogFile.set(null)"
+  />
+}

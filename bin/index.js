@@ -1,12 +1,16 @@
 #! /usr/bin/env node
 import { existsSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { readFile, rm } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
 import open from 'open';
 import simpleGit from 'simple-git';
+import { promisify } from 'node:util';
+const execFileAsync = promisify(execFile);
 void (async function main() {
     // Calculate dirname
     const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +40,89 @@ void (async function main() {
     }
     // Initialize git lib
     const git = simpleGit(process.cwd());
+    // ==================== Diff parsing ====================
+    function parseUnifiedDiff(rawDiff) {
+        const files = [];
+        const lines = rawDiff.split('\n');
+        let current = null;
+        let inHunk = false;
+        let oldLine = 0;
+        let newLine = 0;
+        const startFile = (line) => {
+            current = {
+                path: '',
+                oldPath: '',
+                status: 'modified',
+                lines: [],
+                additions: 0,
+                deletions: 0,
+            };
+            const match = line.match(/^diff --git a\/(.*) b\/(.*)$/);
+            if (match) {
+                current.oldPath = match[1];
+                current.path = match[2];
+            }
+            inHunk = false;
+        };
+        for (const line of lines) {
+            if (line.startsWith('diff --git ')) {
+                if (current)
+                    files.push(current);
+                startFile(line);
+                continue;
+            }
+            if (!current)
+                continue;
+            if (line.startsWith('@@')) {
+                inHunk = true;
+                const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+                if (match) {
+                    oldLine = parseInt(match[1], 10);
+                    newLine = parseInt(match[2], 10);
+                }
+                current.lines.push({ type: 'hunk', text: line });
+                continue;
+            }
+            if (!inHunk) {
+                // File meta headers (mode, index, rename, binary...)
+                if (line.startsWith('new file mode'))
+                    current.status = 'added';
+                else if (line.startsWith('deleted file mode'))
+                    current.status = 'deleted';
+                else if (line.startsWith('rename from '))
+                    current.status = 'renamed';
+                else if (line.startsWith('rename to '))
+                    current.path = line.slice('rename to '.length);
+                else if (line.startsWith('Binary files') || line.startsWith('GIT binary patch'))
+                    current.status = 'binary';
+                continue;
+            }
+            if (line.startsWith('\\')) {
+                // "\ No newline at end of file"
+                continue;
+            }
+            if (line.startsWith('+')) {
+                current.lines.push({ type: 'add', newLine: newLine++, text: line.slice(1) });
+                current.additions++;
+            }
+            else if (line.startsWith('-')) {
+                current.lines.push({ type: 'del', oldLine: oldLine++, text: line.slice(1) });
+                current.deletions++;
+            }
+            else {
+                current.lines.push({
+                    type: 'context',
+                    oldLine: oldLine++,
+                    newLine: newLine++,
+                    text: line.slice(1),
+                });
+            }
+        }
+        if (current)
+            files.push(current);
+        return files;
+    }
+    const repoRoot = async () => (await git.revparse(['--show-toplevel'])).trim();
     // ==================== Repository ====================
     app.get('/api/repo', async (_req, resp) => {
         try {
@@ -100,6 +187,33 @@ void (async function main() {
         try {
             const { commit } = req.body;
             await git.revert(commit);
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.post('/api/cherry-pick', async (req, resp) => {
+        try {
+            await git.raw(['cherry-pick', req.body.commit]);
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.post('/api/commit/drop', async (req, resp) => {
+        try {
+            await git.raw(['reset', '--hard', `${req.body.commit}^`]);
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.post('/api/reset-commit', async (req, resp) => {
+        try {
+            await git.raw(['reset', '--hard', req.body.commit]);
             resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -205,6 +319,16 @@ void (async function main() {
             resp.status(400).type('application/json').send({ error: err.message });
         }
     });
+    app.post('/api/branch/delete-remote', async (req, resp) => {
+        try {
+            const { remote, branch } = req.body;
+            await git.push([remote, '--delete', branch]);
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
     app.post('/api/branch/rename', async (req, resp) => {
         try {
             const { oldName, newName } = req.body;
@@ -234,6 +358,26 @@ void (async function main() {
         }
         catch (err) {
             resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.get('/api/archive', async (req, resp) => {
+        try {
+            const ref = String(req.query?.ref ?? 'HEAD');
+            if (!/^[0-9a-fA-F]{7,40}$/.test(ref) && !/^[A-Za-z0-9._/-]+$/.test(ref)) {
+                return resp.status(400).type('application/json').send({ error: 'invalid ref' });
+            }
+            const result = await execFileAsync('git', ['archive', '--format=zip', ref], {
+                cwd: process.cwd(),
+                encoding: 'buffer',
+                maxBuffer: 100 * 1024 * 1024,
+            });
+            return resp
+                .header('Content-Disposition', `attachment; filename="guito-${ref.slice(0, 8)}.zip"`)
+                .type('application/zip')
+                .send(result.stdout);
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/rebase', async (req, resp) => {
@@ -364,8 +508,8 @@ void (async function main() {
     });
     app.post('/api/pull', async (req, resp) => {
         try {
-            const { remote, branch } = req.body;
-            await git.pull(remote || 'origin', branch || undefined);
+            const { remote, branch, rebase } = req.body;
+            await git.pull(remote || 'origin', branch || undefined, rebase ? { '--rebase': null } : {});
             resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -376,6 +520,16 @@ void (async function main() {
         try {
             const { remote, branch, force } = req.body;
             await git.push(remote || 'origin', branch || undefined, force ? { '-f': null } : {});
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.post('/api/sync', async (_req, resp) => {
+        try {
+            await git.pull('origin', undefined, {});
+            await git.push('origin', undefined, {});
             resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -409,85 +563,154 @@ void (async function main() {
                 '-m',
                 hash,
             ]);
-            const files = [];
-            const lines = rawDiff.split('\n');
-            let current = null;
-            let inHunk = false;
-            let oldLine = 0;
-            let newLine = 0;
-            const startFile = (line) => {
-                current = {
-                    path: '',
-                    oldPath: '',
-                    status: 'modified',
-                    lines: [],
-                    additions: 0,
-                    deletions: 0,
-                };
-                const match = line.match(/^diff --git a\/(.*) b\/(.*)$/);
-                if (match) {
-                    current.oldPath = match[1];
-                    current.path = match[2];
-                }
-                inHunk = false;
-            };
-            for (const line of lines) {
-                if (line.startsWith('diff --git ')) {
-                    if (current)
-                        files.push(current);
-                    startFile(line);
-                    continue;
-                }
-                if (!current)
-                    continue;
-                if (line.startsWith('@@')) {
-                    inHunk = true;
-                    const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-                    if (match) {
-                        oldLine = parseInt(match[1], 10);
-                        newLine = parseInt(match[2], 10);
+            resp.type('application/json').send({ hash, files: parseUnifiedDiff(rawDiff) });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Working Changes ====================
+    app.get('/api/working-changes', async (_req, resp) => {
+        try {
+            const root = await repoRoot();
+            // Combined diff of the working tree + index against HEAD.
+            const rawDiff = await git.raw(['diff', 'HEAD', '--no-color', '--find-renames']);
+            const files = parseUnifiedDiff(rawDiff);
+            // Untracked files are not part of `git diff` — add them as new files.
+            const status = await git.status();
+            for (const file of status.not_added ?? []) {
+                let isBinary = false;
+                let content = '';
+                try {
+                    const buffer = await readFile(join(root, file));
+                    if (buffer.includes(0)) {
+                        isBinary = true;
                     }
-                    current.lines.push({ type: 'hunk', text: line });
-                    continue;
+                    else {
+                        content = buffer.toString('utf8');
+                    }
                 }
-                if (!inHunk) {
-                    // File meta headers (mode, index, rename, binary...)
-                    if (line.startsWith('new file mode'))
-                        current.status = 'added';
-                    else if (line.startsWith('deleted file mode'))
-                        current.status = 'deleted';
-                    else if (line.startsWith('rename from '))
-                        current.status = 'renamed';
-                    else if (line.startsWith('rename to '))
-                        current.path = line.slice('rename to '.length);
-                    else if (line.startsWith('Binary files') || line.startsWith('GIT binary patch'))
-                        current.status = 'binary';
-                    continue;
+                catch {
+                    content = '';
                 }
-                if (line.startsWith('\\')) {
-                    // "\ No newline at end of file"
-                    continue;
-                }
-                if (line.startsWith('+')) {
-                    current.lines.push({ type: 'add', newLine: newLine++, text: line.slice(1) });
-                    current.additions++;
-                }
-                else if (line.startsWith('-')) {
-                    current.lines.push({ type: 'del', oldLine: oldLine++, text: line.slice(1) });
-                    current.deletions++;
+                if (isBinary) {
+                    files.push({
+                        path: file,
+                        oldPath: '',
+                        status: 'binary',
+                        lines: [],
+                        additions: 0,
+                        deletions: 0,
+                    });
                 }
                 else {
-                    current.lines.push({
-                        type: 'context',
-                        oldLine: oldLine++,
-                        newLine: newLine++,
-                        text: line.slice(1),
+                    const lines = content.length > 0 ? content.split('\n') : [];
+                    files.push({
+                        path: file,
+                        oldPath: '',
+                        status: 'added',
+                        lines: lines.map((text, index) => ({ type: 'add', newLine: index + 1, text })),
+                        additions: lines.length,
+                        deletions: 0,
                     });
                 }
             }
-            if (current)
-                files.push(current);
-            resp.type('application/json').send({ hash, files });
+            const stagedRaw = await git.raw(['diff', '--name-only', '--cached']);
+            const unstagedRaw = await git.raw(['diff', '--name-only']);
+            resp.type('application/json').send({
+                files,
+                staged: stagedRaw.split('\n').filter(Boolean),
+                unstaged: unstagedRaw.split('\n').filter(Boolean),
+                untracked: status.not_added ?? [],
+            });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== File Content ====================
+    app.post('/api/file-content', async (req, resp) => {
+        try {
+            const { path, ref } = req.body;
+            if (!path || !ref) {
+                return resp.status(400).type('application/json').send({ error: 'path and ref required' });
+            }
+            if (ref === 'WORKING') {
+                const root = await repoRoot();
+                const abs = resolve(root, path);
+                const rel = relative(root, abs);
+                if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+                    return resp.status(400).type('application/json').send({ error: 'invalid path' });
+                }
+                try {
+                    const buffer = await readFile(abs);
+                    if (buffer.includes(0)) {
+                        return resp.type('application/json').send({ binary: true, content: '' });
+                    }
+                    return resp.type('application/json').send({ content: buffer.toString('utf8') });
+                }
+                catch {
+                    // File no longer exists on disk (deleted).
+                    return resp.type('application/json').send({ content: '' });
+                }
+            }
+            if (ref === 'EMPTY') {
+                return resp.type('application/json').send({ content: '' });
+            }
+            try {
+                const content = await git.raw(['show', `${ref}:${path}`]);
+                if (content.includes('\u0000')) {
+                    return resp.type('application/json').send({ binary: true, content: '' });
+                }
+                resp.type('application/json').send({ content });
+            }
+            catch {
+                // Path did not exist at that revision (added file).
+                resp.type('application/json').send({ content: '' });
+            }
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Discard ====================
+    app.post('/api/discard', async (req, resp) => {
+        try {
+            const { files } = req.body;
+            if (!Array.isArray(files) || files.length === 0) {
+                return resp.status(400).type('application/json').send({ error: 'files required' });
+            }
+            const root = await repoRoot();
+            const status = await git.status();
+            const untracked = new Set(status.not_added ?? []);
+            const tracked = files.filter((file) => !untracked.has(file));
+            const removed = files.filter((file) => untracked.has(file));
+            if (tracked.length > 0) {
+                await git.raw(['checkout', 'HEAD', '--', ...tracked]);
+            }
+            for (const file of removed) {
+                await rm(join(root, file), { force: true, recursive: true });
+            }
+            resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Working Tree Actions ====================
+    app.post('/api/reset', async (_req, resp) => {
+        try {
+            await git.raw(['reset', '--hard', 'HEAD']);
+            resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.post('/api/clean', async (_req, resp) => {
+        try {
+            await git.raw(['clean', '-fd']);
+            resp.type('application/json').send({ ok: true });
         }
         catch (err) {
             resp.status(400).type('application/json').send({ error: err.message });

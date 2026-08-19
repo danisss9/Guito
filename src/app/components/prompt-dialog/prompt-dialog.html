@@ -1,0 +1,37 @@
+@if (state(); as s) {
+  <div class="backdrop" (click)="cancelled.emit()"></div>
+  <div class="dialog" role="dialog" aria-modal="true">
+    <h3 class="title">{{ s.title }}</h3>
+    @if (s.label) {
+      <p class="label">{{ s.label }}</p>
+    }
+    @if (!s.confirmOnly) {
+      <label class="sr-only" for="prompt-input">{{ s.label || s.title }}</label>
+      <input
+        id="prompt-input"
+        #inputEl
+        class="input"
+        type="text"
+        [value]="value()"
+        placeholder=" "
+        [attr.placeholder]="s.placeholder || ' '"
+        [attr.aria-label]="s.label || s.title"
+        title="Enter a value"
+        (input)="onInput($event)"
+        (keydown.enter)="confirm()"
+      />
+    }
+    <div class="actions">
+      <button class="btn" type="button" (click)="cancelled.emit()">Cancel</button>
+      <button
+        class="btn btn-primary"
+        type="button"
+        [class.btn-danger]="s.danger"
+        [disabled]="!s.confirmOnly && !s.allowEmpty && !value().trim()"
+        (click)="confirm()"
+      >
+        {{ s.okLabel || 'OK' }}
+      </button>
+    </div>
+  </div>
+}

@@ -48,7 +48,59 @@ export interface CommitDiff {
   files: FileDiff[];
 }
 
+export interface WorkingChanges {
+  files: FileDiff[];
+  staged: string[];
+  unstaged: string[];
+  untracked: string[];
+}
+
+export interface FileContent {
+  content: string;
+  binary?: boolean;
+}
+
 export interface RepoInfo {
   root: string;
   name: string;
+}
+
+/** Sentinel hash used to represent the working tree (uncommitted changes). */
+export const WORKING_HASH = '__working__';
+
+export interface ContextMenuTarget {
+  kind: 'commit' | 'branch' | 'working';
+  commit?: GitCommit;
+  branch?: RefBadge;
+}
+
+export interface ContextMenuEvent {
+  x: number;
+  y: number;
+  target: ContextMenuTarget;
+}
+
+export interface MenuItem {
+  label?: string;
+  action?: string;
+  separator?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+}
+
+export interface ContextMenuState {
+  x: number;
+  y: number;
+  items: MenuItem[];
+}
+
+export interface PromptState {
+  title: string;
+  label?: string;
+  value?: string;
+  placeholder?: string;
+  confirmOnly?: boolean;
+  allowEmpty?: boolean;
+  danger?: boolean;
+  okLabel?: string;
 }

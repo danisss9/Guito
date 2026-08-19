@@ -1,0 +1,48 @@
+<div class="backdrop" (click)="closed.emit()"></div>
+<div class="dialog" role="dialog" aria-modal="true">
+  <header class="dialog-head">
+    <span [class]="'status status-' + file().status">{{ file().status }}</span>
+    <span class="path" [title]="file().path">{{ file().path }}</span>
+    <span class="counts">
+      @if (file().additions > 0) {
+        <span class="additions">+{{ file().additions }}</span>
+      }
+      @if (file().deletions > 0) {
+        <span class="deletions">−{{ file().deletions }}</span>
+      }
+    </span>
+    <button
+      class="icon-btn"
+      type="button"
+      title="Toggle diff layout"
+      [attr.aria-label]="sideBySide() ? 'Switch to inline view' : 'Switch to side-by-side view'"
+      (click)="toggleLayout()"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        @if (sideBySide()) {
+          <line x1="12" y1="4" x2="12" y2="20" />
+        } @else {
+          <line x1="3" y1="12" x2="21" y2="12" />
+        }
+      </svg>
+    </button>
+    <button class="icon-btn" type="button" title="Close" aria-label="Close diff" (click)="closed.emit()">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </header>
+
+  <div class="dialog-body">
+    <div class="editor-host" #host></div>
+    @if (loading()) {
+      <div class="state">Loading diff…</div>
+    } @else if (error()) {
+      <div class="state state-error">{{ error() }}</div>
+    } @else if (binary()) {
+      <div class="state">Binary file not shown.</div>
+    }
+  </div>
+</div>

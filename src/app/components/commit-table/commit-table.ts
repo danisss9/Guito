@@ -1,6 +1,20 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
-import { GitCommit, RefBadge } from '../../models/git.models';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  computed,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import {
+  ContextMenuEvent,
+  GitCommit,
+  RefBadge,
+  WORKING_HASH,
+  WorkingChanges,
+} from '../../models/git.models';
 import { GraphCommit, computeGraph, laneColor } from '../../utils/graph';
 import { isHeadCommit, parseRefs } from '../../utils/refs';
 
@@ -17,6 +31,13 @@ interface GraphEdgeView {
   color: string;
 }
 
+interface HighlightSegment {
+  text: string;
+  match: boolean;
+}
+
+type ResizableColumn = 'graph' | 'date' | 'author' | 'commit';
+
 const ROW_HEIGHT = 34;
 const LANE_WIDTH = 14;
 const GRAPH_PADDING = 10;
@@ -30,12 +51,25 @@ const PAGE_SIZE = 500;
   styleUrl: './commit-table.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CommitTable {
+export class CommitTable implements OnDestroy {
   readonly commits = input.required<GitCommit[]>();
   readonly selectedHash = input.required<string>();
+  readonly search = input<string>('');
+  readonly selectedBranch = input<string>('');
+  readonly showRemote = input(true);
+  readonly workingChanges = input<WorkingChanges | null>(null);
+
   readonly commitClick = output<GitCommit>();
+  readonly contextMenu = output<ContextMenuEvent>();
 
   protected readonly limit = signal(PAGE_SIZE);
+
+  protected readonly columnWidths = signal<Record<ResizableColumn, number>>({
+    graph: 0,
+    date: 132,
+    author: 150,
+    commit: 84,
+  });
 
   protected readonly displayed = computed(() => this.commits().slice(0, this.limit()));
 
@@ -45,6 +79,10 @@ export class CommitTable {
     const lanes = this.graphCommits().reduce((max, entry) => Math.max(max, entry.lane), 0) + 1;
     return Math.max(MIN_GRAPH_WIDTH, GRAPH_PADDING * 2 + lanes * LANE_WIDTH);
   });
+
+  protected readonly graphColumnWidth = computed(() =>
+    Math.max(this.graphWidth(), this.columnWidths().graph),
+  );
 
   protected readonly graphHeight = computed(() => this.graphCommits().length * ROW_HEIGHT);
 
@@ -96,12 +134,139 @@ export class CommitTable {
 
   protected readonly remaining = computed(() => this.commits().length - this.displayed().length);
 
+  protected readonly hasWorkingChanges = computed(
+    () => (this.workingChanges()?.files.length ?? 0) > 0,
+  );
+
+  protected readonly workingHash = WORKING_HASH;
+
+  protected readonly workingCommit = computed<GitCommit>(() => ({
+    hash: WORKING_HASH,
+    date: new Date().toISOString(),
+    message: 'Uncommitted changes',
+    refs: '',
+    body: '',
+    author_name: 'You',
+    author_email: '',
+    parents: [],
+  }));
+
+  // ==================== Column resizing ====================
+
+  private resizeState: { column: ResizableColumn; startX: number; startWidth: number } | null =
+    null;
+
+  protected startResize(column: ResizableColumn, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const current = column === 'graph' ? this.graphColumnWidth() : this.columnWidths()[column];
+    this.resizeState = { column, startX: event.clientX, startWidth: current };
+
+    document.addEventListener('mousemove', this.onResizeMove);
+    document.addEventListener('mouseup', this.onResizeEnd);
+  }
+
+  private readonly onResizeMove = (event: MouseEvent): void => {
+    const state = this.resizeState;
+    if (!state) {
+      return;
+    }
+
+    const delta = event.clientX - state.startX;
+    const min = state.column === 'graph' ? this.graphWidth() : 48;
+    const width = Math.max(min, state.startWidth + delta);
+
+    this.columnWidths.update((widths) => ({ ...widths, [state.column]: width }));
+  };
+
+  private readonly onResizeEnd = (): void => {
+    this.resizeState = null;
+    document.removeEventListener('mousemove', this.onResizeMove);
+    document.removeEventListener('mouseup', this.onResizeEnd);
+  };
+
+  ngOnDestroy(): void {
+    this.onResizeEnd();
+  }
+
+  // ==================== Context menus ====================
+
+  protected onRowContextMenu(event: MouseEvent, commit: GitCommit): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenu.emit({
+      x: event.clientX,
+      y: event.clientY,
+      target: { kind: 'commit', commit },
+    });
+  }
+
+  protected onBranchContextMenu(event: MouseEvent, commit: GitCommit, branch: RefBadge): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenu.emit({
+      x: event.clientX,
+      y: event.clientY,
+      target: { kind: 'branch', commit, branch },
+    });
+  }
+
+  protected onWorkingContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenu.emit({ x: event.clientX, y: event.clientY, target: { kind: 'working' } });
+  }
+
+  // ==================== Search highlighting ====================
+
+  protected highlight(text: string): HighlightSegment[] {
+    const query = this.search().trim().toLowerCase();
+    if (!query || !text) {
+      return [{ text, match: false }];
+    }
+
+    const segments: HighlightSegment[] = [];
+    const lower = text.toLowerCase();
+    let index = 0;
+    let found = lower.indexOf(query);
+
+    while (found !== -1) {
+      if (found > index) {
+        segments.push({ text: text.slice(index, found), match: false });
+      }
+      segments.push({ text: text.slice(found, found + query.length), match: true });
+      index = found + query.length;
+      found = lower.indexOf(query, index);
+    }
+
+    if (index < text.length) {
+      segments.push({ text: text.slice(index), match: false });
+    }
+
+    return segments.length > 0 ? segments : [{ text, match: false }];
+  }
+
   protected loadMore(): void {
     this.limit.set(this.limit() + PAGE_SIZE);
   }
 
   protected badges(commit: GitCommit): RefBadge[] {
-    return parseRefs(commit.refs);
+    const selectedBranch = this.selectedBranch();
+    const showRemote = this.showRemote();
+
+    return parseRefs(commit.refs).filter((badge) => {
+      if (badge.type === 'remote' && !showRemote) {
+        return false;
+      }
+      if (!selectedBranch) {
+        return true;
+      }
+      if (badge.type === 'tag') {
+        return true;
+      }
+      return badge.name === selectedBranch;
+    });
   }
 
   protected isHead(commit: GitCommit): boolean {

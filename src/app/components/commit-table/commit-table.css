@@ -1,7 +1,16 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .table {
   display: flex;
   flex-direction: column;
   flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 0;
 }
@@ -21,10 +30,32 @@
 }
 
 .head-cell {
+  position: relative;
   padding: 0 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: none;
+}
+
+.head-cell.cell-desc {
+  flex: 1;
+  min-width: 0;
+}
+
+.resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.resizer:hover,
+.resizer.active {
+  background: var(--accent);
 }
 
 .table-body {
@@ -79,24 +110,83 @@
 
 .cell-date {
   flex: none;
-  width: 128px;
   text-align: right;
   color: var(--text-dim);
 }
 
 .cell-author {
   flex: none;
-  width: 150px;
   text-align: right;
   text-overflow: ellipsis;
 }
 
 .cell-commit {
   flex: none;
-  width: 84px;
   text-align: right;
   font-family: var(--mono);
   color: var(--text-dim);
+}
+
+.working-row {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: rgba(215, 186, 125, 0.04);
+}
+
+.working-row:hover {
+  background: rgba(215, 186, 125, 0.08);
+}
+
+.working-row.selected {
+  background: #4d3a12;
+}
+
+.working-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  fill: none;
+  stroke: #d7ba7d;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.badge-working {
+  background: rgba(215, 186, 125, 0.14);
+  color: #d7ba7d;
+  border-color: rgba(215, 186, 125, 0.4);
+}
+
+.count-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.count-staged {
+  background: rgba(137, 209, 133, 0.14);
+  color: #89d185;
+}
+
+.count-unstaged {
+  background: rgba(244, 135, 113, 0.14);
+  color: #f48771;
+}
+
+.count-untracked {
+  background: rgba(55, 148, 255, 0.14);
+  color: #4fc1ff;
+}
+
+.hl {
+  background: #613214;
+  color: #f5c04a;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .message {

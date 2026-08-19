@@ -1,0 +1,149 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 200;
+}
+
+.dialog {
+  position: fixed;
+  top: 4vh;
+  left: 4vw;
+  right: 4vw;
+  bottom: 4vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  z-index: 201;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 42px;
+  padding: 0 10px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.status {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.status-added {
+  background: rgba(137, 209, 133, 0.15);
+  color: #89d185;
+}
+
+.status-deleted {
+  background: rgba(244, 135, 113, 0.15);
+  color: #f48771;
+}
+
+.status-modified {
+  background: rgba(55, 148, 255, 0.15);
+  color: #4fc1ff;
+}
+
+.status-renamed {
+  background: rgba(197, 134, 192, 0.15);
+  color: #c586c0;
+}
+
+.status-binary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #9d9d9d;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.counts {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.additions {
+  color: #89d185;
+}
+
+.deletions {
+  color: #f48771;
+}
+
+.icon-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+
+.icon-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dialog-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-host {
+  position: absolute;
+  inset: 0;
+}
+
+.state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.state-error {
+  color: var(--red);
+}

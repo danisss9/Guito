@@ -1,11 +1,67 @@
 <div class="table">
   <div class="table-head">
-    <div class="head-cell cell-graph" [style.width.px]="graphWidth()">Graph</div>
-    <div class="head-cell cell-desc">Description</div>
-    <div class="head-cell cell-date">Date</div>
-    <div class="head-cell cell-author">Author</div>
-    <div class="head-cell cell-commit">Commit</div>
+    <div class="head-cell cell-graph" [style.width.px]="graphColumnWidth()">
+      <span class="head-label">Graph</span>
+      <div class="resizer" (mousedown)="startResize('graph', $event)"></div>
+    </div>
+    <div class="head-cell cell-desc">
+      <span class="head-label">Description</span>
+    </div>
+    <div class="head-cell cell-date" [style.width.px]="columnWidths().date">
+      <span class="head-label">Date</span>
+      <div class="resizer" (mousedown)="startResize('date', $event)"></div>
+    </div>
+    <div class="head-cell cell-author" [style.width.px]="columnWidths().author">
+      <span class="head-label">Author</span>
+      <div class="resizer" (mousedown)="startResize('author', $event)"></div>
+    </div>
+    <div class="head-cell cell-commit" [style.width.px]="columnWidths().commit">
+      <span class="head-label">Commit</span>
+      <div class="resizer" (mousedown)="startResize('commit', $event)"></div>
+    </div>
   </div>
+
+  @if (hasWorkingChanges()) {
+    <div
+      class="row working-row"
+      [class.selected]="selectedHash() === workingHash"
+      (click)="commitClick.emit(workingCommit())"
+      (contextmenu)="onWorkingContextMenu($event)"
+    >
+      <div class="cell cell-graph" [style.width.px]="graphColumnWidth()">
+        <svg class="working-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+        </svg>
+      </div>
+      <div class="cell cell-desc">
+        <span class="badge badge-working">
+          <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v3" />
+            <path d="M12 19v3" />
+            <path d="M2 12h3" />
+            <path d="M19 12h3" />
+          </svg>
+          <span class="badge-name">Uncommitted changes</span>
+        </span>
+        @if (workingChanges(); as wc) {
+          @if (wc.staged.length > 0) {
+            <span class="count-badge count-staged">{{ wc.staged.length }} staged</span>
+          }
+          @if (wc.unstaged.length > 0) {
+            <span class="count-badge count-unstaged">{{ wc.unstaged.length }} unstaged</span>
+          }
+          @if (wc.untracked.length > 0) {
+            <span class="count-badge count-untracked">{{ wc.untracked.length }} untracked</span>
+          }
+        }
+      </div>
+      <div class="cell cell-date" [style.width.px]="columnWidths().date">—</div>
+      <div class="cell cell-author" [style.width.px]="columnWidths().author">You</div>
+      <div class="cell cell-commit" [style.width.px]="columnWidths().commit">—</div>
+    </div>
+  }
 
   <div class="table-body">
     @if (graphCommits().length === 0) {
@@ -36,11 +92,15 @@
           class="row"
           [class.selected]="entry.commit.hash === selectedHash()"
           (click)="commitClick.emit(entry.commit)"
+          (contextmenu)="onRowContextMenu($event, entry.commit)"
         >
-          <div class="cell cell-graph" [style.width.px]="graphWidth()"></div>
+          <div class="cell cell-graph" [style.width.px]="graphColumnWidth()"></div>
           <div class="cell cell-desc">
             @for (badge of badges(entry.commit); track badge.name) {
-              <span [class]="'badge badge-' + badge.type">
+              <span
+                [class]="'badge badge-' + badge.type"
+                (contextmenu)="onBranchContextMenu($event, entry.commit, badge)"
+              >
                 @if (badge.type === 'head' || badge.type === 'local') {
                   <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
                     <line x1="6" y1="3" x2="6" y2="15" />
@@ -60,14 +120,28 @@
               </span>
             }
             <span class="message" [class.head]="isHead(entry.commit)">
-              {{ entry.commit.message }}
+              @for (segment of highlight(entry.commit.message); track $index) {
+                @if (segment.match) {
+                  <mark class="hl">{{ segment.text }}</mark>
+                } @else {
+                  {{ segment.text }}
+                }
+              }
             </span>
           </div>
-          <div class="cell cell-date">{{ entry.commit.date | date: 'd MMM y HH:mm' }}</div>
-          <div class="cell cell-author" [title]="entry.commit.author_name">
-            {{ entry.commit.author_name }}
+          <div class="cell cell-date" [style.width.px]="columnWidths().date">
+            {{ entry.commit.date | date: 'd MMM y HH:mm' }}
           </div>
-          <div class="cell cell-commit" [title]="entry.commit.hash">
+          <div class="cell cell-author" [style.width.px]="columnWidths().author" [title]="entry.commit.author_name">
+            @for (segment of highlight(entry.commit.author_name); track $index) {
+              @if (segment.match) {
+                <mark class="hl">{{ segment.text }}</mark>
+              } @else {
+                {{ segment.text }}
+              }
+            }
+          </div>
+          <div class="cell cell-commit" [style.width.px]="columnWidths().commit" [title]="entry.commit.hash">
             {{ entry.commit.hash.slice(0, 8) }}
           </div>
         </div>

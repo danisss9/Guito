@@ -1,6 +1,6 @@
 <div class="app">
   <header class="titlebar">
-    <div class="brand">
+    <div class="brand" aria-label="Repository logo">
       <svg class="logo" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M4.5 2.5v11" stroke="#3794ff" stroke-width="1.6" fill="none" />
         <path d="M4.5 11.5c4.5 0 4.5-7 7.5-7" stroke="#4ec9b0" stroke-width="1.6" fill="none" />
@@ -11,9 +11,6 @@
       </svg>
       <span class="title">Guito</span>
     </div>
-    @if (repoName()) {
-      <span class="repo" [title]="repoName()">{{ repoName() }}</span>
-    }
   </header>
 
   <app-toolbar
@@ -37,12 +34,20 @@
     <app-commit-table
       [commits]="filteredCommits()"
       [selectedHash]="selectedCommit()?.hash ?? ''"
+      [search]="search()"
+      [selectedBranch]="selectedBranch()"
+      [showRemote]="showRemote()"
+      [workingChanges]="workingChanges()"
       (commitClick)="selectedCommit.set($event)"
+      (contextMenu)="onContextMenu($event)"
     />
     @if (selectedCommit(); as commit) {
       <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
     }
   </main>
+
+  <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
+  <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="promptState.set(null)" />
 
   @if (loading()) {
     <div class="loading-overlay">

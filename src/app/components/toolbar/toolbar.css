@@ -123,6 +123,43 @@
   flex: none;
 }
 
+.action-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.remote-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.remote-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.remote-menu button:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+
 .icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text-bright);

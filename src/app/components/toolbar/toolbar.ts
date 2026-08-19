@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { HostListener, signal } from '@angular/core';
 import { BranchInfo } from '../../models/git.models';
 
 @Component({
@@ -18,11 +19,11 @@ export class Toolbar {
   readonly remoteToggle = output<boolean>();
   readonly searchChange = output<string>();
   readonly refresh = output<void>();
-  readonly remoteAction = output<'fetch' | 'pull' | 'push'>();
+  readonly remoteAction = output<'fetch' | 'pull' | 'pull-rebase' | 'push' | 'sync'>();
+  protected readonly openMenu = signal<'pull' | 'push' | null>(null);
 
   protected readonly visibleBranches = computed(() => {
-    const all = this.branches();
-    return this.showRemote() ? all : all.filter((branch) => !branch.remote);
+    return this.branches();
   });
 
   protected onBranchChange(event: Event): void {
@@ -35,5 +36,25 @@ export class Toolbar {
 
   protected onSearch(event: Event): void {
     this.searchChange.emit((event.target as HTMLInputElement).value);
+  }
+
+  protected toggleMenu(menu: 'pull' | 'push', event: MouseEvent): void {
+    event.stopPropagation();
+    this.openMenu.update((current) => (current === menu ? null : menu));
+  }
+
+  protected chooseRemoteAction(action: 'pull' | 'pull-rebase' | 'push' | 'sync'): void {
+    this.openMenu.set(null);
+    this.remoteAction.emit(action);
+  }
+
+  @HostListener('document:click')
+  protected closeMenu(): void {
+    this.openMenu.set(null);
+  }
+
+  @HostListener('document:keydown.escape')
+  protected closeMenuOnEscape(): void {
+    this.openMenu.set(null);
   }
 }

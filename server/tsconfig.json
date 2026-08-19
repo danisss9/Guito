@@ -10,7 +10,7 @@
     "declarationMap": false,
     "skipLibCheck": true,
     "experimentalDecorators": true,
-    "moduleResolution": "node10",
+    "moduleResolution": "node",
     "importHelpers": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,

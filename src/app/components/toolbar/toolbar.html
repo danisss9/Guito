@@ -47,31 +47,49 @@
       </svg>
     </button>
 
-    <button
-      class="icon-btn"
-      title="Pull"
-      [disabled]="busy()"
-      (click)="remoteAction.emit('pull')"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="8 12 12 16 16 12" />
-        <line x1="12" y1="8" x2="12" y2="16" />
-      </svg>
-    </button>
+    <div class="action-menu">
+      <button
+        class="icon-btn"
+        title="Pull"
+        [disabled]="busy()"
+        [attr.aria-expanded]="openMenu() === 'pull'"
+        (click)="toggleMenu('pull', $event)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="8 12 12 16 16 12" />
+          <line x1="12" y1="8" x2="12" y2="16" />
+        </svg>
+      </button>
+      @if (openMenu() === 'pull') {
+        <div class="remote-menu" role="menu">
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('pull')">Pull</button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('pull-rebase')">Pull (rebase)</button>
+        </div>
+      }
+    </div>
 
-    <button
-      class="icon-btn"
-      title="Push"
-      [disabled]="busy()"
-      (click)="remoteAction.emit('push')"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="16 12 12 8 8 12" />
-        <line x1="12" y1="16" x2="12" y2="8" />
-      </svg>
-    </button>
+    <div class="action-menu">
+      <button
+        class="icon-btn"
+        title="Push"
+        [disabled]="busy()"
+        [attr.aria-expanded]="openMenu() === 'push'"
+        (click)="toggleMenu('push', $event)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="16 12 12 8 8 12" />
+          <line x1="12" y1="16" x2="12" y2="8" />
+        </svg>
+      </button>
+      @if (openMenu() === 'push') {
+        <div class="remote-menu" role="menu">
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('push')">Push</button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('sync')">Sync</button>
+        </div>
+      }
+    </div>
 
     <button class="icon-btn" title="Refresh" (click)="refresh.emit()">
       <svg viewBox="0 0 24 24" aria-hidden="true">

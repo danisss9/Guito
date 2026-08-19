@@ -1,0 +1,24 @@
+@if (menu(); as m) {
+  <div
+    class="backdrop"
+    (click)="closed.emit()"
+    (contextmenu)="$event.preventDefault(); closed.emit()"
+  ></div>
+  <div class="menu" [style.left.px]="left()" [style.top.px]="top()" role="menu">
+    @for (item of m.items; track $index) {
+      @if (item.separator) {
+        <div class="separator"></div>
+      } @else {
+        <button
+          class="item"
+          role="menuitem"
+          [class.danger]="item.danger"
+          [disabled]="item.disabled"
+          (click)="onSelect(item)"
+        >
+          {{ item.label }}
+        </button>
+      }
+    }
+  </div>
+}
