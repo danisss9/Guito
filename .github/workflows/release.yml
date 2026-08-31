@@ -1,26 +1,26 @@
 name: Publish release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*.*.*"
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    if: github.event.release.prerelease == false
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
       - name: Check out the release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -33,7 +33,7 @@ jobs:
         run: npm ci
 
       - name: Verify release versions
-        run: node scripts/verify-release.mjs "${{ github.event.release.tag_name }}"
+        run: node scripts/verify-release.mjs "${{ github.ref_name }}"
 
       - name: Check and build
         run: |
@@ -49,7 +49,7 @@ jobs:
 
       - name: Publish npm package
         env:
-          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+          RELEASE_VERSION: ${{ github.ref_name }}
         run: |
           VERSION="${RELEASE_VERSION#v}"
           if npm view "guito@$VERSION" version >/dev/null 2>&1; then
@@ -60,4 +60,17 @@ jobs:
 
       - name: Publish VS Code extension
         working-directory: vscode-extension
-        run: npx vsce publish --oidc --skip-duplicate --packagePath guito.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --skip-duplicate --packagePath guito.vsix
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; skipping."
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "Guito ${RELEASE_TAG#v}"
+          fi

@@ -1,97 +1,82 @@
 # Guito
 
-**G**u**IT**o ([**GUI**to](https://dicionario.priberam.org/guito)) is a free and simple git client.
+Explore and manage Git repositories in a focused visual client. Guito runs locally in your browser or directly inside Visual Studio Code.
 
-## Table of Contents
+The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese word for money](https://dicionario.priberam.org/guito).
 
-- [Guito](#guito)
-  - [Table of Contents](#table-of-contents)
-  - [Install](#install)
-  - [Use](#use)
-  - [Arguments](#arguments)
-  - [Changelog](#changelog)
-  - [FAQs](#faqs)
+[npm package](https://www.npmjs.com/package/guito) · [VS Code extension](https://marketplace.visualstudio.com/items?itemName=danisss9.guito) · [Issue tracker](https://github.com/danisss9/Guito/issues)
 
-## Install
+## Features
 
-```cmd
-npm install -g guito
-```
+- Visual commit graph with branch and tag references.
+- Commit search by subject, author, or hash.
+- Local and remote branch filtering.
+- Commit and working-tree diffs powered by the Monaco editor, with inline and side-by-side layouts.
+- Fetch, pull, pull with rebase, push, and sync actions.
+- Context actions for creating branches and tags, checking out commits, cherry-picking, reverting, merging, rebasing, resetting, and exporting archives.
+- Working-tree actions for stashing changes, resetting tracked changes, and cleaning untracked files.
+- Browser-based CLI and a VS Code extension with local, Remote SSH, Dev Container, and Codespaces support.
 
-Guito is also available as a Visual Studio Code extension. After installing it from the
-Marketplace, select **Guito** in the status bar to open the current workspace repository.
+> [!CAUTION]
+> Guito can run destructive Git operations, including hard resets, commit drops, forceful cleanup, and history changes. Review confirmation dialogs carefully and make sure important work is committed or backed up.
 
-## Use
+## Quick start
 
-Run the following command on the folder where you git repository is:
+### Browser client
 
-```cmd
+You need Git, Node.js 20 or newer, and npm. From inside the repository you want to inspect, run:
+
+```sh
 npx guito
 ```
 
-## Arguments
+Guito starts a local server at `http://localhost:8080` and opens it in your default browser.
 
-| Argument          | Description                                |
-| ----------------- | ------------------------------------------ |
-| `--port <number>` | Port to serve the UI on (default: `8080`). |
-| `--no-open`       | Do not open the browser automatically.     |
+To install the command globally instead:
 
-## Changelog
-
-**Version 0.5:**
-
-- added a Visual Studio Code extension with local and remote workspace support
-- added automated npm and Visual Studio Marketplace publishing
-
-**Version 0.4:**
-
-- rebuilt the UI with Angular
-- added commit graph visualization
-- added branch filtering and remote branch toggle
-- added commit search
-- added commit diff viewer
-
-**Version 0.3:**
-
-- added more git functionalities
-
-**Version 0.2:**
-
-- added header and table components
-
-**Version 0.1:**
-
-- published library
-
-## Development
-
-Install the dependencies and build everything:
-
-```cmd
-npm install
-npm run build
-npm start
+```sh
+npm install --global guito
+guito
 ```
 
-To develop the UI with hot reload, run the API server and the Angular dev server in separate terminals:
+### Visual Studio Code
 
-```cmd
-npm run dev:server
+After installing the extension, open a trusted workspace containing a Git repository, then either:
+
+- select **Guito** in the status bar; or
+- run **Guito: Open Guito** from the Command Palette.
+
+In a multi-root workspace, Guito asks which repository to open. Git must be available on the local or remote VS Code extension host.
+
+## CLI options
+
+```text
+guito [--port <number>] [--no-open]
 ```
 
-```cmd
-npm run dev
-```
+| Option            | Description                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `--port <number>` | Port used by the local server. Defaults to `8080`; use `0` to select an available port automatically. |
+| `--no-open`       | Start the server without opening a browser.                                                           |
 
-The UI dev server proxies `/api` requests to the API server.
+Run the command from anywhere inside the Git worktree you want Guito to manage. Press `Ctrl+C` in the terminal to stop the server.
 
-### Release publishing
+## Using Guito
 
-Stable GitHub Releases tagged `vX.Y.Z` publish the matching npm package and VS Code
-extension through `.github/workflows/release.yml`. Before the first release, configure
-GitHub Actions as the trusted publisher for both `guito` on npm and the `danisss9`
-Visual Studio Marketplace publisher, using the exact workflow filename `release.yml`.
+- Select a commit to inspect its changed files, then select a file to open its diff.
+- Select **Uncommitted changes** to inspect the working tree.
+- Use the branch selector and remote-branch toggle to narrow the graph.
+- Right-click a commit, reference badge, or the working-tree row to open its available Git actions.
+- Use the toolbar for remote operations and manual refreshes.
 
-## FAQs
+The standalone server can execute Git commands against the current repository. Keep it on a trusted machine and do not expose its port to untrusted networks.
 
-No FAQs for now. (⌐■_■)
+## Development and contributing
+
+See [CONTRIBUTION.md](CONTRIBUTION.md) for local setup, development commands, project structure, testing, and pull-request guidance.
+
+Release history is maintained in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Guito is available under the [MIT License](LICENSE).
