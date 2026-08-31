@@ -1,10 +1,14 @@
 # Only the built bin/ folder is published to npm
 .angular
 .vscode
+.github
 node_modules
 public
 server
+scripts
 src
+tests
+vscode-extension
 angular.json
 proxy.conf.json
 tsconfig.json

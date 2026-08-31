@@ -18,6 +18,9 @@
 npm install -g guito
 ```
 
+Guito is also available as a Visual Studio Code extension. After installing it from the
+Marketplace, select **Guito** in the status bar to open the current workspace repository.
+
 ## Use
 
 Run the following command on the folder where you git repository is:
@@ -34,6 +37,11 @@ npx guito
 | `--no-open`       | Do not open the browser automatically.     |
 
 ## Changelog
+
+**Version 0.5:**
+
+- added a Visual Studio Code extension with local and remote workspace support
+- added automated npm and Visual Studio Marketplace publishing
 
 **Version 0.4:**
 
@@ -76,6 +84,13 @@ npm run dev
 ```
 
 The UI dev server proxies `/api` requests to the API server.
+
+### Release publishing
+
+Stable GitHub Releases tagged `vX.Y.Z` publish the matching npm package and VS Code
+extension through `.github/workflows/release.yml`. Before the first release, configure
+GitHub Actions as the trusted publisher for both `guito` on npm and the `danisss9`
+Visual Studio Marketplace publisher, using the exact workflow filename `release.yml`.
 
 ## FAQs
 

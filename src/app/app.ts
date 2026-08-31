@@ -16,6 +16,7 @@ import {
   WorkingChanges,
 } from './models/git.models';
 import { GitService } from './services/git.service';
+import { authenticatedApiUrl } from './utils/session';
 
 @Component({
   selector: 'app-root',
@@ -321,7 +322,9 @@ export class App {
       case 'create-archive':
         if (this.contextMenuTarget()?.commit?.hash) {
           window.open(
-            `/api/archive?ref=${encodeURIComponent(this.contextMenuTarget().commit.hash)}`,
+            authenticatedApiUrl(
+              `/api/archive?ref=${encodeURIComponent(this.contextMenuTarget().commit.hash)}`,
+            ),
             '_blank',
           );
         }

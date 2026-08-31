@@ -1,15 +1,18 @@
 {
   "name": "guito",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Easily explore your git repositories.",
-  "homepage": "https://github.com/danisss9/guito#readme",
+  "homepage": "https://github.com/danisss9/Guito#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/danisss9/guito.git"
+    "url": "https://github.com/danisss9/Guito.git"
   },
   "bugs": {
-    "url": "https://github.com/danisss9/guito/issues"
+    "url": "https://github.com/danisss9/Guito/issues"
   },
+  "workspaces": [
+    "vscode-extension"
+  ],
   "bin": {
     "guito": "bin/index.js"
   },
@@ -38,16 +41,21 @@
     "dev": "ng serve",
     "dev:server": "tsc --project ./server/tsconfig.json && node bin/index.js --no-open",
     "start": "node bin/index.js",
-    "build": "npm run build:ui && npm run build:server",
+    "build": "npm run build:ui && npm run build:server && npm run build:extension:bundle",
     "build:ui": "ng build",
     "build:server": "tsc --project ./server/tsconfig.json",
+    "build:extension": "npm run build:ui && npm run build:extension:bundle",
+    "build:extension:bundle": "npm run build --workspace vscode-extension",
+    "check": "tsc --project ./server/tsconfig.json --noEmit && npm run check --workspace vscode-extension",
+    "test": "npm run build:server && node --test tests/*.test.mjs",
+    "package:extension": "npm run build:ui && npm run package --workspace vscode-extension",
     "build:start": "npm run build && npm run start",
     "release": "npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@fastify/cors": "^9.0.1",
-    "@fastify/static": "^7.0.4",
-    "fastify": "^4.25.2",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/static": "^10.1.3",
+    "fastify": "^5.12.1",
     "monaco-editor": "^0.56.0",
     "open": "^10.0.3",
     "simple-git": "^3.25.0"

@@ -1,0 +1,69 @@
+{
+  "name": "guito",
+  "displayName": "Guito",
+  "description": "Explore and manage the current Git repository with Guito inside VS Code.",
+  "version": "0.5.0",
+  "publisher": "danisss9",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danisss9/Guito.git"
+  },
+  "homepage": "https://github.com/danisss9/Guito#readme",
+  "bugs": {
+    "url": "https://github.com/danisss9/Guito/issues"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization"
+  ],
+  "keywords": [
+    "git",
+    "graph",
+    "history",
+    "source control"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.cjs",
+  "vsce": {
+    "dependencies": false
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:guito.open"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "guito.open",
+        "title": "Open Guito",
+        "category": "Guito",
+        "icon": "$(git-branch)"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit",
+    "package": "vsce package --out guito.vsix",
+    "vscode:prepublish": "npm run check && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.8.0"
+  }
+}

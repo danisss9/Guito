@@ -1,0 +1,63 @@
+name: Publish release
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release versions
+        run: node scripts/verify-release.mjs "${{ github.event.release.tag_name }}"
+
+      - name: Check and build
+        run: |
+          npm run check
+          npm run build
+          npm test
+
+      - name: Inspect npm package
+        run: npm pack --dry-run
+
+      - name: Package VS Code extension
+        run: npm run package --workspace vscode-extension
+
+      - name: Publish npm package
+        env:
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          if npm view "guito@$VERSION" version >/dev/null 2>&1; then
+            echo "guito@$VERSION is already published; skipping."
+          else
+            npm publish --access public
+          fi
+
+      - name: Publish VS Code extension
+        working-directory: vscode-extension
+        run: npx vsce publish --oidc --skip-duplicate --packagePath guito.vsix
