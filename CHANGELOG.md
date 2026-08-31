@@ -2,6 +2,12 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-08-31
+
+### Added
+
+- Added a marketplace icon for the Visual Studio Code extension.
+
 ## [0.5.0] - 2026-08-31
 
 ### Added
