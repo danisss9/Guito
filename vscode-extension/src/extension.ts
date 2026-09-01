@@ -177,6 +177,9 @@ async function openRepository(
 
 function webviewHtml(externalUri: vscode.Uri): string {
   const frameSource = `${externalUri.scheme}://${externalUri.authority}`;
+  // VS Code's default URI serialization escapes query delimiters such as `=`, which
+  // would turn `?guitoToken=value` into a single, incorrectly named query parameter.
+  const externalUrl = externalUri.toString(true);
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -189,7 +192,7 @@ function webviewHtml(externalUri: vscode.Uri): string {
   <body>
     <iframe
       title="Guito"
-      src="${escapeHtml(externalUri.toString())}"
+      src="${escapeHtml(externalUrl)}"
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
     ></iframe>
   </body>
