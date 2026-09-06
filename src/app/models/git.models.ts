@@ -9,6 +9,13 @@ export interface GitCommit {
   parents: string[];
 }
 
+/** Paged commit history returned by the server. */
+export interface CommitsResponse {
+  commits: GitCommit[];
+  /** Total number of commits in the repository history. */
+  total: number;
+}
+
 export type RefType = 'head' | 'local' | 'remote' | 'tag';
 
 export interface RefBadge {

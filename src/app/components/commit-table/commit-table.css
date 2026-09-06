@@ -276,3 +276,26 @@
 .load-more:hover {
   background: var(--bg-hover);
 }
+
+.load-actions {
+  display: flex;
+  border-top: 1px solid var(--border);
+}
+
+.load-actions .load-more {
+  border-top: none;
+}
+
+.load-actions .load-more + .load-more {
+  border-left: 1px solid var(--border);
+}
+
+.history-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+}

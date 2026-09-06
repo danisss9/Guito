@@ -1,9 +1,10 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
   BranchInfo,
   CommitDiff,
+  CommitsResponse,
   FileContent,
   GitCommit,
   RepoInfo,
@@ -19,8 +20,15 @@ export class GitService {
     return this.http.get<RepoInfo>(`${this.base}/repo`);
   }
 
-  getCommits(): Observable<GitCommit[]> {
-    return this.http.get<GitCommit[]>(`${this.base}/commits`);
+  getCommits(limit?: number, skip = 0): Observable<CommitsResponse> {
+    let params = new HttpParams();
+    if (limit !== undefined) {
+      params = params.set('limit', String(limit));
+    }
+    if (skip > 0) {
+      params = params.set('skip', String(skip));
+    }
+    return this.http.get<CommitsResponse>(`${this.base}/commits`, { params });
   }
 
   getAllBranches(): Observable<BranchInfo[]> {

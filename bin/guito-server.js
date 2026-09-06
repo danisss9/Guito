@@ -5,6 +5,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
+import fastifyCompress from '@fastify/compress';
 import { simpleGit } from 'simple-git';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
@@ -15,6 +16,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     // Register cors
     await app.register(fastifyCors);
+    // Compress JSON responses (commit history payloads are highly repetitive)
+    await app.register(fastifyCompress);
     if (apiToken) {
         app.addHook('onRequest', async (request, reply) => {
             const pathname = request.url.split('?', 1)[0];
@@ -130,16 +133,21 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     app.get('/api/repo', async (_req, resp) => {
         try {
             const root = (await git.revparse(['--show-toplevel'])).trim();
-            resp.type('application/json').send({ root, name: basename(root) });
+            return resp.type('application/json').send({ root, name: basename(root) });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Commits ====================
-    app.get('/api/commits', async (_req, resp) => {
+    app.get('/api/commits', async (req, resp) => {
         try {
-            const log = await git.log({
+            const query = (req.query ?? {});
+            const limit = Number.parseInt(query.limit ?? '', 10);
+            const skip = Number.parseInt(query.skip ?? '', 10);
+            // Build simple-git options conditionally: an explicit key with an
+            // undefined value would still be emitted as a bare command flag.
+            const options = {
                 format: {
                     hash: '%H',
                     date: '%aI',
@@ -150,27 +158,42 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     author_email: '%aE',
                     parents: '%P',
                 },
-            });
+                '--all': null,
+            };
+            if (Number.isFinite(limit) && limit > 0) {
+                options.maxCount = limit;
+            }
+            if (Number.isFinite(skip) && skip > 0) {
+                options['--skip'] = String(skip);
+            }
+            const [log, count] = await Promise.all([
+                git.log(options),
+                git.raw(['rev-list', '--count', '--all']),
+            ]);
             const commits = log.all.map((commit) => ({
                 ...commit,
                 parents: String(commit.parents ?? '')
                     .split(' ')
                     .filter(Boolean),
             }));
-            resp.type('application/json').send(commits);
+            return resp.type('application/json').send({ commits, total: Number.parseInt(count, 10) || 0 });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            // A repository without any commits has no history to list.
+            if (/does not have any commits yet|unknown revision|bad default revision/i.test(err.message ?? '')) {
+                return resp.type('application/json').send({ commits: [], total: 0 });
+            }
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/commit', async (req, resp) => {
         try {
             const { message, description } = req.body;
             await git.commit([message, ...(description ? [description] : [])], { '--allow-empty': null });
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/amend', async (req, resp) => {
@@ -180,57 +203,57 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 '--amend': null,
                 '--no-edit': null,
             });
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/revert', async (req, resp) => {
         try {
             const { commit } = req.body;
             await git.revert(commit);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/cherry-pick', async (req, resp) => {
         try {
             await git.raw(['cherry-pick', req.body.commit]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/commit/drop', async (req, resp) => {
         try {
             await git.raw(['reset', '--hard', `${req.body.commit}^`]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/reset-commit', async (req, resp) => {
         try {
             await git.raw(['reset', '--hard', req.body.commit]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Staging ====================
     app.get('/api/status', async (_req, resp) => {
         try {
             const status = await git.status();
-            resp.type('application/json').send(status);
+            return resp.type('application/json').send(status);
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stage', async (req, resp) => {
@@ -239,10 +262,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             if (Array.isArray(files) && files.length > 0) {
                 await git.add(files);
             }
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/unstage', async (req, resp) => {
@@ -251,10 +274,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             if (Array.isArray(files) && files.length > 0) {
                 await git.reset(['HEAD', ...files]);
             }
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stage-lines', async (req, resp) => {
@@ -262,10 +285,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const { file, patch } = req.body;
             // Stage specific lines using git add -p equivalent (patch mode)
             await git.raw('add --patch', { input: patch });
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Branches ====================
@@ -287,69 +310,69 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 const name = refname.replace(/^refs\/(heads|remotes)\//, '');
                 return { name, commit, current: headMarker === '*', remote };
             });
-            resp.type('application/json').send(branches);
+            return resp.type('application/json').send(branches);
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.get('/api/branches', async (_req, resp) => {
         try {
             const branchSummary = await git.branchLocal();
-            resp.type('application/json').send(branchSummary);
+            return resp.type('application/json').send(branchSummary);
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/branch/create', async (req, resp) => {
         try {
             const { name, startPoint } = req.body;
             await git.branch([...(startPoint ? [name, startPoint] : [name])]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/branch/delete', async (req, resp) => {
         try {
             const { name, force } = req.body;
             await git.deleteLocalBranch(name, force);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/branch/delete-remote', async (req, resp) => {
         try {
             const { remote, branch } = req.body;
             await git.push([remote, '--delete', branch]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/branch/rename', async (req, resp) => {
         try {
             const { oldName, newName } = req.body;
             await git.branch(['-m', oldName, newName]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/checkout', async (req, resp) => {
         try {
             const { ref } = req.body;
             await git.checkout(ref);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Merge & Rebase ====================
@@ -357,10 +380,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         try {
             const { branch } = req.body;
             await git.merge([branch]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.get('/api/archive', async (req, resp) => {
@@ -387,10 +410,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         try {
             const { branch } = req.body;
             await git.rebase([branch]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/squash', async (req, resp) => {
@@ -398,80 +421,80 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const { commits } = req.body;
             // Squash: rebase -i with squash operation
             await git.rebase(['-i', 'HEAD~' + commits]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Stash ====================
     app.get('/api/stash/list', async (_req, resp) => {
         try {
             const stashList = await git.stashList();
-            resp.type('application/json').send(stashList);
+            return resp.type('application/json').send(stashList);
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stash/save', async (req, resp) => {
         try {
             const { message } = req.body;
             await git.stash(['save', message || '']);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stash/apply', async (req, resp) => {
         try {
             const { index } = req.body;
             await git.stash(['apply', `stash@{${index}}`]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stash/pop', async (req, resp) => {
         try {
             const { index } = req.body;
             await git.stash(['pop', `stash@{${index}}`]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stash/drop', async (req, resp) => {
         try {
             const { index } = req.body;
             await git.stash(['drop', `stash@{${index}}`]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/stash/show', async (req, resp) => {
         try {
             const { index } = req.body;
             const show = await git.stash(['show', '-p', `stash@{${index}}`]);
-            resp.type('application/json').send({ preview: show });
+            return resp.type('application/json').send({ preview: show });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Tags ====================
     app.get('/api/tags', async (_req, resp) => {
         try {
             const tags = await git.tags();
-            resp.type('application/json').send(tags);
+            return resp.type('application/json').send(tags);
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/tag/create', async (req, resp) => {
@@ -483,70 +506,70 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             else {
                 await git.tag([name, ...(commit ? [commit] : [])]);
             }
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/tag/delete', async (req, resp) => {
         try {
             const { name } = req.body;
             await git.tag(['-d', name]);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Remote Operations ====================
     app.get('/api/fetch', async (_req, resp) => {
         try {
             await git.fetch();
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/pull', async (req, resp) => {
         try {
             const { remote, branch, rebase } = req.body;
             await git.pull(remote || 'origin', branch || undefined, rebase ? { '--rebase': null } : {});
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/push', async (req, resp) => {
         try {
             const { remote, branch, force } = req.body;
             await git.push(remote || 'origin', branch || undefined, force ? { '-f': null } : {});
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/sync', async (_req, resp) => {
         try {
             await git.pull('origin', undefined, {});
             await git.push('origin', undefined, {});
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/prune', async (req, resp) => {
         try {
             const { remote } = req.body;
             await git.remote(['prune', remote || 'origin']);
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Diff Viewer ====================
@@ -566,10 +589,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 '-m',
                 hash,
             ]);
-            resp.type('application/json').send({ hash, files: parseUnifiedDiff(rawDiff) });
+            return resp.type('application/json').send({ hash, files: parseUnifiedDiff(rawDiff) });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Working Changes ====================
@@ -620,7 +643,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             const stagedRaw = await git.raw(['diff', '--name-only', '--cached']);
             const unstagedRaw = await git.raw(['diff', '--name-only']);
-            resp.type('application/json').send({
+            return resp.type('application/json').send({
                 files,
                 staged: stagedRaw.split('\n').filter(Boolean),
                 unstaged: unstagedRaw.split('\n').filter(Boolean),
@@ -628,7 +651,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== File Content ====================
@@ -665,15 +688,15 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 if (content.includes('\u0000')) {
                     return resp.type('application/json').send({ binary: true, content: '' });
                 }
-                resp.type('application/json').send({ content });
+                return resp.type('application/json').send({ content });
             }
             catch {
                 // Path did not exist at that revision (added file).
-                resp.type('application/json').send({ content: '' });
+                return resp.type('application/json').send({ content: '' });
             }
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Discard ====================
@@ -694,29 +717,29 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             for (const file of removed) {
                 await rm(join(root, file), { force: true, recursive: true });
             }
-            resp.type('application/json').send({ success: true });
+            return resp.type('application/json').send({ success: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     // ==================== Working Tree Actions ====================
     app.post('/api/reset', async (_req, resp) => {
         try {
             await git.raw(['reset', '--hard', 'HEAD']);
-            resp.type('application/json').send({ ok: true });
+            return resp.type('application/json').send({ ok: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     app.post('/api/clean', async (_req, resp) => {
         try {
             await git.raw(['clean', '-fd']);
-            resp.type('application/json').send({ ok: true });
+            return resp.type('application/json').send({ ok: true });
         }
         catch (err) {
-            resp.status(400).type('application/json').send({ error: err.message });
+            return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
     const address = await app.listen({ port, ...(host ? { host } : {}) });

@@ -4,6 +4,7 @@ import {
   Component,
   OnDestroy,
   computed,
+  effect,
   input,
   output,
   signal,
@@ -58,11 +59,24 @@ export class CommitTable implements OnDestroy {
   readonly selectedBranch = input<string>('');
   readonly showRemote = input(true);
   readonly workingChanges = input<WorkingChanges | null>(null);
+  readonly unloaded = input(0);
+  readonly historyLoading = input(false);
 
   readonly commitClick = output<GitCommit>();
   readonly contextMenu = output<ContextMenuEvent>();
+  readonly loadMoreRequested = output<void>();
+  readonly loadAllRequested = output<void>();
 
   protected readonly limit = signal(PAGE_SIZE);
+
+  constructor() {
+    // Start over with a fresh window whenever the filter context changes.
+    effect(() => {
+      this.search();
+      this.selectedBranch();
+      this.limit.set(PAGE_SIZE);
+    });
+  }
 
   protected readonly columnWidths = signal<Record<ResizableColumn, number>>({
     graph: 0,
@@ -249,6 +263,18 @@ export class CommitTable implements OnDestroy {
 
   protected loadMore(): void {
     this.limit.set(this.limit() + PAGE_SIZE);
+  }
+
+  /** Reveal the next window and ask the app to fetch more commits. */
+  protected onLoadMoreCommits(): void {
+    this.limit.update((current) => current + PAGE_SIZE);
+    this.loadMoreRequested.emit();
+  }
+
+  /** Fetch and render the entire remaining history. */
+  protected onLoadAllCommits(): void {
+    this.limit.set(Number.POSITIVE_INFINITY);
+    this.loadAllRequested.emit();
   }
 
   protected badges(commit: GitCommit): RefBadge[] {

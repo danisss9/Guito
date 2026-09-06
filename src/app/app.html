@@ -17,7 +17,6 @@
     [branches]="branches()"
     [selectedBranch]="selectedBranch()"
     [showRemote]="showRemote()"
-    [search]="search()"
     [busy]="busy()"
     (branchChange)="selectedBranch.set($event)"
     (remoteToggle)="onRemoteToggle($event)"
@@ -38,8 +37,12 @@
       [selectedBranch]="selectedBranch()"
       [showRemote]="showRemote()"
       [workingChanges]="workingChanges()"
+      [unloaded]="unloadedCommits()"
+      [historyLoading]="historyLoading()"
       (commitClick)="selectedCommit.set($event)"
       (contextMenu)="onContextMenu($event)"
+      (loadMoreRequested)="loadMoreCommits()"
+      (loadAllRequested)="loadAllCommits()"
     />
     @if (selectedCommit(); as commit) {
       <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />

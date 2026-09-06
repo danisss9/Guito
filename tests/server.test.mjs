@@ -70,3 +70,99 @@ test('protects extension API requests and archive downloads with a token', async
   assert.equal(archive.status, 200);
   assert.equal(archive.headers.get('content-type'), 'application/zip');
 });
+
+test('returns commits in pages with a total count', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  for (const message of ['Second commit', 'Third commit']) {
+    execFileSync('git', ['commit', '--allow-empty', '-m', message], {
+      cwd: repositoryPath,
+      stdio: 'ignore',
+    });
+  }
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const all = await (await fetch(`${server.address}/api/commits`)).json();
+  assert.equal(all.total, 3);
+  assert.equal(all.commits.length, 3);
+  assert.equal(all.commits[0].message, 'Third commit');
+
+  const firstPage = await (await fetch(`${server.address}/api/commits?limit=2`)).json();
+  assert.equal(firstPage.total, 3);
+  assert.equal(firstPage.commits.length, 2);
+  assert.equal(firstPage.commits[0].message, 'Third commit');
+
+  const lastPage = await (await fetch(`${server.address}/api/commits?limit=2&skip=2`)).json();
+  assert.equal(lastPage.total, 3);
+  assert.equal(lastPage.commits.length, 1);
+  assert.equal(lastPage.commits[0].message, 'Initial commit');
+
+  // Commits on unmerged branches are part of the history too.
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: repositoryPath, stdio: 'ignore' });
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'Feature commit'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['checkout', '-'], { cwd: repositoryPath, stdio: 'ignore' });
+
+  const withBranch = await (await fetch(`${server.address}/api/commits`)).json();
+  assert.equal(withBranch.total, 4);
+  assert.ok(withBranch.commits.some((commit) => commit.message === 'Feature commit'));
+});
+
+test('serves large compressed responses without truncation', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  // Large commit bodies push the response past the synchronous compression
+  // threshold so the streaming compression path is exercised.
+  const body = 'x'.repeat(4096);
+  for (let index = 0; index < 20; index++) {
+    execFileSync('git', ['commit', '--allow-empty', '-m', `Commit ${index}`, '-m', body], {
+      cwd: repositoryPath,
+      stdio: 'ignore',
+    });
+  }
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const response = await fetch(`${server.address}/api/commits`, {
+    headers: { 'accept-encoding': 'gzip' },
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.total, 21);
+  assert.equal(result.commits.length, 21);
+});
+
+test('returns an empty history for repositories without commits', async (context) => {
+  const repositoryPath = await mkdtemp(join(tmpdir(), 'guito-test-'));
+  execFileSync('git', ['init'], { cwd: repositoryPath, stdio: 'ignore' });
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const response = await fetch(`${server.address}/api/commits`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { commits: [], total: 0 });
+});

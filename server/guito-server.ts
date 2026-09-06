@@ -5,6 +5,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
+import fastifyCompress from '@fastify/compress';
 import { simpleGit } from 'simple-git';
 import { promisify } from 'node:util';
 
@@ -30,7 +31,6 @@ export async function startGuitoServer({
   port = 8080,
   apiToken,
 }: GuitoServerOptions): Promise<RunningGuitoServer> {
-
   // Initialize server
   const app = fastify({
     logger: false,
@@ -38,6 +38,9 @@ export async function startGuitoServer({
 
   // Register cors
   await app.register(fastifyCors);
+
+  // Compress JSON responses (commit history payloads are highly repetitive)
+  await app.register(fastifyCompress);
 
   if (apiToken) {
     app.addHook('onRequest', async (request, reply) => {
@@ -163,16 +166,22 @@ export async function startGuitoServer({
   app.get('/api/repo', async (_req, resp) => {
     try {
       const root = (await git.revparse(['--show-toplevel'])).trim();
-      resp.type('application/json').send({ root, name: basename(root) });
+      return resp.type('application/json').send({ root, name: basename(root) });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Commits ====================
-  app.get('/api/commits', async (_req, resp) => {
+  app.get('/api/commits', async (req: any, resp) => {
     try {
-      const log = await git.log({
+      const query = (req.query ?? {}) as { limit?: string; skip?: string };
+      const limit = Number.parseInt(query.limit ?? '', 10);
+      const skip = Number.parseInt(query.skip ?? '', 10);
+
+      // Build simple-git options conditionally: an explicit key with an
+      // undefined value would still be emitted as a bare command flag.
+      const options: Record<string, unknown> = {
         format: {
           hash: '%H',
           date: '%aI',
@@ -183,7 +192,19 @@ export async function startGuitoServer({
           author_email: '%aE',
           parents: '%P',
         },
-      });
+        '--all': null,
+      };
+      if (Number.isFinite(limit) && limit > 0) {
+        options.maxCount = limit;
+      }
+      if (Number.isFinite(skip) && skip > 0) {
+        options['--skip'] = String(skip);
+      }
+
+      const [log, count] = await Promise.all([
+        git.log(options as Parameters<typeof git.log>[0]),
+        git.raw(['rev-list', '--count', '--all']),
+      ]);
 
       const commits = log.all.map((commit: any) => ({
         ...commit,
@@ -192,9 +213,19 @@ export async function startGuitoServer({
           .filter(Boolean),
       }));
 
-      resp.type('application/json').send(commits);
+      return resp
+        .type('application/json')
+        .send({ commits, total: Number.parseInt(count, 10) || 0 });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      // A repository without any commits has no history to list.
+      if (
+        /does not have any commits yet|unknown revision|bad default revision/i.test(
+          err.message ?? '',
+        )
+      ) {
+        return resp.type('application/json').send({ commits: [], total: 0 });
+      }
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -202,9 +233,9 @@ export async function startGuitoServer({
     try {
       const { message, description } = req.body;
       await git.commit([message, ...(description ? [description] : [])], { '--allow-empty': null });
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -215,9 +246,9 @@ export async function startGuitoServer({
         '--amend': null,
         '--no-edit': null,
       });
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -225,36 +256,36 @@ export async function startGuitoServer({
     try {
       const { commit } = req.body;
       await git.revert(commit);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   app.post('/api/cherry-pick', async (req: any, resp) => {
     try {
       await git.raw(['cherry-pick', req.body.commit]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   app.post('/api/commit/drop', async (req: any, resp) => {
     try {
       await git.raw(['reset', '--hard', `${req.body.commit}^`]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   app.post('/api/reset-commit', async (req: any, resp) => {
     try {
       await git.raw(['reset', '--hard', req.body.commit]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -262,9 +293,9 @@ export async function startGuitoServer({
   app.get('/api/status', async (_req, resp) => {
     try {
       const status = await git.status();
-      resp.type('application/json').send(status);
+      return resp.type('application/json').send(status);
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -274,9 +305,9 @@ export async function startGuitoServer({
       if (Array.isArray(files) && files.length > 0) {
         await git.add(files);
       }
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -286,9 +317,9 @@ export async function startGuitoServer({
       if (Array.isArray(files) && files.length > 0) {
         await git.reset(['HEAD', ...files]);
       }
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -297,9 +328,9 @@ export async function startGuitoServer({
       const { file, patch } = req.body;
       // Stage specific lines using git add -p equivalent (patch mode)
       await git.raw('add --patch', { input: patch });
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -324,18 +355,18 @@ export async function startGuitoServer({
           return { name, commit, current: headMarker === '*', remote };
         });
 
-      resp.type('application/json').send(branches);
+      return resp.type('application/json').send(branches);
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   app.get('/api/branches', async (_req, resp) => {
     try {
       const branchSummary = await git.branchLocal();
-      resp.type('application/json').send(branchSummary);
+      return resp.type('application/json').send(branchSummary);
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -343,9 +374,9 @@ export async function startGuitoServer({
     try {
       const { name, startPoint } = req.body;
       await git.branch([...(startPoint ? [name, startPoint] : [name])]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -353,9 +384,9 @@ export async function startGuitoServer({
     try {
       const { name, force } = req.body;
       await git.deleteLocalBranch(name, force);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -363,9 +394,9 @@ export async function startGuitoServer({
     try {
       const { remote, branch } = req.body;
       await git.push([remote, '--delete', branch]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -373,9 +404,9 @@ export async function startGuitoServer({
     try {
       const { oldName, newName } = req.body;
       await git.branch(['-m', oldName, newName]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -383,9 +414,9 @@ export async function startGuitoServer({
     try {
       const { ref } = req.body;
       await git.checkout(ref);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -394,9 +425,9 @@ export async function startGuitoServer({
     try {
       const { branch } = req.body;
       await git.merge([branch]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -424,9 +455,9 @@ export async function startGuitoServer({
     try {
       const { branch } = req.body;
       await git.rebase([branch]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -435,9 +466,9 @@ export async function startGuitoServer({
       const { commits } = req.body;
       // Squash: rebase -i with squash operation
       await git.rebase(['-i', 'HEAD~' + commits]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -445,9 +476,9 @@ export async function startGuitoServer({
   app.get('/api/stash/list', async (_req, resp) => {
     try {
       const stashList = await git.stashList();
-      resp.type('application/json').send(stashList);
+      return resp.type('application/json').send(stashList);
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -455,9 +486,9 @@ export async function startGuitoServer({
     try {
       const { message } = req.body;
       await git.stash(['save', message || '']);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -465,9 +496,9 @@ export async function startGuitoServer({
     try {
       const { index } = req.body;
       await git.stash(['apply', `stash@{${index}}`]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -475,9 +506,9 @@ export async function startGuitoServer({
     try {
       const { index } = req.body;
       await git.stash(['pop', `stash@{${index}}`]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -485,9 +516,9 @@ export async function startGuitoServer({
     try {
       const { index } = req.body;
       await git.stash(['drop', `stash@{${index}}`]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -495,9 +526,9 @@ export async function startGuitoServer({
     try {
       const { index } = req.body;
       const show = await git.stash(['show', '-p', `stash@{${index}}`]);
-      resp.type('application/json').send({ preview: show });
+      return resp.type('application/json').send({ preview: show });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -505,9 +536,9 @@ export async function startGuitoServer({
   app.get('/api/tags', async (_req, resp) => {
     try {
       const tags = await git.tags();
-      resp.type('application/json').send(tags);
+      return resp.type('application/json').send(tags);
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -519,9 +550,9 @@ export async function startGuitoServer({
       } else {
         await git.tag([name, ...(commit ? [commit] : [])]);
       }
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -529,9 +560,9 @@ export async function startGuitoServer({
     try {
       const { name } = req.body;
       await git.tag(['-d', name]);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -539,9 +570,9 @@ export async function startGuitoServer({
   app.get('/api/fetch', async (_req, resp) => {
     try {
       await git.fetch();
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -549,9 +580,9 @@ export async function startGuitoServer({
     try {
       const { remote, branch, rebase } = req.body;
       await git.pull(remote || 'origin', branch || undefined, rebase ? { '--rebase': null } : {});
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -559,9 +590,9 @@ export async function startGuitoServer({
     try {
       const { remote, branch, force } = req.body;
       await git.push(remote || 'origin', branch || undefined, force ? { '-f': null } : {});
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -569,9 +600,9 @@ export async function startGuitoServer({
     try {
       await git.pull('origin', undefined, {});
       await git.push('origin', undefined, {});
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -579,9 +610,9 @@ export async function startGuitoServer({
     try {
       const { remote } = req.body;
       await git.remote(['prune', remote || 'origin']);
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -604,9 +635,9 @@ export async function startGuitoServer({
         hash,
       ]);
 
-      resp.type('application/json').send({ hash, files: parseUnifiedDiff(rawDiff) });
+      return resp.type('application/json').send({ hash, files: parseUnifiedDiff(rawDiff) });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -660,14 +691,14 @@ export async function startGuitoServer({
       const stagedRaw = await git.raw(['diff', '--name-only', '--cached']);
       const unstagedRaw = await git.raw(['diff', '--name-only']);
 
-      resp.type('application/json').send({
+      return resp.type('application/json').send({
         files,
         staged: stagedRaw.split('\n').filter(Boolean),
         unstaged: unstagedRaw.split('\n').filter(Boolean),
         untracked: status.not_added ?? [],
       });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -707,13 +738,13 @@ export async function startGuitoServer({
         if (content.includes('\u0000')) {
           return resp.type('application/json').send({ binary: true, content: '' });
         }
-        resp.type('application/json').send({ content });
+        return resp.type('application/json').send({ content });
       } catch {
         // Path did not exist at that revision (added file).
-        resp.type('application/json').send({ content: '' });
+        return resp.type('application/json').send({ content: '' });
       }
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -739,9 +770,9 @@ export async function startGuitoServer({
         await rm(join(root, file), { force: true, recursive: true });
       }
 
-      resp.type('application/json').send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -749,18 +780,18 @@ export async function startGuitoServer({
   app.post('/api/reset', async (_req, resp) => {
     try {
       await git.raw(['reset', '--hard', 'HEAD']);
-      resp.type('application/json').send({ ok: true });
+      return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   app.post('/api/clean', async (_req, resp) => {
     try {
       await git.raw(['clean', '-fd']);
-      resp.type('application/json').send({ ok: true });
+      return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
-      resp.status(400).type('application/json').send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 

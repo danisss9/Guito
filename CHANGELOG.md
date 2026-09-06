@@ -2,6 +2,19 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.3] - 2026-09-06
+
+### Changed
+
+- Commit history now loads 500 commits at a time with "Load more" and "Load all" controls, so large repositories open without fetching the entire history up front.
+- Commit search is debounced and now matches commit bodies in addition to messages, authors, and hashes; searching or filtering by a branch loads the full history automatically so results always cover every commit.
+- The history view includes commits from all branches, and server responses are compressed for faster loading in remote workspaces.
+
+### Fixed
+
+- Fixed the commit table keeping a stale visible-row limit when switching branches or changing the search query.
+- Fixed the commits endpoint returning an error instead of an empty list for repositories without commits.
+
 ## [0.5.2] - 2026-09-01
 
 ### Fixed

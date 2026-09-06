@@ -148,7 +148,18 @@
       }
 
       @if (remaining() > 0) {
-        <button class="load-more" (click)="loadMore()">Load {{ remaining() }} more commits</button>
+        <button class="load-more" (click)="loadMore()">Show {{ remaining() }} more</button>
+      }
+
+      @if (unloaded() > 0 && !historyLoading()) {
+        <div class="load-actions">
+          <button class="load-more" (click)="onLoadMoreCommits()">Load more commits</button>
+          <button class="load-more" (click)="onLoadAllCommits()">Load all ({{ unloaded() }})</button>
+        </div>
+      }
+
+      @if (historyLoading()) {
+        <div class="history-loading">Loading history…</div>
       }
     }
   </div>

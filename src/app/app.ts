@@ -1,5 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { forkJoin, of } from 'rxjs';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import { forkJoin, Observable, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { CommitDetail } from './components/commit-detail/commit-detail';
 import { CommitTable } from './components/commit-table/commit-table';
@@ -8,6 +15,7 @@ import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
 import { Toolbar } from './components/toolbar/toolbar';
 import {
   BranchInfo,
+  CommitsResponse,
   ContextMenuState,
   GitCommit,
   MenuItem,
@@ -17,6 +25,9 @@ import {
 } from './models/git.models';
 import { GitService } from './services/git.service';
 import { authenticatedApiUrl } from './utils/session';
+
+/** Number of commits fetched from the server per request. */
+const LOAD_PAGE_SIZE = 500;
 
 @Component({
   selector: 'app-root',
@@ -39,9 +50,24 @@ export class App {
   protected readonly error = signal('');
   protected readonly repoName = signal('');
   protected readonly workingChanges = signal<WorkingChanges | null>(null);
+  protected readonly totalCommits = signal(0);
+  protected readonly historyLoading = signal(false);
   protected readonly contextMenuState = signal<ContextMenuState | null>(null);
   protected readonly contextMenuTarget = signal<any>(null);
   protected readonly promptState = signal<PromptState | null>(null);
+
+  /** Commits known to exist in the repository but not yet fetched. */
+  protected readonly unloadedCommits = computed(() =>
+    Math.max(0, this.totalCommits() - this.commits().length),
+  );
+
+  private readonly commitIndex = computed(() => {
+    const byHash = new Map<string, GitCommit>();
+    for (const commit of this.commits()) {
+      byHash.set(commit.hash, commit);
+    }
+    return byHash;
+  });
 
   protected readonly filteredCommits = computed(() => {
     let list = this.commits();
@@ -55,7 +81,7 @@ export class App {
     if (branchesToShow.length > 0) {
       const visibleHashes = new Set<string>();
       for (const branch of branchesToShow) {
-        for (const hash of this.ancestorsOf(branch.commit, list)) {
+        for (const hash of this.ancestorsOf(branch.commit)) {
           visibleHashes.add(hash);
         }
       }
@@ -69,6 +95,7 @@ export class App {
       list = list.filter(
         (commit) =>
           commit.message.toLowerCase().includes(query) ||
+          commit.body.toLowerCase().includes(query) ||
           commit.author_name.toLowerCase().includes(query) ||
           commit.hash.toLowerCase().startsWith(query),
       );
@@ -79,6 +106,17 @@ export class App {
 
   constructor() {
     this.refresh();
+
+    // Searching or filtering by branch needs the full history to be accurate.
+    effect(() => {
+      const needsFullHistory =
+        (this.search().trim() !== '' || this.selectedBranch() !== '') &&
+        this.unloadedCommits() > 0 &&
+        !this.historyLoading();
+      if (needsFullHistory) {
+        this.loadAllCommits();
+      }
+    });
   }
 
   protected refresh(): void {
@@ -86,15 +124,16 @@ export class App {
     this.error.set('');
 
     forkJoin({
-      commits: this.git.getCommits(),
+      history: this.git.getCommits(LOAD_PAGE_SIZE),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
       working: this.git
         .getWorkingChanges()
         .pipe(catchError(() => of({ files: [], staged: [], unstaged: [], untracked: [] }))),
     }).subscribe({
-      next: ({ commits, branches, repo, working }) => {
-        this.commits.set(commits);
+      next: ({ history, branches, repo, working }) => {
+        this.commits.set(history.commits);
+        this.totalCommits.set(Math.max(history.total, history.commits.length));
         this.branches.set(branches);
         this.repoName.set(repo.name);
         this.workingChanges.set(working);
@@ -103,6 +142,41 @@ export class App {
       error: (err) => {
         this.error.set(this.errorMessage(err));
         this.loading.set(false);
+      },
+    });
+  }
+
+  protected loadMoreCommits(): void {
+    this.loadHistory(this.git.getCommits(LOAD_PAGE_SIZE, this.commits().length));
+  }
+
+  protected loadAllCommits(): void {
+    this.loadHistory(this.git.getCommits(undefined, this.commits().length));
+  }
+
+  private loadHistory(request: Observable<CommitsResponse>): void {
+    if (this.historyLoading()) {
+      return;
+    }
+
+    const skip = this.commits().length;
+    this.historyLoading.set(true);
+
+    request.subscribe({
+      next: ({ commits, total }) => {
+        // Drop the response if the list was replaced while loading (e.g. a refresh).
+        if (this.commits().length === skip) {
+          this.commits.update((current) => [...current, ...commits]);
+          // An empty page means there is nothing left to load.
+          this.totalCommits.set(
+            commits.length > 0 ? Math.max(total, this.commits().length) : this.commits().length,
+          );
+        }
+        this.historyLoading.set(false);
+      },
+      error: (err) => {
+        this.error.set(this.errorMessage(err));
+        this.historyLoading.set(false);
       },
     });
   }
@@ -496,8 +570,8 @@ export class App {
     }
   }
 
-  private ancestorsOf(head: string, commits: readonly GitCommit[]): Set<string> {
-    const byHash = new Map(commits.map((commit) => [commit.hash, commit]));
+  private ancestorsOf(head: string): Set<string> {
+    const byHash = this.commitIndex();
     const seen = new Set<string>();
     const stack = [head];
 

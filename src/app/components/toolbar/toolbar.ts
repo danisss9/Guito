@@ -1,6 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { HostListener, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { BranchInfo } from '../../models/git.models';
+
+/** How long to wait after the last keystroke before applying the search. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 @Component({
   selector: 'app-toolbar',
@@ -12,7 +17,6 @@ export class Toolbar {
   readonly branches = input.required<BranchInfo[]>();
   readonly selectedBranch = input.required<string>();
   readonly showRemote = input.required<boolean>();
-  readonly search = input.required<string>();
   readonly busy = input.required<boolean>();
 
   readonly branchChange = output<string>();
@@ -21,6 +25,16 @@ export class Toolbar {
   readonly refresh = output<void>();
   readonly remoteAction = output<'fetch' | 'pull' | 'pull-rebase' | 'push' | 'sync'>();
   protected readonly openMenu = signal<'pull' | 'push' | null>(null);
+
+  /** Raw search text; bound to the input so typing stays responsive. */
+  protected readonly searchValue = signal('');
+
+  constructor() {
+    // Apply the search only after typing settles and only when it changed.
+    toObservable(this.searchValue)
+      .pipe(debounceTime(SEARCH_DEBOUNCE_MS), distinctUntilChanged(), takeUntilDestroyed())
+      .subscribe((value) => this.searchChange.emit(value));
+  }
 
   protected readonly visibleBranches = computed(() => {
     return this.branches();
@@ -35,7 +49,7 @@ export class Toolbar {
   }
 
   protected onSearch(event: Event): void {
-    this.searchChange.emit((event.target as HTMLInputElement).value);
+    this.searchValue.set((event.target as HTMLInputElement).value);
   }
 
   protected toggleMenu(menu: 'pull' | 'push', event: MouseEvent): void {
