@@ -122,11 +122,12 @@ test('serves large compressed responses without truncation', async (context) => 
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
-  // Large commit bodies push the response past the synchronous compression
-  // threshold so the streaming compression path is exercised.
-  const body = 'x'.repeat(4096);
+  // Long subjects keep the response large now that the list payload omits
+  // commit bodies, pushing it past the synchronous compression threshold so
+  // the streaming compression path is exercised.
+  const filler = 'x'.repeat(4096);
   for (let index = 0; index < 20; index++) {
-    execFileSync('git', ['commit', '--allow-empty', '-m', `Commit ${index}`, '-m', body], {
+    execFileSync('git', ['commit', '--allow-empty', '-m', `Commit ${index} ${filler}`], {
       cwd: repositoryPath,
       stdio: 'ignore',
     });
@@ -147,6 +148,67 @@ test('serves large compressed responses without truncation', async (context) => 
   const result = await response.json();
   assert.equal(result.total, 21);
   assert.equal(result.commits.length, 21);
+});
+
+test('omits commit bodies from the list and serves them on demand', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  execFileSync(
+    'git',
+    [
+      'commit',
+      '--allow-empty',
+      '-m',
+      'Fix session handling',
+      '-m',
+      'The session cookie expired too early for some users.',
+    ],
+    { cwd: repositoryPath, stdio: 'ignore' },
+  );
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  // The list payload leaves the body out entirely.
+  const list = await (await fetch(`${server.address}/api/commits`)).json();
+  const listed = list.commits.find((commit) => commit.message === 'Fix session handling');
+  assert.ok(listed, 'expected the commit to be listed');
+  assert.equal('body' in listed, false);
+
+  // The detail endpoint returns the full commit including the body.
+  const detailResponse = await fetch(`${server.address}/api/commit/detail`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hash: listed.hash }),
+  });
+  assert.equal(detailResponse.status, 200);
+  const detail = await detailResponse.json();
+  assert.equal(detail.hash, listed.hash);
+  assert.equal(detail.message, 'Fix session handling');
+  assert.ok(detail.body.includes('session cookie expired too early'));
+  assert.equal(detail.parents.length, 1);
+
+  // Body search runs on the server since bodies are not part of the list.
+  const search = await (
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('session cookie expired')}`,
+    )
+  ).json();
+  assert.deepEqual(search.hashes, [listed.hash]);
+
+  const noMatch = await (
+    await fetch(`${server.address}/api/commits/search?query=nothing-matches-this`)
+  ).json();
+  assert.deepEqual(noMatch.hashes, []);
+
+  const emptyQuery = await (await fetch(`${server.address}/api/commits/search`)).json();
+  assert.deepEqual(emptyQuery.hashes, []);
 });
 
 test('returns an empty history for repositories without commits', async (context) => {

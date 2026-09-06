@@ -3,7 +3,8 @@ export interface GitCommit {
   date: string;
   message: string;
   refs: string;
-  body: string;
+  /** Commit body. Omitted by the list endpoint; fetch via /api/commit/detail. */
+  body?: string;
   author_name: string;
   author_email: string;
   parents: string[];
@@ -14,6 +15,11 @@ export interface CommitsResponse {
   commits: GitCommit[];
   /** Total number of commits in the repository history. */
   total: number;
+}
+
+/** Hashes of commits whose message (subject or body) matches a query. */
+export interface CommitSearchResponse {
+  hashes: string[];
 }
 
 export type RefType = 'head' | 'local' | 'remote' | 'tag';

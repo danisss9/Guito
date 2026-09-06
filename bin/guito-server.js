@@ -147,13 +147,15 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const skip = Number.parseInt(query.skip ?? '', 10);
             // Build simple-git options conditionally: an explicit key with an
             // undefined value would still be emitted as a bare command flag.
+            // The commit body is intentionally omitted: it roughly doubles the
+            // payload and is only needed when a commit is opened, so it is served
+            // on demand by /api/commit/detail instead.
             const options = {
                 format: {
                     hash: '%H',
                     date: '%aI',
                     message: '%s',
                     refs: '%D',
-                    body: '%b',
                     author_name: '%aN',
                     author_email: '%aE',
                     parents: '%P',
@@ -176,12 +178,43 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     .split(' ')
                     .filter(Boolean),
             }));
-            return resp.type('application/json').send({ commits, total: Number.parseInt(count, 10) || 0 });
+            return resp
+                .type('application/json')
+                .send({ commits, total: Number.parseInt(count, 10) || 0 });
         }
         catch (err) {
             // A repository without any commits has no history to list.
             if (/does not have any commits yet|unknown revision|bad default revision/i.test(err.message ?? '')) {
                 return resp.type('application/json').send({ commits: [], total: 0 });
+            }
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Full-text commit search. The list payload omits commit bodies, so body
+    // matching runs here (git --grep covers subject and body together) and the
+    // client unions the resulting hashes with its local subject/author/hash
+    // matches over the loaded history.
+    app.get('/api/commits/search', async (req, resp) => {
+        const query = String((req.query ?? {}).query ?? '').trim();
+        if (!query) {
+            return resp.type('application/json').send({ hashes: [] });
+        }
+        try {
+            const raw = await git.raw([
+                'log',
+                '--all',
+                '-i',
+                '--fixed-strings',
+                `--grep=${query}`,
+                '--format=%H',
+            ]);
+            return resp
+                .type('application/json')
+                .send({ hashes: raw.split('\n').map((hash) => hash.trim()).filter(Boolean) });
+        }
+        catch (err) {
+            if (/does not have any commits yet|unknown revision|bad default revision/i.test(err.message ?? '')) {
+                return resp.type('application/json').send({ hashes: [] });
             }
             return resp.status(400).type('application/json').send({ error: err.message });
         }
@@ -567,6 +600,39 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const { remote } = req.body;
             await git.remote(['prune', remote || 'origin']);
             return resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Commit Detail ====================
+    app.post('/api/commit/detail', async (req, resp) => {
+        try {
+            const { hash } = req.body;
+            if (!hash) {
+                return resp.status(400).type('application/json').send({ error: 'hash required' });
+            }
+            // Fields are NUL-separated; %b may span lines and contain anything
+            // except NUL, so it cannot be split naively by newline.
+            const raw = await git.raw([
+                'show',
+                '-s',
+                '--format=%H%x00%aI%x00%s%x00%b%x00%aN%x00%aE%x00%P',
+                hash,
+            ]);
+            const [fullHash, date, message, body, authorName, authorEmail, parents] = raw.trimEnd().split('\u0000');
+            return resp.type('application/json').send({
+                hash: fullHash,
+                date,
+                message,
+                refs: '',
+                body: body ?? '',
+                author_name: authorName,
+                author_email: authorEmail,
+                parents: String(parents ?? '')
+                    .split(' ')
+                    .filter(Boolean),
+            });
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });

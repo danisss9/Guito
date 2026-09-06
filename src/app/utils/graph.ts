@@ -6,6 +6,25 @@ export interface GraphCommit {
   parents: string[];
 }
 
+/** Minimal row shape needed to assign lanes (shared with the graph worker). */
+export interface LaneRow {
+  hash: string;
+  parents: readonly string[];
+}
+
+/** Message sent to the graph worker to compute lanes off the main thread. */
+export interface GraphWorkerRequest {
+  id: number;
+  hashes: string[];
+  parents: string[][];
+}
+
+/** Lane assignment returned by the graph worker, index-aligned with the rows. */
+export interface GraphWorkerResponse {
+  id: number;
+  lanes: Int32Array;
+}
+
 /**
  * Assigns a lane (column) to every commit so the history can be drawn as a
  * graph. Commits are expected in newest-first order (git log order).
@@ -16,9 +35,9 @@ export interface GraphCommit {
  *  - its first parent continues on the same lane,
  *  - any additional parent branches out into its own lane.
  */
-export function computeGraph(commits: readonly GitCommit[]): GraphCommit[] {
+export function assignLanes(rows: readonly LaneRow[]): Int32Array {
   const lanes: (string | null)[] = [];
-  const result: GraphCommit[] = [];
+  const result = new Int32Array(rows.length);
 
   const laneFor = (hash: string): number => {
     let index = lanes.indexOf(hash);
@@ -33,13 +52,13 @@ export function computeGraph(commits: readonly GitCommit[]): GraphCommit[] {
     return index;
   };
 
-  for (const commit of commits) {
-    const parents = commit.parents ?? [];
+  for (let index = 0; index < rows.length; index++) {
+    const { hash, parents } = rows[index];
 
     // Lanes waiting for this commit (merge targets).
     const expecting = lanes
-      .map((expected, index) => (expected === commit.hash ? index : -1))
-      .filter((index) => index !== -1);
+      .map((expected, lane) => (expected === hash ? lane : -1))
+      .filter((lane) => lane !== -1);
 
     let lane: number;
     if (expecting.length > 0) {
@@ -48,7 +67,7 @@ export function computeGraph(commits: readonly GitCommit[]): GraphCommit[] {
         lanes[expecting[i]] = null;
       }
     } else {
-      lane = laneFor(commit.hash);
+      lane = laneFor(hash);
     }
 
     // The first parent continues on the same lane.
@@ -59,10 +78,20 @@ export function computeGraph(commits: readonly GitCommit[]): GraphCommit[] {
       laneFor(parents[i]);
     }
 
-    result.push({ commit, lane, parents });
+    result[index] = lane;
   }
 
   return result;
+}
+
+/** Synchronous lane assignment; also the fallback when no worker is available. */
+export function computeGraph(commits: readonly GitCommit[]): GraphCommit[] {
+  const lanes = assignLanes(commits);
+  return commits.map((commit, index) => ({
+    commit,
+    lane: lanes[index],
+    parents: commit.parents ?? [],
+  }));
 }
 
 export const LANE_COLORS = [

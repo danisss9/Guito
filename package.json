@@ -1,6 +1,6 @@
 {
   "name": "guito",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Easily explore your git repositories.",
   "homepage": "https://github.com/danisss9/Guito#readme",
   "repository": {
@@ -63,6 +63,7 @@
   },
   "devDependencies": {
     "@angular/build": "^20.0.0",
+    "@angular/cdk": "^20.2.14",
     "@angular/cli": "^20.0.0",
     "@angular/common": "^20.0.0",
     "@angular/compiler": "^20.0.0",

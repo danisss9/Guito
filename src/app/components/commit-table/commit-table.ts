@@ -1,14 +1,22 @@
 import { DatePipe } from '@angular/common';
 import {
+  CdkFixedSizeVirtualScroll,
+  CdkVirtualForOf,
+  CdkVirtualScrollViewport,
+} from '@angular/cdk/scrolling';
+import {
   ChangeDetectionStrategy,
   Component,
   OnDestroy,
   computed,
   effect,
+  inject,
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
+import { Subscription } from 'rxjs';
 import {
   ContextMenuEvent,
   GitCommit,
@@ -16,7 +24,8 @@ import {
   WORKING_HASH,
   WorkingChanges,
 } from '../../models/git.models';
-import { GraphCommit, computeGraph, laneColor } from '../../utils/graph';
+import { GraphService } from '../../services/graph.service';
+import { GraphCommit, laneColor } from '../../utils/graph';
 import { isHeadCommit, parseRefs } from '../../utils/refs';
 
 interface GraphNodeView {
@@ -43,11 +52,12 @@ const ROW_HEIGHT = 34;
 const LANE_WIDTH = 14;
 const GRAPH_PADDING = 10;
 const MIN_GRAPH_WIDTH = 72;
-const PAGE_SIZE = 500;
+/** Extra rows drawn above and below the viewport so scrolling stays smooth. */
+const GRAPH_ROW_BUFFER = 10;
 
 @Component({
   selector: 'app-commit-table',
-  imports: [DatePipe],
+  imports: [DatePipe, CdkFixedSizeVirtualScroll, CdkVirtualForOf, CdkVirtualScrollViewport],
   templateUrl: './commit-table.html',
   styleUrl: './commit-table.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,14 +77,50 @@ export class CommitTable implements OnDestroy {
   readonly loadMoreRequested = output<void>();
   readonly loadAllRequested = output<void>();
 
-  protected readonly limit = signal(PAGE_SIZE);
+  protected readonly rowHeight = ROW_HEIGHT;
+
+  private readonly graph = inject(GraphService);
+  private readonly viewport = viewChild(CdkVirtualScrollViewport);
+
+  /** Scroll offset and viewport height drive which graph rows are drawn. */
+  protected readonly scrollTop = signal(0);
+  private readonly viewportHeight = signal(0);
 
   constructor() {
-    // Start over with a fresh window whenever the filter context changes.
+    // Compute lanes whenever the loaded history changes; large histories are
+    // computed in a worker, so the previous graph stays visible until then.
+    effect(() => {
+      const commits = this.commits();
+      this.updateGraph(commits);
+    });
+
+    // Start over at the top whenever the filter context changes.
     effect(() => {
       this.search();
       this.selectedBranch();
-      this.limit.set(PAGE_SIZE);
+      this.viewport()?.scrollToIndex(0);
+    });
+
+    // (Re)wire scroll and size tracking whenever the viewport (re)appears.
+    effect(() => {
+      const viewport = this.viewport();
+      if (!viewport) {
+        return;
+      }
+
+      const element = viewport.elementRef.nativeElement;
+      const observer = new ResizeObserver(() => this.viewportHeight.set(element.clientHeight));
+      observer.observe(element);
+      this.viewportHeight.set(element.clientHeight);
+
+      const subscription = viewport.elementScrolled().subscribe(() => {
+        this.scrollTop.set(viewport.measureScrollOffset('top'));
+      });
+
+      return () => {
+        observer.disconnect();
+        subscription.unsubscribe();
+      };
     });
   }
 
@@ -85,9 +131,27 @@ export class CommitTable implements OnDestroy {
     commit: 84,
   });
 
-  protected readonly displayed = computed(() => this.commits().slice(0, this.limit()));
+  protected readonly graphCommits = signal<GraphCommit[]>([]);
 
-  protected readonly graphCommits = computed<GraphCommit[]>(() => computeGraph(this.displayed()));
+  private graphSubscription: Subscription | null = null;
+
+  private updateGraph(commits: readonly GitCommit[]): void {
+    // Supersede any in-flight worker request; its reply is dropped on arrival.
+    this.graphSubscription?.unsubscribe();
+    this.graphSubscription = this.graph.compute(commits).subscribe((lanes) => {
+      // Length mismatch means the history changed while computing.
+      if (lanes.length !== commits.length) {
+        return;
+      }
+      this.graphCommits.set(
+        commits.map((commit, index) => ({
+          commit,
+          lane: lanes[index],
+          parents: commit.parents ?? [],
+        })),
+      );
+    });
+  }
 
   protected readonly graphWidth = computed(() => {
     const lanes = this.graphCommits().reduce((max, entry) => Math.max(max, entry.lane), 0) + 1;
@@ -100,24 +164,57 @@ export class CommitTable implements OnDestroy {
 
   protected readonly graphHeight = computed(() => this.graphCommits().length * ROW_HEIGHT);
 
-  protected readonly nodes = computed<GraphNodeView[]>(() =>
-    this.graphCommits().map((entry, index) => ({
-      hash: entry.commit.hash,
-      x: this.laneX(entry.lane),
-      y: index * ROW_HEIGHT + ROW_HEIGHT / 2,
-      color: laneColor(entry.lane),
-      isHead: isHeadCommit(entry.commit),
-    })),
-  );
+  /** Row/lane lookup over the full graph; rebuilt only when the graph changes. */
+  private readonly graphIndex = computed(() => {
+    const graph = this.graphCommits();
+    const rowOf = new Map<string, number>();
+    const laneOf = new Map<string, number>();
+    graph.forEach((entry, index) => {
+      rowOf.set(entry.commit.hash, index);
+      laneOf.set(entry.commit.hash, entry.lane);
+    });
+    return { rowOf, laneOf };
+  });
+
+  /** Range of rows whose nodes and edges need to be drawn right now. */
+  private readonly visibleRange = computed(() => {
+    const total = this.graphCommits().length;
+    if (total === 0 || this.viewportHeight() === 0) {
+      return { start: 0, end: 0 };
+    }
+    const start = Math.max(0, Math.floor(this.scrollTop() / ROW_HEIGHT) - GRAPH_ROW_BUFFER);
+    const end = Math.min(
+      total,
+      Math.ceil((this.scrollTop() + this.viewportHeight()) / ROW_HEIGHT) + GRAPH_ROW_BUFFER,
+    );
+    return { start, end };
+  });
+
+  protected readonly nodes = computed<GraphNodeView[]>(() => {
+    const { start, end } = this.visibleRange();
+    const nodes: GraphNodeView[] = [];
+    for (let index = start; index < end; index++) {
+      const entry = this.graphCommits()[index];
+      nodes.push({
+        hash: entry.commit.hash,
+        x: this.laneX(entry.lane),
+        y: index * ROW_HEIGHT + ROW_HEIGHT / 2,
+        color: laneColor(entry.lane),
+        isHead: isHeadCommit(entry.commit),
+      });
+    }
+    return nodes;
+  });
 
   protected readonly edges = computed<GraphEdgeView[]>(() => {
     const graph = this.graphCommits();
-    const rowOf = new Map(graph.map((entry, index) => [entry.commit.hash, index]));
-    const laneOf = new Map(graph.map((entry) => [entry.commit.hash, entry.lane]));
+    const { rowOf, laneOf } = this.graphIndex();
+    const { start, end } = this.visibleRange();
     const height = this.graphHeight();
     const edges: GraphEdgeView[] = [];
 
-    graph.forEach((entry, index) => {
+    for (let index = start; index < end; index++) {
+      const entry = graph[index];
       const color = laneColor(entry.lane);
       const x1 = this.laneX(entry.lane);
       const y1 = index * ROW_HEIGHT + ROW_HEIGHT / 2;
@@ -126,7 +223,7 @@ export class CommitTable implements OnDestroy {
         const parentRow = rowOf.get(parent);
 
         if (parentRow === undefined) {
-          // Parent is outside the visible list: draw the lane to the bottom.
+          // Parent is outside the loaded history: draw the lane to the bottom.
           edges.push({ d: `M ${x1} ${y1} L ${x1} ${height}`, color });
           continue;
         }
@@ -141,12 +238,10 @@ export class CommitTable implements OnDestroy {
           edges.push({ d: `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`, color });
         }
       }
-    });
+    }
 
     return edges;
   });
-
-  protected readonly remaining = computed(() => this.commits().length - this.displayed().length);
 
   protected readonly hasWorkingChanges = computed(
     () => (this.workingChanges()?.files.length ?? 0) > 0,
@@ -202,6 +297,7 @@ export class CommitTable implements OnDestroy {
 
   ngOnDestroy(): void {
     this.onResizeEnd();
+    this.graphSubscription?.unsubscribe();
   }
 
   // ==================== Context menus ====================
@@ -261,20 +357,18 @@ export class CommitTable implements OnDestroy {
     return segments.length > 0 ? segments : [{ text, match: false }];
   }
 
-  protected loadMore(): void {
-    this.limit.set(this.limit() + PAGE_SIZE);
-  }
-
-  /** Reveal the next window and ask the app to fetch more commits. */
+  /** Ask the app to fetch the next page of commits. */
   protected onLoadMoreCommits(): void {
-    this.limit.update((current) => current + PAGE_SIZE);
     this.loadMoreRequested.emit();
   }
 
   /** Fetch and render the entire remaining history. */
   protected onLoadAllCommits(): void {
-    this.limit.set(Number.POSITIVE_INFINITY);
     this.loadAllRequested.emit();
+  }
+
+  protected trackByHash(_index: number, entry: GraphCommit): string {
+    return entry.commit.hash;
   }
 
   protected badges(commit: GitCommit): RefBadge[] {

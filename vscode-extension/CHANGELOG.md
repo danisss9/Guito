@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4
+
+- Render only the visible rows with virtual scrolling and compute the commit graph in a web worker for large histories.
+- Omit commit bodies from the list payload and fetch them on demand in the detail pane.
+- Refresh only the working-tree status after discard, reset, and clean actions, and abort superseded requests.
+
 ## 0.5.3
 
 - Load commit history in pages of 500 with load-more and load-all controls for faster startup on large repositories.

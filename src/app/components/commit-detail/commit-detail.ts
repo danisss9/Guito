@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   computed,
   effect,
   inject,
@@ -9,6 +10,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { CommitDiff, FileDiff, GitCommit, WORKING_HASH } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 import { hashString, laneColor } from '../../utils/graph';
@@ -21,7 +23,7 @@ import { DiffDialog } from '../diff-dialog/diff-dialog';
   styleUrl: './commit-detail.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CommitDetail {
+export class CommitDetail implements OnDestroy {
   private readonly git = inject(GitService);
 
   readonly commit = input.required<GitCommit>();
@@ -31,6 +33,11 @@ export class CommitDetail {
   protected readonly loading = signal(false);
   protected readonly error = signal('');
   protected readonly dialogFile = signal<FileDiff | null>(null);
+
+  /** Commit body, fetched on demand because the list payload omits it. */
+  protected readonly body = signal('');
+
+  private bodySub: Subscription | null = null;
 
   protected readonly workingHash = WORKING_HASH;
 
@@ -62,11 +69,32 @@ export class CommitDetail {
   constructor() {
     effect(() => {
       this.loadDiff(this.commit().hash);
+      this.loadBody(this.commit());
     });
+  }
+
+  ngOnDestroy(): void {
+    this.bodySub?.unsubscribe();
   }
 
   protected openFile(file: FileDiff): void {
     this.dialogFile.set(file);
+  }
+
+  private loadBody(commit: GitCommit): void {
+    this.bodySub?.unsubscribe();
+    this.body.set('');
+
+    if (commit.body !== undefined) {
+      // Synthetic commits (working tree) carry their body inline.
+      this.body.set(commit.body);
+      return;
+    }
+
+    this.bodySub = this.git.getCommitDetail(commit.hash).subscribe({
+      next: (detail) => this.body.set(detail.body ?? ''),
+      error: () => this.body.set(''),
+    });
   }
 
   private loadDiff(hash: string): void {

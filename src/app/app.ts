@@ -5,7 +5,9 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { forkJoin, Observable, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { CommitDetail } from './components/commit-detail/commit-detail';
@@ -56,6 +58,18 @@ export class App {
   protected readonly contextMenuTarget = signal<any>(null);
   protected readonly promptState = signal<PromptState | null>(null);
 
+  /**
+   * Hashes of commits whose body matches the current search. The list payload
+   * omits bodies, so body matching is done by the server.
+   */
+  protected readonly bodyMatches = signal<ReadonlySet<string>>(new Set());
+
+  // In-flight requests; unsubscribing aborts the HTTP call and supersedes it.
+  private refreshSub: Subscription | null = null;
+  private historySub: Subscription | null = null;
+  private workingSub: Subscription | null = null;
+  private searchSub: Subscription | null = null;
+
   /** Commits known to exist in the repository but not yet fetched. */
   protected readonly unloadedCommits = computed(() =>
     Math.max(0, this.totalCommits() - this.commits().length),
@@ -92,12 +106,13 @@ export class App {
 
     const query = this.search().trim().toLowerCase();
     if (query) {
+      const bodyMatches = this.bodyMatches();
       list = list.filter(
         (commit) =>
           commit.message.toLowerCase().includes(query) ||
-          commit.body.toLowerCase().includes(query) ||
           commit.author_name.toLowerCase().includes(query) ||
-          commit.hash.toLowerCase().startsWith(query),
+          commit.hash.toLowerCase().startsWith(query) ||
+          bodyMatches.has(commit.hash),
       );
     }
 
@@ -117,13 +132,30 @@ export class App {
         this.loadAllCommits();
       }
     });
+
+    // Bodies are no longer part of the list payload; ask the server which
+    // commits match the query instead of filtering them client-side.
+    effect(() => {
+      const query = this.search().trim();
+      if (query === '') {
+        this.searchSub?.unsubscribe();
+        this.bodyMatches.set(new Set());
+        return;
+      }
+      untracked(() => this.fetchBodyMatches(query));
+    });
   }
 
   protected refresh(): void {
+    // A refresh supersedes any in-flight history page or working-tree request.
+    this.historySub?.unsubscribe();
+    this.workingSub?.unsubscribe();
+    this.historyLoading.set(false);
     this.loading.set(true);
     this.error.set('');
 
-    forkJoin({
+    this.refreshSub?.unsubscribe();
+    this.refreshSub = forkJoin({
       history: this.git.getCommits(LOAD_PAGE_SIZE),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
@@ -138,12 +170,28 @@ export class App {
         this.repoName.set(repo.name);
         this.workingChanges.set(working);
         this.loading.set(false);
+        // The history changed; stale body matches may no longer apply.
+        if (this.search().trim() !== '') {
+          this.fetchBodyMatches(this.search().trim());
+        }
       },
       error: (err) => {
         this.error.set(this.errorMessage(err));
         this.loading.set(false);
       },
     });
+  }
+
+  /** Refetches only the working-tree status after working-tree-only changes. */
+  protected refreshWorking(): void {
+    this.workingSub?.unsubscribe();
+    this.workingSub = this.git
+      .getWorkingChanges()
+      .pipe(catchError(() => of({ files: [], staged: [], unstaged: [], untracked: [] })))
+      .subscribe({
+        next: (working) => this.workingChanges.set(working),
+        error: (err) => this.error.set(this.errorMessage(err)),
+      });
   }
 
   protected loadMoreCommits(): void {
@@ -162,7 +210,8 @@ export class App {
     const skip = this.commits().length;
     this.historyLoading.set(true);
 
-    request.subscribe({
+    this.historySub?.unsubscribe();
+    this.historySub = request.subscribe({
       next: ({ commits, total }) => {
         // Drop the response if the list was replaced while loading (e.g. a refresh).
         if (this.commits().length === skip) {
@@ -178,6 +227,15 @@ export class App {
         this.error.set(this.errorMessage(err));
         this.historyLoading.set(false);
       },
+    });
+  }
+
+  private fetchBodyMatches(query: string): void {
+    // Rapid searches abort each other; only the latest response applies.
+    this.searchSub?.unsubscribe();
+    this.searchSub = this.git.searchCommits(query).subscribe({
+      next: (result) => this.bodyMatches.set(new Set(result.hashes)),
+      error: () => this.bodyMatches.set(new Set()),
     });
   }
 
@@ -473,7 +531,7 @@ export class App {
             const files = [...changes.files.map((f) => f.path), ...changes.untracked];
             if (files.length > 0) {
               this.git.discard(files).subscribe({
-                next: () => this.refresh(),
+                next: () => this.refreshWorking(),
                 error: (err) => this.error.set(this.errorMessage(err)),
               });
             }
@@ -545,7 +603,7 @@ export class App {
 
     if (state.title === 'Reset uncommitted changes?') {
       this.git.resetWorking().subscribe({
-        next: () => this.refresh(),
+        next: () => this.refreshWorking(),
         error: (err) => this.error.set(this.errorMessage(err)),
       });
       return;
@@ -553,7 +611,7 @@ export class App {
 
     if (state.title === 'Clean untracked files?') {
       this.git.cleanUntracked().subscribe({
-        next: () => this.refresh(),
+        next: () => this.refreshWorking(),
         error: (err) => this.error.set(this.errorMessage(err)),
       });
       return;

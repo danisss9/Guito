@@ -20,8 +20,8 @@
       }
     </div>
 
-    @if (commit().body.trim()) {
-      <pre class="body">{{ commit().body }}</pre>
+    @if (body().trim()) {
+      <pre class="body">{{ body() }}</pre>
     }
   </header>
 

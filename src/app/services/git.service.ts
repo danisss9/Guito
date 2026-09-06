@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import {
   BranchInfo,
   CommitDiff,
+  CommitSearchResponse,
   CommitsResponse,
   FileContent,
   GitCommit,
@@ -29,6 +30,17 @@ export class GitService {
       params = params.set('skip', String(skip));
     }
     return this.http.get<CommitsResponse>(`${this.base}/commits`, { params });
+  }
+
+  /** Hashes of commits whose message (subject or body) contains the query. */
+  searchCommits(query: string): Observable<CommitSearchResponse> {
+    const params = new HttpParams().set('query', query);
+    return this.http.get<CommitSearchResponse>(`${this.base}/commits/search`, { params });
+  }
+
+  /** Full commit including the body, which the list endpoint omits. */
+  getCommitDetail(hash: string): Observable<GitCommit> {
+    return this.http.post<GitCommit>(`${this.base}/commit/detail`, { hash });
   }
 
   getAllBranches(): Observable<BranchInfo[]> {

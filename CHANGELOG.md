@@ -2,6 +2,18 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.4] - 2026-09-06
+
+### Changed
+
+- The commit table now renders only the visible rows with virtual scrolling, so scrolling stays smooth no matter how much history is loaded.
+- The commit graph is drawn as a viewport-sized overlay that tracks the scroll position, replacing the full-height SVG canvas.
+- Lane assignment for large histories (over 2,000 commits) runs in a web worker, keeping the interface responsive after "Load all" on repositories with 10k+ commits.
+- The commit list payload omits commit bodies, roughly halving its size; the detail pane fetches the body on demand when a commit is opened.
+- Commit body search now runs on the server, preserving full-history body matching with the trimmed list payload.
+- Working-tree actions (discard, reset, clean) refresh only the working-tree status instead of refetching the commit history, branches, and repository info.
+- Refreshing or searching aborts superseded in-flight requests instead of letting stale responses race newer ones.
+
 ## [0.5.3] - 2026-09-06
 
 ### Changed

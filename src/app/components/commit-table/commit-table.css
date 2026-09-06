@@ -59,16 +59,29 @@
 }
 
 .table-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Hosts the virtual viewport and the graph overlay aligned with it. */
+.list-container {
   position: relative;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
 }
 
-.graph {
+.list-viewport {
+  height: 100%;
+}
+
+/* Viewport-sized graph canvas; the visible slice is translated into view. */
+.graph-overlay {
   position: absolute;
   top: 0;
   left: 0;
+  height: 100%;
   pointer-events: none;
 }
 
@@ -76,6 +89,7 @@
   display: flex;
   align-items: center;
   height: 34px;
+  flex: none;
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
