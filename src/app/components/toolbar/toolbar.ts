@@ -1,5 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { HostListener, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  computed,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { BranchInfo } from '../../models/git.models';
@@ -18,6 +27,10 @@ export class Toolbar {
   readonly selectedBranch = input.required<string>();
   readonly showRemote = input.required<boolean>();
   readonly busy = input.required<boolean>();
+  /** Number of commits matching the current search. */
+  readonly resultCount = input(0);
+  /** Total number of commits in the repository. */
+  readonly totalCount = input(0);
 
   readonly branchChange = output<string>();
   readonly remoteToggle = output<boolean>();
@@ -28,6 +41,8 @@ export class Toolbar {
 
   /** Raw search text; bound to the input so typing stays responsive. */
   protected readonly searchValue = signal('');
+
+  private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   constructor() {
     // Apply the search only after typing settles and only when it changed.
@@ -50,6 +65,12 @@ export class Toolbar {
 
   protected onSearch(event: Event): void {
     this.searchValue.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Clears the search; the debounced pipeline emits the empty query itself. */
+  protected clearSearch(): void {
+    this.searchValue.set('');
+    this.searchInput()?.nativeElement.focus();
   }
 
   protected toggleMenu(menu: 'pull' | 'push', event: MouseEvent): void {

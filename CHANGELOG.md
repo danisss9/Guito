@@ -2,13 +2,16 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-07
 
 ### Added
 
 - Stage and unstage individual files, selected ranges, or all changes from the Uncommitted changes panel, with Ctrl/Cmd and Shift selection and separate index/working-tree diff previews.
 - Write a commit subject and optional description, then commit staged changes without leaving Guito. Drafts survive panel closure and failed commits during the session.
-- Added browser regressions and Git integration coverage for search, table alignment, staging, and committing.
+- Rename and delete local branches from the branch context menu. Deleting the checked-out branch is disabled, the branches dropdown follows renames, and it falls back to "Show All" when the selected branch is deleted.
+- Clear the commit search with a dedicated button and show how many commits match the current search out of the total history.
+- Persist column widths and the commit message draft across sessions using browser storage.
+- Added browser regressions and Git integration coverage for search, table alignment, staging, committing, and branch management.
 
 ### Fixed
 
@@ -17,6 +20,7 @@ All notable changes to Guito are documented in this file. The project follows [S
 - Recover pending graph work when its worker fails, ignore superseded search requests, and allow explicit retries without automatic failure loops.
 - Preserve the last known working status after errors and support initial commits, partial staging, renamed/deleted files, and literal filenames.
 - Reject blank subjects, empty-index commits, and unresolved conflicts, and prevent overlapping UI mutations.
+- Keep commit graph edges connected across viewport boundaries while scrolling, so long merge edges no longer disappear from view.
 
 ## [0.5.4] - 2026-09-06
 

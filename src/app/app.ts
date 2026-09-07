@@ -29,9 +29,26 @@ import {
 } from './models/git.models';
 import { GitService } from './services/git.service';
 import { authenticatedApiUrl } from './utils/session';
+import { loadJson, saveJson } from './utils/storage';
 
 /** Number of commits fetched from the server per request. */
 const LOAD_PAGE_SIZE = 500;
+
+/** localStorage key holding the persisted commit message draft. */
+const COMMIT_DRAFT_KEY = 'guito.commitDraft';
+
+interface CommitDraft {
+  subject: string;
+  description: string;
+}
+
+function loadCommitDraft(): CommitDraft {
+  const draft = loadJson<Partial<CommitDraft>>(COMMIT_DRAFT_KEY, {});
+  return {
+    subject: typeof draft.subject === 'string' ? draft.subject : '',
+    description: typeof draft.description === 'string' ? draft.description : '',
+  };
+}
 
 @Component({
   selector: 'app-root',
@@ -47,15 +64,23 @@ export class App implements OnDestroy {
   protected readonly mutationBusy = this.git.mutating;
   protected readonly statusLoading = signal(false);
   protected readonly statusError = signal('');
-  protected readonly commitSubject = signal('');
-  protected readonly commitDescription = signal('');
+  /** Commit message draft, persisted across sessions. */
+  private readonly commitDraft = loadCommitDraft();
+  protected readonly commitSubject = signal(this.commitDraft.subject);
+  protected readonly commitDescription = signal(this.commitDraft.description);
   protected readonly displayedCommits = signal<GitCommit[]>([]);
   protected readonly searchLoading = signal(false);
   private readonly historyGeneration = signal(0);
   private readonly filterFailed = signal(false);
-  protected readonly tableLoading = computed(() => this.loading() ? 'Refreshing commits...' :
-    this.searchLoading() || (this.search().trim() && this.historyLoading()) ? 'Searching commits...' :
-    this.historyLoading() ? 'Loading history...' : '');
+  protected readonly tableLoading = computed(() =>
+    this.loading()
+      ? 'Refreshing commits...'
+      : this.searchLoading() || (this.search().trim() && this.historyLoading())
+        ? 'Searching commits...'
+        : this.historyLoading()
+          ? 'Loading history...'
+          : '',
+  );
 
   protected readonly commits = signal<GitCommit[]>([]);
   protected readonly branches = signal<BranchInfo[]>([]);
@@ -156,9 +181,23 @@ export class App implements OnDestroy {
       });
     });
     effect(() => {
-      if (!this.loading() && !this.searchLoading() && !this.historyLoading() && !this.filterFailed()) {
+      if (
+        !this.loading() &&
+        !this.searchLoading() &&
+        !this.historyLoading() &&
+        !this.filterFailed()
+      ) {
         this.displayedCommits.set(this.filteredCommits());
       }
+    });
+
+    // Persist the commit message draft as it is typed; clearing it after a
+    // successful commit persists the cleared state too.
+    effect(() => {
+      saveJson(COMMIT_DRAFT_KEY, {
+        subject: this.commitSubject(),
+        description: this.commitDescription(),
+      });
     });
   }
 
@@ -186,19 +225,25 @@ export class App implements OnDestroy {
       history: this.git.getCommits(LOAD_PAGE_SIZE),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
-      working: this.git
-        .getWorkingChanges()
-        .pipe(catchError((err) => { this.statusError.set(this.errorMessage(err)); return of(null); })),
+      working: this.git.getWorkingChanges().pipe(
+        catchError((err) => {
+          this.statusError.set(this.errorMessage(err));
+          return of(null);
+        }),
+      ),
     }).subscribe({
       next: ({ history, branches, repo, working }) => {
         this.commits.set(history.commits);
         this.totalCommits.set(Math.max(history.total, history.commits.length));
         this.branches.set(branches);
         this.repoName.set(repo.name);
-        if (working) { this.workingChanges.set(working); this.statusError.set(''); }
+        if (working) {
+          this.workingChanges.set(working);
+          this.statusError.set('');
+        }
         this.statusLoading.set(false);
         this.loading.set(false);
-        this.historyGeneration.update(value => value + 1);
+        this.historyGeneration.update((value) => value + 1);
       },
       error: (err) => {
         this.error.set(this.errorMessage(err));
@@ -232,22 +277,43 @@ export class App implements OnDestroy {
     this.busy.set(true);
     this.error.set('');
     (event.staged ? this.git.unstage(event.files) : this.git.stage(event.files)).subscribe({
-      next: () => { this.refreshWorking(); this.busy.set(false); },
-      error: err => { this.error.set(this.errorMessage(err)); this.refreshWorking(); this.busy.set(false); },
+      next: () => {
+        this.refreshWorking();
+        this.busy.set(false);
+      },
+      error: (err) => {
+        this.error.set(this.errorMessage(err));
+        this.refreshWorking();
+        this.busy.set(false);
+      },
     });
   }
 
   protected commitChanges(): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError() ||
-        !this.commitSubject().trim() || !this.workingChanges()?.staged.length || this.workingChanges()?.conflicted.length) return;
+    if (
+      this.busy() ||
+      this.mutationBusy() ||
+      this.statusLoading() ||
+      this.statusError() ||
+      !this.commitSubject().trim() ||
+      !this.workingChanges()?.staged.length ||
+      this.workingChanges()?.conflicted.length
+    )
+      return;
     this.busy.set(true);
     this.error.set('');
     this.git.commit(this.commitSubject(), this.commitDescription()).subscribe({
       next: () => {
-        this.commitSubject.set(''); this.commitDescription.set('');
-        this.refresh(); this.busy.set(false);
+        this.commitSubject.set('');
+        this.commitDescription.set('');
+        this.refresh();
+        this.busy.set(false);
       },
-      error: err => { this.error.set(this.errorMessage(err)); this.refreshWorking(); this.busy.set(false); },
+      error: (err) => {
+        this.error.set(this.errorMessage(err));
+        this.refreshWorking();
+        this.busy.set(false);
+      },
     });
   }
 
@@ -294,8 +360,11 @@ export class App implements OnDestroy {
     this.searchSub?.unsubscribe();
     this.searchLoading.set(true);
     this.searchSub = this.git.searchCommits(query).subscribe({
-      next: (result) => { this.bodyMatches.set(new Set(result.hashes)); this.searchLoading.set(false); },
-      error: err => {
+      next: (result) => {
+        this.bodyMatches.set(new Set(result.hashes));
+        this.searchLoading.set(false);
+      },
+      error: (err) => {
         this.filterFailed.set(true);
         this.error.set(this.errorMessage(err));
         this.searchLoading.set(false);
@@ -358,7 +427,19 @@ export class App implements OnDestroy {
       items.push({ label: 'Copy Commit Hash to Clipboard', action: 'copy-hash' });
       items.push({ label: 'Copy Commit Subject to Clipboard', action: 'copy-subject' });
     } else if (event.target.kind === 'branch') {
+      const badgeType = event.target.branch.type;
+      const isLocal = badgeType === 'head' || badgeType === 'local';
       items.push({ label: 'Checkout Branch...', action: 'checkout-branch' });
+      if (isLocal) {
+        items.push({ label: 'Rename Branch...', action: 'rename-branch' });
+        items.push({
+          label: 'Delete Branch...',
+          action: 'delete-branch',
+          danger: true,
+          // Git refuses to delete the checked-out branch.
+          disabled: badgeType === 'head',
+        });
+      }
       items.push({
         label: 'Delete Remote Branch...',
         action: 'delete-remote-branch',
@@ -540,6 +621,7 @@ export class App implements OnDestroy {
           title: 'Rename branch',
           label: 'New branch name',
           placeholder: 'feature/my-branch',
+          value: this.contextMenuTarget()?.branch?.name,
           okLabel: 'Rename',
         });
         break;
@@ -685,12 +767,33 @@ export class App implements OnDestroy {
     }
 
     if (state.title === 'Rename branch') {
-      this.error.set('Branch rename is not available from the current menu flow.');
+      const name = this.contextMenuTarget()?.branch?.name;
+      const newName = value.trim();
+      if (name && newName && newName !== name) {
+        this.git.renameBranch(name, newName).subscribe({
+          next: () => {
+            // Keep the branches dropdown on the renamed branch.
+            if (this.selectedBranch() === name) this.selectedBranch.set(newName);
+            this.refresh();
+          },
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
+      }
       return;
     }
 
     if (state.title === 'Delete branch?') {
-      this.error.set('Branch deletion is not available from the current menu flow.');
+      const name = this.contextMenuTarget()?.branch?.name;
+      if (name) {
+        this.git.deleteBranch(name).subscribe({
+          next: () => {
+            // Fall back to Show All when the selected branch is gone.
+            if (this.selectedBranch() === name) this.selectedBranch.set('');
+            this.refresh();
+          },
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
+      }
       return;
     }
   }

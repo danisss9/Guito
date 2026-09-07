@@ -30,6 +30,7 @@ import {
 import { GraphService } from '../../services/graph.service';
 import { GraphCommit, laneColor } from '../../utils/graph';
 import { isHeadCommit, parseRefs } from '../../utils/refs';
+import { loadJson, saveJson } from '../../utils/storage';
 
 interface GraphNodeView {
   hash: string;
@@ -42,6 +43,15 @@ interface GraphNodeView {
 interface GraphEdgeView {
   d: string;
   color: string;
+}
+
+/** A commit→parent edge resolved against the full graph. */
+interface GraphEdgeSpec {
+  childRow: number;
+  childLane: number;
+  /** Row of the parent, or -1 when it is not part of the loaded history. */
+  parentRow: number;
+  parentLane: number;
 }
 
 interface HighlightSegment {
@@ -57,6 +67,36 @@ const GRAPH_PADDING = 10;
 const MIN_GRAPH_WIDTH = 72;
 /** Extra rows drawn above and below the viewport so scrolling stays smooth. */
 const GRAPH_ROW_BUFFER = 10;
+
+/** localStorage key holding the persisted column widths. */
+const COLUMN_WIDTHS_KEY = 'guito.columnWidths';
+
+const DEFAULT_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
+  graph: 0, // 0 = auto (derived from the lane count)
+  date: 132,
+  author: 150,
+  commit: 84,
+};
+
+/** Smallest width a column can be resized to; the graph column is auto-sized. */
+const MIN_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
+  graph: 0,
+  date: 48,
+  author: 48,
+  commit: 48,
+};
+
+function loadColumnWidths(): Record<ResizableColumn, number> {
+  const stored = loadJson<Partial<Record<ResizableColumn, number>>>(COLUMN_WIDTHS_KEY, {});
+  const widths = { ...DEFAULT_COLUMN_WIDTHS };
+  for (const column of Object.keys(DEFAULT_COLUMN_WIDTHS) as ResizableColumn[]) {
+    const value = stored[column];
+    if (typeof value === 'number' && Number.isFinite(value) && value >= MIN_COLUMN_WIDTHS[column]) {
+      widths[column] = value;
+    }
+  }
+  return widths;
+}
 
 @Component({
   selector: 'app-commit-table',
@@ -76,7 +116,9 @@ export class CommitTable implements OnDestroy {
   readonly historyLoading = input(false);
   readonly loadingLabel = input('');
   protected readonly graphLoading = signal(false);
-  protected readonly pendingLabel = computed(() => this.loadingLabel() || (this.graphLoading() ? 'Drawing commit graph...' : ''));
+  protected readonly pendingLabel = computed(
+    () => this.loadingLabel() || (this.graphLoading() ? 'Drawing commit graph...' : ''),
+  );
 
   readonly commitClick = output<GitCommit>();
   readonly contextMenu = output<ContextMenuEvent>();
@@ -105,26 +147,43 @@ export class CommitTable implements OnDestroy {
 
     // Resizing and CDK data updates need measurement after the DOM has rendered.
     afterRenderEffect(() => {
-      this.graphCommits(); this.columnWidths();
+      this.graphCommits();
+      this.columnWidths();
       const viewport = this.viewport();
-      if (viewport) untracked(() => { viewport.checkViewportSize(); this.measureViewport(); });
+      if (viewport)
+        untracked(() => {
+          viewport.checkViewportSize();
+          this.measureViewport();
+        });
     });
     afterRenderEffect(() => {
-      this.search(); this.selectedBranch(); this.showRemote();
+      this.search();
+      this.selectedBranch();
+      this.showRemote();
       const viewport = this.viewport();
-      if (viewport) untracked(() => { viewport.scrollToOffset(0); this.measureViewport(); });
+      if (viewport)
+        untracked(() => {
+          viewport.scrollToOffset(0);
+          this.measureViewport();
+        });
     });
-    effect(onCleanup => {
+    effect((onCleanup) => {
       const viewport = this.viewport();
       if (!viewport) return;
       const observer = new ResizeObserver(() => {
-        this.zone.run(() => { viewport.checkViewportSize(); this.measureViewport(); });
+        this.zone.run(() => {
+          viewport.checkViewportSize();
+          this.measureViewport();
+        });
       });
       observer.observe(viewport.elementRef.nativeElement);
       const subscription = viewport.elementScrolled().subscribe(() => {
         this.zone.run(() => this.measureViewport());
       });
-      onCleanup(() => { observer.disconnect(); subscription.unsubscribe(); });
+      onCleanup(() => {
+        observer.disconnect();
+        subscription.unsubscribe();
+      });
     });
   }
 
@@ -137,12 +196,8 @@ export class CommitTable implements OnDestroy {
     this.viewportHeight.set(element.clientHeight);
   }
 
-  protected readonly columnWidths = signal<Record<ResizableColumn, number>>({
-    graph: 0,
-    date: 132,
-    author: 150,
-    commit: 84,
-  });
+  /** Column widths, persisted across sessions; graph 0 = auto. */
+  protected readonly columnWidths = signal<Record<ResizableColumn, number>>(loadColumnWidths());
 
   protected readonly graphCommits = signal<GraphCommit[]>([]);
 
@@ -177,14 +232,24 @@ export class CommitTable implements OnDestroy {
     Math.max(this.graphWidth(), this.columnWidths().graph),
   );
 
-  protected readonly tableWidth = computed(() => Math.max(this.viewportWidth(),
-    this.graphColumnWidth() + this.columnWidths().date + this.columnWidths().author + this.columnWidths().commit + 280));
-  protected readonly horizontalTransform = computed(() => 'translateX(' + -this.scrollLeft() + 'px)');
+  protected readonly tableWidth = computed(() =>
+    Math.max(
+      this.viewportWidth(),
+      this.graphColumnWidth() +
+        this.columnWidths().date +
+        this.columnWidths().author +
+        this.columnWidths().commit +
+        280,
+    ),
+  );
+  protected readonly horizontalTransform = computed(
+    () => 'translateX(' + -this.scrollLeft() + 'px)',
+  );
 
   protected readonly graphHeight = computed(() => this.graphCommits().length * ROW_HEIGHT);
 
-  /** Row/lane lookup over the full graph; rebuilt only when the graph changes. */
-  private readonly graphIndex = computed(() => {
+  /** Every commit→parent edge of the graph, resolved once per graph update. */
+  private readonly allEdges = computed<GraphEdgeSpec[]>(() => {
     const graph = this.graphCommits();
     const rowOf = new Map<string, number>();
     const laneOf = new Map<string, number>();
@@ -192,7 +257,20 @@ export class CommitTable implements OnDestroy {
       rowOf.set(entry.commit.hash, index);
       laneOf.set(entry.commit.hash, entry.lane);
     });
-    return { rowOf, laneOf };
+    const specs: GraphEdgeSpec[] = [];
+    for (let index = 0; index < graph.length; index++) {
+      const entry = graph[index];
+      for (const parent of entry.parents) {
+        const parentRow = rowOf.get(parent);
+        specs.push({
+          childRow: index,
+          childLane: entry.lane,
+          parentRow: parentRow ?? -1,
+          parentLane: parentRow === undefined ? entry.lane : (laneOf.get(parent) ?? entry.lane),
+        });
+      }
+    }
+    return specs;
   });
 
   /** Range of rows whose nodes and edges need to be drawn right now. */
@@ -226,46 +304,56 @@ export class CommitTable implements OnDestroy {
   });
 
   protected readonly edges = computed<GraphEdgeView[]>(() => {
-    const graph = this.graphCommits();
-    const { rowOf, laneOf } = this.graphIndex();
+    const specs = this.allEdges();
     const { start, end } = this.visibleRange();
     const height = this.graphHeight();
     const edges: GraphEdgeView[] = [];
 
-    for (let index = start; index < end; index++) {
-      const entry = graph[index];
-      const color = laneColor(entry.lane);
-      const x1 = this.laneX(entry.lane);
-      const y1 = index * ROW_HEIGHT + ROW_HEIGHT / 2;
+    for (const spec of specs) {
+      // Keep every edge crossing the visible band, including edges anchored
+      // above it whose lower part is on screen (e.g. long merge edges).
+      const parentRow = spec.parentRow;
+      const top = Math.min(spec.childRow, parentRow < 0 ? spec.childRow : parentRow);
+      const bottom = parentRow < 0 ? Number.MAX_SAFE_INTEGER : Math.max(spec.childRow, parentRow);
+      if (bottom < start || top >= end) {
+        continue;
+      }
 
-      for (const parent of entry.parents) {
-        const parentRow = rowOf.get(parent);
+      const color = laneColor(spec.childLane);
+      const x1 = this.laneX(spec.childLane);
+      const y1 = spec.childRow * ROW_HEIGHT + ROW_HEIGHT / 2;
 
-        if (parentRow === undefined) {
-          // Parent is outside the loaded history: draw the lane to the bottom.
-          edges.push({ d: `M ${x1} ${y1} L ${x1} ${height}`, color });
-          continue;
-        }
+      if (parentRow < 0) {
+        // Parent is outside the loaded history: draw the lane to the bottom.
+        edges.push({ d: `M ${x1} ${y1} L ${x1} ${height}`, color });
+        continue;
+      }
 
-        const x2 = this.laneX(laneOf.get(parent) ?? entry.lane);
-        const y2 = parentRow * ROW_HEIGHT + ROW_HEIGHT / 2;
+      const x2 = this.laneX(spec.parentLane);
+      const y2 = parentRow * ROW_HEIGHT + ROW_HEIGHT / 2;
 
-        if (x1 === x2) {
-          edges.push({ d: `M ${x1} ${y1} L ${x2} ${y2}`, color });
-        } else {
-          const midY = (y1 + y2) / 2;
-          edges.push({ d: `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`, color });
-        }
+      if (x1 === x2) {
+        edges.push({ d: `M ${x1} ${y1} L ${x2} ${y2}`, color });
+      } else {
+        const midY = (y1 + y2) / 2;
+        edges.push({ d: `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`, color });
       }
     }
 
     return edges;
   });
 
-  protected readonly hasWorkingChanges = computed(
-    () => { const changes = this.workingChanges(); return !!changes &&
-      (changes.staged.length + changes.unstaged.length + changes.untracked.length + changes.conflicted.length > 0); },
-  );
+  protected readonly hasWorkingChanges = computed(() => {
+    const changes = this.workingChanges();
+    return (
+      !!changes &&
+      changes.staged.length +
+        changes.unstaged.length +
+        changes.untracked.length +
+        changes.conflicted.length >
+        0
+    );
+  });
 
   protected readonly workingHash = WORKING_HASH;
 
@@ -310,6 +398,9 @@ export class CommitTable implements OnDestroy {
   };
 
   private readonly onResizeEnd = (): void => {
+    if (this.resizeState) {
+      saveJson(COLUMN_WIDTHS_KEY, this.columnWidths());
+    }
     this.resizeState = null;
     document.removeEventListener('mousemove', this.onResizeMove);
     document.removeEventListener('mouseup', this.onResizeEnd);

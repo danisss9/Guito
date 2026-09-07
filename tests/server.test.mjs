@@ -228,3 +228,63 @@ test('returns an empty history for repositories without commits', async (context
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { commits: [], total: 0 });
 });
+
+test('renames and deletes branches through the API', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  execFileSync('git', ['branch', 'feature'], { cwd: repositoryPath, stdio: 'ignore' });
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const listBranches = (pattern) =>
+    execFileSync('git', ['branch', '--list', pattern], { cwd: repositoryPath }).toString().trim();
+
+  // Renaming a local branch moves it.
+  const renamed = await fetch(`${server.address}/api/branch/rename`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ oldName: 'feature', newName: 'renamed-feature' }),
+  });
+  assert.equal(renamed.status, 200);
+  assert.ok(listBranches('renamed-feature').includes('renamed-feature'));
+  assert.equal(listBranches('feature'), '');
+
+  // Deleting the checked-out branch is rejected with a JSON error.
+  const currentBranch = execFileSync('git', ['branch', '--show-current'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  const current = await fetch(`${server.address}/api/branch/delete`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: currentBranch }),
+  });
+  assert.equal(current.status, 400);
+  assert.ok((await current.json()).error);
+
+  // Deleting an existing local branch removes it.
+  const deleted = await fetch(`${server.address}/api/branch/delete`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'renamed-feature' }),
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal(listBranches('renamed-feature'), '');
+
+  // Deleting a missing branch fails with a JSON error.
+  const missing = await fetch(`${server.address}/api/branch/delete`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'no-such-branch' }),
+  });
+  assert.equal(missing.status, 400);
+  assert.ok((await missing.json()).error);
+});

@@ -18,6 +18,8 @@
     [selectedBranch]="selectedBranch()"
     [showRemote]="showRemote()"
     [busy]="busy() || mutationBusy() || statusLoading()"
+    [resultCount]="filteredCommits().length"
+    [totalCount]="totalCommits()"
     (branchChange)="selectedBranch.set($event)"
     (remoteToggle)="onRemoteToggle($event)"
     (searchChange)="search.set($event)"
