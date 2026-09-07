@@ -3,13 +3,14 @@ import {
   Component,
   ElementRef,
   HostListener,
+  computed,
   effect,
   input,
   output,
   signal,
   viewChild,
 } from '@angular/core';
-import { PromptState } from '../../models/git.models';
+import { PromptOption, PromptState } from '../../models/git.models';
 
 @Component({
   selector: 'app-prompt-dialog',
@@ -23,6 +24,10 @@ export class PromptDialog {
   readonly cancelled = output<void>();
 
   protected readonly value = signal('');
+  /** Chosen option when the dialog renders a choice list. */
+  protected readonly choice = signal('');
+
+  protected readonly options = computed<PromptOption[]>(() => this.state()?.options ?? []);
 
   private readonly inputEl = viewChild<ElementRef<HTMLInputElement>>('inputEl');
 
@@ -31,6 +36,7 @@ export class PromptDialog {
       const state = this.state();
       if (state) {
         this.value.set(state.value ?? '');
+        this.choice.set(state.options?.[0]?.value ?? '');
       }
       const el = this.inputEl();
       if (state && el) {
@@ -51,9 +57,17 @@ export class PromptDialog {
     this.value.set((event.target as HTMLInputElement).value);
   }
 
+  protected choose(option: PromptOption): void {
+    this.choice.set(option.value);
+  }
+
   protected confirm(): void {
     const state = this.state();
     if (!state) {
+      return;
+    }
+    if (state.options?.length) {
+      this.confirmed.emit(this.choice());
       return;
     }
     if (!state.confirmOnly && !state.allowEmpty && !this.value().trim()) {

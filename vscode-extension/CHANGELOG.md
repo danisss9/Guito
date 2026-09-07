@@ -5,8 +5,14 @@
 - Stage and unstage individual files, selected ranges, or all changes from the Uncommitted changes panel, with Ctrl/Cmd and Shift selection and separate staged/unstaged diff previews.
 - Write a commit message and optional description, then commit staged changes. Drafts survive panel closure and failed commits during the session.
 - Add rename and delete actions for local branches to the branch context menu.
-- Add a clear button and match counts to the commit search.
+- Navigate commit search results with up/down arrows (or Enter and Shift+Enter) instead of filtering the list; matches are highlighted in place and navigating to an unloaded match loads more history until it can be shown.
+- Ask for the reset type (soft, mixed, or hard) when resetting the current branch to a commit.
+- Add a tag context menu with view details, delete tag, push tag, create archive, and copy tag name actions.
+- Add a clear button to the commit search.
 - Persist column widths and the commit message draft across sessions.
+- Add stash all, staged, and unstaged actions to the Uncommitted changes panel.
+- Add discard selected and discard all actions for unstaged changes, with a confirmation dialog.
+- Remove the per-file stage/unstage buttons from file rows in favor of the selection and bulk actions.
 - Keep the header, uncommitted row, graph, and commit columns aligned during horizontal scrolling and column resizing.
 - Restore rows after searching or clearing empty results, with loading feedback and explicit retries for failed requests.
 - Recover pending graph work when its worker fails, preserve working status after errors, and support initial commits, partial staging, renamed/deleted files, and literal filenames.

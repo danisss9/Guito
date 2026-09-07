@@ -217,9 +217,12 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 `--grep=${query}`,
                 '--format=%H',
             ]);
-            return resp
-                .type('application/json')
-                .send({ hashes: raw.split('\n').map((hash) => hash.trim()).filter(Boolean) });
+            return resp.type('application/json').send({
+                hashes: raw
+                    .split('\n')
+                    .map((hash) => hash.trim())
+                    .filter(Boolean),
+            });
         }
         catch (err) {
             if (/does not have any commits yet|unknown revision|bad default revision/i.test(err.message ?? '')) {
@@ -281,7 +284,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     app.post('/api/reset-commit', async (req, resp) => {
         try {
-            await git.raw(['reset', '--hard', req.body.commit]);
+            const mode = ['soft', 'mixed', 'hard'].includes(req.body?.mode) ? req.body.mode : 'hard';
+            await git.raw(['reset', `--${mode}`, req.body.commit]);
             return resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -475,8 +479,22 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     app.post('/api/stash/save', async (req, resp) => {
         try {
-            const { message } = req.body;
-            await git.stash(['save', message || '']);
+            const { message, scope } = req.body ?? {};
+            // 'staged' → index only (--staged, git ≥ 2.35); 'unstaged' → working tree only
+            // (--keep-index leaves staged changes staged); 'all' → index + working tree.
+            // Untracked files ride along for 'all'/'unstaged' since the panel lists them as unstaged.
+            const args = ['push'];
+            if (scope === 'staged') {
+                args.push('--staged');
+            }
+            else {
+                if (scope === 'unstaged')
+                    args.push('--keep-index');
+                args.push('-u');
+            }
+            if (message)
+                args.push('-m', message);
+            await git.stash(args);
             return resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -558,6 +576,19 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
+    app.post('/api/tag/push', async (req, resp) => {
+        try {
+            const { name, remote } = req.body;
+            if (!name) {
+                return resp.status(400).type('application/json').send({ error: 'name required' });
+            }
+            await git.push(remote || 'origin', `refs/tags/${name}`);
+            return resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
     // ==================== Remote Operations ====================
     app.get('/api/fetch', async (_req, resp) => {
         try {
@@ -623,7 +654,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 '--format=%H%x00%aI%x00%s%x00%b%x00%aN%x00%aE%x00%P',
                 hash,
             ]);
-            const [fullHash, date, message, body, authorName, authorEmail, parents] = raw.trimEnd().split('\u0000');
+            const [fullHash, date, message, body, authorName, authorEmail, parents] = raw
+                .trimEnd()
+                .split('\u0000');
             return resp.type('application/json').send({
                 hash: fullHash,
                 date,
@@ -722,7 +755,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // ==================== Discard ====================
     app.post('/api/discard', async (req, resp) => {
         try {
-            const { files } = req.body;
+            const { files, mode } = req.body;
             if (!Array.isArray(files) || files.length === 0) {
                 return resp.status(400).type('application/json').send({ error: 'files required' });
             }
@@ -732,7 +765,20 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const tracked = files.filter((file) => !untracked.has(file));
             const removed = files.filter((file) => untracked.has(file));
             if (tracked.length > 0) {
-                await git.raw(['checkout', 'HEAD', '--', ...tracked]);
+                if (mode === 'unstaged') {
+                    // Restore from the index so staged changes survive; unmerged (conflicted)
+                    // paths cannot be restored from the index and fall back to HEAD.
+                    const conflicted = new Set(status.conflicted ?? []);
+                    const restorable = tracked.filter((file) => !conflicted.has(file));
+                    const unmerged = tracked.filter((file) => conflicted.has(file));
+                    if (restorable.length > 0)
+                        await git.raw(['checkout', '--', ...restorable]);
+                    if (unmerged.length > 0)
+                        await git.raw(['checkout', 'HEAD', '--', ...unmerged]);
+                }
+                else {
+                    await git.raw(['checkout', 'HEAD', '--', ...tracked]);
+                }
             }
             for (const file of removed) {
                 await rm(join(root, file), { force: true, recursive: true });

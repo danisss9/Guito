@@ -115,6 +115,8 @@ export class CommitTable implements OnDestroy {
   readonly unloaded = input(0);
   readonly historyLoading = input(false);
   readonly loadingLabel = input('');
+  /** When set, scrolls the table so this commit is visible (id re-triggers). */
+  readonly scrollToHash = input<{ hash: string; id: number } | null>(null);
   protected readonly graphLoading = signal(false);
   protected readonly pendingLabel = computed(
     () => this.loadingLabel() || (this.graphLoading() ? 'Drawing commit graph...' : ''),
@@ -157,7 +159,6 @@ export class CommitTable implements OnDestroy {
         });
     });
     afterRenderEffect(() => {
-      this.search();
       this.selectedBranch();
       this.showRemote();
       const viewport = this.viewport();
@@ -166,6 +167,16 @@ export class CommitTable implements OnDestroy {
           viewport.scrollToOffset(0);
           this.measureViewport();
         });
+    });
+    // Scroll the requested match into view (centered) once it is rendered.
+    effect(() => {
+      const request = this.scrollToHash();
+      if (!request) return;
+      const index = this.graphCommits().findIndex((entry) => entry.commit.hash === request.hash);
+      if (index === -1) return;
+      const viewport = this.viewport();
+      if (!viewport) return;
+      untracked(() => this.scrollToIndex(viewport, index));
     });
     effect((onCleanup) => {
       const viewport = this.viewport();
@@ -194,6 +205,26 @@ export class CommitTable implements OnDestroy {
     this.scrollLeft.set(element.scrollLeft);
     this.viewportWidth.set(element.clientWidth);
     this.viewportHeight.set(element.clientHeight);
+  }
+
+  /**
+   * Centers the row in the viewport. The CDK spacer may not have grown to the
+   * new history size yet right after a page load, in which case the browser
+   * clamps the offset; retry until the offset sticks.
+   */
+  private scrollToIndex(viewport: CdkVirtualScrollViewport, index: number): void {
+    const element = viewport.elementRef.nativeElement;
+    const height = element.clientHeight || this.viewportHeight();
+    const target = Math.max(0, index * ROW_HEIGHT - (height - ROW_HEIGHT) / 2);
+    let attempts = 0;
+    const apply = () => {
+      viewport.scrollToOffset(target);
+      this.measureViewport();
+      if (Math.abs(element.scrollTop - target) > 1 && ++attempts < 10) {
+        requestAnimationFrame(apply);
+      }
+    };
+    apply();
   }
 
   /** Column widths, persisted across sessions; graph 0 = auto. */
@@ -423,13 +454,13 @@ export class CommitTable implements OnDestroy {
     });
   }
 
-  protected onBranchContextMenu(event: MouseEvent, commit: GitCommit, branch: RefBadge): void {
+  protected onBadgeContextMenu(event: MouseEvent, commit: GitCommit, badge: RefBadge): void {
     event.preventDefault();
     event.stopPropagation();
     this.contextMenu.emit({
       x: event.clientX,
       y: event.clientY,
-      target: { kind: 'branch', commit, branch },
+      target: { kind: badge.type === 'tag' ? 'tag' : 'branch', commit, branch: badge },
     });
   }
 

@@ -88,6 +88,71 @@
   color: #fff;
 }
 
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: var(--bg-hover);
+}
+
+.option.selected {
+  border-color: var(--accent);
+  background: rgba(55, 148, 255, 0.12);
+}
+
+.option-radio {
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  flex: none;
+}
+
+.option.selected .option-radio {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 40%, transparent 45%);
+}
+
+.option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.option-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.option.danger .option-label {
+  color: #f48771;
+}
+
+.option-description {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .btn-danger:hover:not(:disabled) {
   background: #c42b1c;
 }

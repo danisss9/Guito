@@ -114,7 +114,7 @@
               @for (badge of badges(entry.commit); track badge.name) {
                 <span
                   [class]="'badge badge-' + badge.type"
-                  (contextmenu)="onBranchContextMenu($event, entry.commit, badge)"
+                  (contextmenu)="onBadgeContextMenu($event, entry.commit, badge)"
                 >
                   @if (badge.type === 'head' || badge.type === 'local') {
                     <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">

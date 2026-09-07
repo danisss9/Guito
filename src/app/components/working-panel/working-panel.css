@@ -3,9 +3,12 @@
 header { display: flex; align-items: center; justify-content: space-between; padding: 12px; gap: 12px; }
 h2 { font-size: 15px; margin: 0; }
 h3 { font-size: 13px; margin: 0 0 8px; }
+.stash-actions { display: flex; align-items: center; gap: 5px; padding: 0 12px 10px; flex-wrap: wrap; font-size: 11px; }
 button, input, textarea { font: inherit; color: var(--text); border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
 button { cursor: pointer; padding: 4px 7px; white-space: nowrap; }
 button:hover:not(:disabled) { background: var(--bg-hover); }
+button.danger { color: #f48771; }
+button.danger:hover:not(:disabled) { background: #5a1d1d; }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, .file-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .changes { overflow-y: auto; flex: 1; min-height: 80px; }

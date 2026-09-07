@@ -9,9 +9,18 @@ All notable changes to Guito are documented in this file. The project follows [S
 - Stage and unstage individual files, selected ranges, or all changes from the Uncommitted changes panel, with Ctrl/Cmd and Shift selection and separate index/working-tree diff previews.
 - Write a commit subject and optional description, then commit staged changes without leaving Guito. Drafts survive panel closure and failed commits during the session.
 - Rename and delete local branches from the branch context menu. Deleting the checked-out branch is disabled, the branches dropdown follows renames, and it falls back to "Show All" when the selected branch is deleted.
-- Clear the commit search with a dedicated button and show how many commits match the current search out of the total history.
+- Navigate commit search results with up/down arrows (or Enter and Shift+Enter in the search box) instead of filtering the list. Matches are highlighted in place, the counter shows the focused match, and navigating to a match outside the loaded history fetches more commits until it can be selected and scrolled into view.
+- Choose the reset type when resetting the current branch to a commit. A dialog offers soft (keep changes staged), mixed (keep changes unstaged), and hard (discard all changes) resets.
+- Add a tag context menu with view details, delete tag, push tag, create archive, and copy tag name actions. Pushing a tag uploads it to the remote through the new `/api/tag/push` endpoint.
+- Clear the commit search with a dedicated button.
 - Persist column widths and the commit message draft across sessions using browser storage.
+- Stash all, staged, or unstaged changes directly from the Uncommitted changes panel. Staged-only stashes keep unstaged work in place, and unstaged stashes keep staged changes staged.
+- Discard selected or all unstaged changes from the Uncommitted changes panel after a confirmation dialog. Discarding unstaged edits preserves staged changes for files with both.
 - Added browser regressions and Git integration coverage for search, table alignment, staging, committing, and branch management.
+
+### Changed
+
+- Remove the per-file stage/unstage buttons from file rows in the Uncommitted changes panel; staging and unstaging now use the selection and bulk actions in each section header.
 
 ### Fixed
 

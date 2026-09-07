@@ -18,11 +18,12 @@
     [selectedBranch]="selectedBranch()"
     [showRemote]="showRemote()"
     [busy]="busy() || mutationBusy() || statusLoading()"
-    [resultCount]="filteredCommits().length"
-    [totalCount]="totalCommits()"
+    [matchIndex]="searchIndex()"
+    [matchCount]="searchMatches().length"
     (branchChange)="selectedBranch.set($event)"
     (remoteToggle)="onRemoteToggle($event)"
     (searchChange)="search.set($event)"
+    (searchNavigate)="navigateSearch($event)"
     (refresh)="refresh()"
     (remoteAction)="runRemoteAction($event)"
   />
@@ -47,6 +48,7 @@
       [workingChanges]="workingChanges()"
       [unloaded]="unloadedCommits()"
       [historyLoading]="historyLoading()"
+      [scrollToHash]="scrollRequest()"
       (commitClick)="selectedCommit.set($event)"
       (contextMenu)="onContextMenu($event)"
       (loadMoreRequested)="loadMoreCommits()"
@@ -58,7 +60,8 @@
           [statusLoading]="statusLoading()" [statusError]="statusError()"
           [subject]="commitSubject()" [description]="commitDescription()"
           (subjectChange)="commitSubject.set($event)" (descriptionChange)="commitDescription.set($event)"
-          (stageChange)="changeStage($event)" (commitRequested)="commitChanges()"
+          (stageChange)="changeStage($event)" (stashChange)="stashChanges($event)"
+          (discardRequest)="discardUnstaged($event)" (commitRequested)="commitChanges()"
           (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
       } @else {
         <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
@@ -67,6 +70,6 @@
   </main>
 
   <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
-  <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="promptState.set(null)" />
+  <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="onPromptCancel()" />
 
 </div>

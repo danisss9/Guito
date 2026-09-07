@@ -61,6 +61,8 @@ export interface CommitDiff {
   files: FileDiff[];
 }
 
+export type StashScope = 'all' | 'staged' | 'unstaged';
+
 export interface WorkingChanges {
   stagedFiles: FileDiff[];
   unstagedFiles: FileDiff[];
@@ -85,7 +87,7 @@ export interface RepoInfo {
 export const WORKING_HASH = '__working__';
 
 export interface ContextMenuTarget {
-  kind: 'commit' | 'branch' | 'working';
+  kind: 'commit' | 'branch' | 'tag' | 'working';
   commit?: GitCommit;
   branch?: RefBadge;
 }
@@ -110,6 +112,14 @@ export interface ContextMenuState {
   items: MenuItem[];
 }
 
+/** A selectable choice inside a prompt dialog. */
+export interface PromptOption {
+  value: string;
+  label: string;
+  description?: string;
+  danger?: boolean;
+}
+
 export interface PromptState {
   title: string;
   label?: string;
@@ -119,4 +129,6 @@ export interface PromptState {
   allowEmpty?: boolean;
   danger?: boolean;
   okLabel?: string;
+  /** When present, the dialog shows a choice list instead of a text input. */
+  options?: PromptOption[];
 }

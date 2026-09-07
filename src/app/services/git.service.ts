@@ -9,6 +9,7 @@ import {
   FileContent,
   GitCommit,
   RepoInfo,
+  StashScope,
   WorkingChanges,
 } from '../models/git.models';
 
@@ -20,7 +21,11 @@ export class GitService {
 
   private mutate(request: () => Observable<unknown>): Observable<unknown> {
     return defer(() => {
-      if (this.mutating()) return throwError(() => ({ status: 400, error: { error: 'Another Git operation is in progress.' } }));
+      if (this.mutating())
+        return throwError(() => ({
+          status: 400,
+          error: { error: 'Another Git operation is in progress.' },
+        }));
       this.mutating.set(true);
       return request().pipe(finalize(() => this.mutating.set(false)));
     });
@@ -100,8 +105,8 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/commit/drop`, { commit: hash }));
   }
 
-  resetToCommit(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/reset-commit`, { commit: hash }));
+  resetToCommit(hash: string, mode: 'soft' | 'mixed' | 'hard' = 'hard'): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/reset-commit`, { commit: hash, mode }));
   }
 
   commit(message: string, description?: string): Observable<unknown> {
@@ -116,8 +121,8 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/unstage`, { files }));
   }
 
-  discard(files: string[]): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/discard`, { files }));
+  discard(files: string[], mode?: 'unstaged'): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/discard`, { files, mode }));
   }
 
   resetWorking(): Observable<unknown> {
@@ -128,8 +133,8 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/clean`, {}));
   }
 
-  stashSave(message?: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/save`, { message }));
+  stashSave(message?: string, scope: StashScope = 'all'): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/stash/save`, { message, scope }));
   }
 
   createBranch(name: string, startPoint?: string): Observable<unknown> {
@@ -141,7 +146,9 @@ export class GitService {
   }
 
   deleteRemoteBranch(remote: string, branch: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/delete-remote`, { remote, branch }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/branch/delete-remote`, { remote, branch }),
+    );
   }
 
   renameBranch(oldName: string, newName: string): Observable<unknown> {
@@ -158,5 +165,13 @@ export class GitService {
 
   createTag(name: string, commit?: string): Observable<unknown> {
     return this.mutate(() => this.http.post(`${this.base}/tag/create`, { name, commit }));
+  }
+
+  deleteTag(name: string): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/tag/delete`, { name }));
+  }
+
+  pushTag(name: string, remote = 'origin'): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/tag/push`, { name, remote }));
   }
 }

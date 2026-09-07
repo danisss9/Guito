@@ -27,14 +27,15 @@ export class Toolbar {
   readonly selectedBranch = input.required<string>();
   readonly showRemote = input.required<boolean>();
   readonly busy = input.required<boolean>();
-  /** Number of commits matching the current search. */
-  readonly resultCount = input(0);
-  /** Total number of commits in the repository. */
-  readonly totalCount = input(0);
+  /** 0-based position of the currently focused search match; -1 = none. */
+  readonly matchIndex = input(-1);
+  /** Total number of commits matching the current search. */
+  readonly matchCount = input(0);
 
   readonly branchChange = output<string>();
   readonly remoteToggle = output<boolean>();
   readonly searchChange = output<string>();
+  readonly searchNavigate = output<'next' | 'prev'>();
   readonly refresh = output<void>();
   readonly remoteAction = output<'fetch' | 'pull' | 'pull-rebase' | 'push' | 'sync'>();
   protected readonly openMenu = signal<'pull' | 'push' | null>(null);
@@ -65,6 +66,14 @@ export class Toolbar {
 
   protected onSearch(event: Event): void {
     this.searchValue.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Enter jumps to the next match; Shift+Enter to the previous one. */
+  protected onSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.searchNavigate.emit(event.shiftKey ? 'prev' : 'next');
+    }
   }
 
   /** Clears the search; the debounced pipeline emits the empty query itself. */

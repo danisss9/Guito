@@ -288,3 +288,122 @@ test('renames and deletes branches through the API', async (context) => {
   assert.equal(missing.status, 400);
   assert.ok((await missing.json()).error);
 });
+
+test('resets the current branch with the requested mode', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  const file = join(repositoryPath, 'file.txt');
+  await (await import('node:fs/promises')).writeFile(file, 'content\n');
+  execFileSync('git', ['add', 'file.txt'], { cwd: repositoryPath, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'Add file'], { cwd: repositoryPath, stdio: 'ignore' });
+
+  const firstCommit = execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const reset = (mode) =>
+    fetch(`${server.address}/api/reset-commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commit: firstCommit, mode }),
+    });
+
+  const status = () =>
+    execFileSync('git', ['status', '--porcelain'], { cwd: repositoryPath }).toString().trim();
+  const headCommit = () =>
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath }).toString().trim();
+
+  // Soft keeps the changes staged.
+  assert.equal((await reset('soft')).status, 200);
+  assert.equal(headCommit(), firstCommit);
+  assert.equal(status(), 'A  file.txt');
+
+  // Mixed keeps the changes but unstages them.
+  assert.equal((await reset('mixed')).status, 200);
+  assert.equal(headCommit(), firstCommit);
+  assert.equal(status(), '?? file.txt');
+
+  // Hard discards the changes; the file is staged again first because a hard
+  // reset leaves untracked files alone.
+  execFileSync('git', ['add', 'file.txt'], { cwd: repositoryPath, stdio: 'ignore' });
+  assert.equal((await reset('hard')).status, 200);
+  assert.equal(headCommit(), firstCommit);
+  assert.equal(status(), '');
+
+  // An unknown mode falls back to a hard reset.
+  await (await import('node:fs/promises')).writeFile(file, 'more\n');
+  execFileSync('git', ['add', 'file.txt'], { cwd: repositoryPath, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'Add file again'], { cwd: repositoryPath, stdio: 'ignore' });
+  assert.equal((await reset('nonsense')).status, 200);
+  assert.equal(headCommit(), firstCommit);
+  assert.equal(status(), '');
+});
+
+test('deletes and pushes tags through the API', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  const remotePath = await mkdtemp(join(tmpdir(), 'guito-remote-'));
+  context.after(() => rm(remotePath, { recursive: true, force: true }));
+  execFileSync('git', ['init', '--bare'], { cwd: remotePath, stdio: 'ignore' });
+  execFileSync('git', ['remote', 'add', 'origin', remotePath], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const listTags = () =>
+    execFileSync('git', ['tag', '--list'], { cwd: repositoryPath }).toString().trim();
+  const remoteTags = () =>
+    execFileSync('git', ['--git-dir', remotePath, 'tag', '--list'], { cwd: remotePath })
+      .toString()
+      .trim();
+
+  execFileSync('git', ['tag', 'v1.0.0'], { cwd: repositoryPath, stdio: 'ignore' });
+
+  // Deleting a tag removes it.
+  const deleted = await fetch(`${server.address}/api/tag/delete`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'v1.0.0' }),
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal(listTags(), '');
+
+  // Pushing a tag uploads it to the remote.
+  execFileSync('git', ['tag', 'v1.0.0'], { cwd: repositoryPath, stdio: 'ignore' });
+  const pushed = await fetch(`${server.address}/api/tag/push`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'v1.0.0' }),
+  });
+  assert.equal(pushed.status, 200);
+  assert.equal(remoteTags(), 'v1.0.0');
+
+  // Pushing a missing tag fails with a JSON error.
+  const missing = await fetch(`${server.address}/api/tag/push`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'no-such-tag' }),
+  });
+  assert.equal(missing.status, 400);
+  assert.ok((await missing.json()).error);
+});
