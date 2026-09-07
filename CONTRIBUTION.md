@@ -96,7 +96,13 @@ Run the same core checks used by the release workflow:
 npm run check
 npm run build
 npm test
+npx playwright install chromium --only-shell
+npm run test:browser
 ```
+
+The browser suite uses a disposable repository and authenticated API fixtures. Failure traces are saved under `test-results/`.
+
+On Windows, after building, `node tests/browser/vscode-smoke.mjs` also opens an isolated Extension Development Host, stages a fixture file, and commits it through the authenticated webview. Set `GUITO_CODE_EXE` if VS Code is installed outside its default per-user location. The test closes its host and removes its temporary profile and repository afterward.
 
 - Add or update tests when changing server routes, authentication, repository selection, or Git behavior.
 - Test UI changes against a disposable repository with branches, merges, remote references, working-tree changes, and untracked files where relevant.

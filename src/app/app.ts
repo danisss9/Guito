@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   computed,
   effect,
   inject,
@@ -14,6 +15,7 @@ import { CommitDetail } from './components/commit-detail/commit-detail';
 import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
+import { WorkingPanel } from './components/working-panel/working-panel';
 import { Toolbar } from './components/toolbar/toolbar';
 import {
   BranchInfo,
@@ -33,13 +35,27 @@ const LOAD_PAGE_SIZE = 500;
 
 @Component({
   selector: 'app-root',
-  imports: [Toolbar, CommitTable, CommitDetail, ContextMenu, PromptDialog],
+  imports: [Toolbar, CommitTable, CommitDetail, ContextMenu, PromptDialog, WorkingPanel],
   templateUrl: './app.html',
   styleUrl: './app.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class App {
+export class App implements OnDestroy {
   private readonly git = inject(GitService);
+
+  protected readonly workingHash = WORKING_HASH;
+  protected readonly mutationBusy = this.git.mutating;
+  protected readonly statusLoading = signal(false);
+  protected readonly statusError = signal('');
+  protected readonly commitSubject = signal('');
+  protected readonly commitDescription = signal('');
+  protected readonly displayedCommits = signal<GitCommit[]>([]);
+  protected readonly searchLoading = signal(false);
+  private readonly historyGeneration = signal(0);
+  private readonly filterFailed = signal(false);
+  protected readonly tableLoading = computed(() => this.loading() ? 'Refreshing commits...' :
+    this.searchLoading() || (this.search().trim() && this.historyLoading()) ? 'Searching commits...' :
+    this.historyLoading() ? 'Loading history...' : '');
 
   protected readonly commits = signal<GitCommit[]>([]);
   protected readonly branches = signal<BranchInfo[]>([]);
@@ -122,34 +138,45 @@ export class App {
   constructor() {
     this.refresh();
 
-    // Searching or filtering by branch needs the full history to be accurate.
-    effect(() => {
-      const needsFullHistory =
-        (this.search().trim() !== '' || this.selectedBranch() !== '') &&
-        this.unloadedCommits() > 0 &&
-        !this.historyLoading();
-      if (needsFullHistory) {
-        this.loadAllCommits();
-      }
-    });
-
-    // Bodies are no longer part of the list payload; ask the server which
-    // commits match the query instead of filtering them client-side.
+    // Only a new filter or history generation starts requests. A failed request
+    // must not retrigger itself by clearing its loading flag.
     effect(() => {
       const query = this.search().trim();
-      if (query === '') {
+      this.selectedBranch();
+      this.historyGeneration();
+      untracked(() => {
         this.searchSub?.unsubscribe();
+        this.searchLoading.set(false);
         this.bodyMatches.set(new Set());
-        return;
-      }
-      untracked(() => this.fetchBodyMatches(query));
+        this.filterFailed.set(false);
+        this.error.set('');
+        if (this.loading()) return;
+        if ((query || this.selectedBranch()) && this.unloadedCommits() > 0) this.loadAllCommits();
+        if (query) this.fetchBodyMatches(query);
+      });
     });
+    effect(() => {
+      if (!this.loading() && !this.searchLoading() && !this.historyLoading() && !this.filterFailed()) {
+        this.displayedCommits.set(this.filteredCommits());
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.refreshSub?.unsubscribe();
+    this.historySub?.unsubscribe();
+    this.workingSub?.unsubscribe();
+    this.searchSub?.unsubscribe();
   }
 
   protected refresh(): void {
     // A refresh supersedes any in-flight history page or working-tree request.
     this.historySub?.unsubscribe();
     this.workingSub?.unsubscribe();
+    this.searchSub?.unsubscribe();
+    this.searchLoading.set(false);
+    this.filterFailed.set(false);
+    this.statusLoading.set(true);
     this.historyLoading.set(false);
     this.loading.set(true);
     this.error.set('');
@@ -161,22 +188,23 @@ export class App {
       repo: this.git.getRepoInfo(),
       working: this.git
         .getWorkingChanges()
-        .pipe(catchError(() => of({ files: [], staged: [], unstaged: [], untracked: [] }))),
+        .pipe(catchError((err) => { this.statusError.set(this.errorMessage(err)); return of(null); })),
     }).subscribe({
       next: ({ history, branches, repo, working }) => {
         this.commits.set(history.commits);
         this.totalCommits.set(Math.max(history.total, history.commits.length));
         this.branches.set(branches);
         this.repoName.set(repo.name);
-        this.workingChanges.set(working);
+        if (working) { this.workingChanges.set(working); this.statusError.set(''); }
+        this.statusLoading.set(false);
         this.loading.set(false);
-        // The history changed; stale body matches may no longer apply.
-        if (this.search().trim() !== '') {
-          this.fetchBodyMatches(this.search().trim());
-        }
+        this.historyGeneration.update(value => value + 1);
       },
       error: (err) => {
         this.error.set(this.errorMessage(err));
+        this.filterFailed.set(true);
+        this.statusError.set(this.errorMessage(err));
+        this.statusLoading.set(false);
         this.loading.set(false);
       },
     });
@@ -185,13 +213,42 @@ export class App {
   /** Refetches only the working-tree status after working-tree-only changes. */
   protected refreshWorking(): void {
     this.workingSub?.unsubscribe();
-    this.workingSub = this.git
-      .getWorkingChanges()
-      .pipe(catchError(() => of({ files: [], staged: [], unstaged: [], untracked: [] })))
-      .subscribe({
-        next: (working) => this.workingChanges.set(working),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
+    this.statusLoading.set(true);
+    this.workingSub = this.git.getWorkingChanges().subscribe({
+      next: (working) => {
+        this.workingChanges.set(working);
+        this.statusError.set('');
+        this.statusLoading.set(false);
+      },
+      error: (err) => {
+        this.statusError.set(this.errorMessage(err));
+        this.statusLoading.set(false);
+      },
+    });
+  }
+
+  protected changeStage(event: { staged: boolean; files: string[] }): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError()) return;
+    this.busy.set(true);
+    this.error.set('');
+    (event.staged ? this.git.unstage(event.files) : this.git.stage(event.files)).subscribe({
+      next: () => { this.refreshWorking(); this.busy.set(false); },
+      error: err => { this.error.set(this.errorMessage(err)); this.refreshWorking(); this.busy.set(false); },
+    });
+  }
+
+  protected commitChanges(): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError() ||
+        !this.commitSubject().trim() || !this.workingChanges()?.staged.length || this.workingChanges()?.conflicted.length) return;
+    this.busy.set(true);
+    this.error.set('');
+    this.git.commit(this.commitSubject(), this.commitDescription()).subscribe({
+      next: () => {
+        this.commitSubject.set(''); this.commitDescription.set('');
+        this.refresh(); this.busy.set(false);
+      },
+      error: err => { this.error.set(this.errorMessage(err)); this.refreshWorking(); this.busy.set(false); },
+    });
   }
 
   protected loadMoreCommits(): void {
@@ -203,11 +260,12 @@ export class App {
   }
 
   private loadHistory(request: Observable<CommitsResponse>): void {
-    if (this.historyLoading()) {
+    if (this.historyLoading() || this.loading()) {
       return;
     }
 
     const skip = this.commits().length;
+    this.filterFailed.set(false);
     this.historyLoading.set(true);
 
     this.historySub?.unsubscribe();
@@ -225,6 +283,7 @@ export class App {
       },
       error: (err) => {
         this.error.set(this.errorMessage(err));
+        this.filterFailed.set(true);
         this.historyLoading.set(false);
       },
     });
@@ -233,9 +292,14 @@ export class App {
   private fetchBodyMatches(query: string): void {
     // Rapid searches abort each other; only the latest response applies.
     this.searchSub?.unsubscribe();
+    this.searchLoading.set(true);
     this.searchSub = this.git.searchCommits(query).subscribe({
-      next: (result) => this.bodyMatches.set(new Set(result.hashes)),
-      error: () => this.bodyMatches.set(new Set()),
+      next: (result) => { this.bodyMatches.set(new Set(result.hashes)); this.searchLoading.set(false); },
+      error: err => {
+        this.filterFailed.set(true);
+        this.error.set(this.errorMessage(err));
+        this.searchLoading.set(false);
+      },
     });
   }
 
@@ -244,6 +308,7 @@ export class App {
   }
 
   protected runRemoteAction(action: 'fetch' | 'pull' | 'pull-rebase' | 'push' | 'sync'): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     this.busy.set(true);
     this.error.set('');
 
@@ -319,6 +384,7 @@ export class App {
   }
 
   protected onContextAction(action: string): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     const selected = this.contextMenuTarget()?.commit ?? this.selectedCommit();
 
     switch (action) {
@@ -553,6 +619,7 @@ export class App {
   }
 
   protected onPromptConfirm(value: string): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     const state = this.promptState();
     if (!state) {
       return;

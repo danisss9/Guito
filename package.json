@@ -50,7 +50,8 @@
     "test": "npm run build:server && node --test tests/*.test.mjs",
     "package:extension": "npm run build:ui && npm run package --workspace vscode-extension",
     "build:start": "npm run build && npm run start",
-    "release": "npm run build && npm publish --access public"
+    "release": "npm run build && npm publish --access public",
+    "test:browser": "npm run build:ui && npm run build:server && playwright test"
   },
   "dependencies": {
     "@fastify/compress": "^9.2.0",
@@ -70,6 +71,7 @@
     "@angular/compiler-cli": "^20.0.0",
     "@angular/core": "^20.0.0",
     "@angular/platform-browser": "^20.0.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^20.19.43",
     "rxjs": "~7.8.0",
     "tslib": "^2.6.0",

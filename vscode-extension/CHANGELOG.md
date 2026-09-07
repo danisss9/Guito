@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Stage and unstage individual files, selected ranges, or all changes from the Uncommitted changes panel, with Ctrl/Cmd and Shift selection and separate staged/unstaged diff previews.
+- Write a commit message and optional description, then commit staged changes. Drafts survive panel closure and failed commits during the session.
+- Keep the header, uncommitted row, graph, and commit columns aligned during horizontal scrolling and column resizing.
+- Restore rows after searching or clearing empty results, with loading feedback and explicit retries for failed requests.
+- Recover pending graph work when its worker fails, preserve working status after errors, and support initial commits, partial staging, renamed/deleted files, and literal filenames.
+- Reject blank subjects, empty-index commits, and unresolved conflicts, and prevent overlapping UI mutations.
+
 ## 0.5.4
 
 - Render only the visible rows with virtual scrolling and compute the commit graph in a web worker for large histories.

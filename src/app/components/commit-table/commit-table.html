@@ -1,5 +1,6 @@
-<div class="table">
-  <div class="table-head">
+<div class="table" [attr.aria-busy]="!!pendingLabel()">
+  <div class="pinned-clip" [style.width.px]="viewportWidth()">
+  <div class="table-head" [style.width.px]="tableWidth()" [style.transform]="horizontalTransform()">
     <div class="head-cell cell-graph" [style.width.px]="graphColumnWidth()">
       <span class="head-label">Graph</span>
       <div class="resizer" (mousedown)="startResize('graph', $event)"></div>
@@ -24,6 +25,7 @@
   @if (hasWorkingChanges()) {
     <div
       class="row working-row"
+      [style.width.px]="tableWidth()" [style.transform]="horizontalTransform()"
       [class.selected]="selectedHash() === workingHash"
       (click)="commitClick.emit(workingCommit())"
       (contextmenu)="onWorkingContextMenu($event)"
@@ -63,17 +65,19 @@
     </div>
   }
 
+  </div>
   <div class="table-body">
-    @if (graphCommits().length === 0) {
-      <div class="empty">No commits to show</div>
-    } @else {
+    @if (pendingLabel()) {
+      <div class="table-loading" role="status"><span class="spinner"></span>{{ pendingLabel() }}</div>
+    }
       <div class="list-container">
         <!--
           The graph is drawn as a viewport-sized overlay translated by the
           scroll offset: only the visible slice of nodes and edges is ever
           rendered, for any history size.
         -->
-        <svg class="graph-overlay" [attr.width]="graphWidth()" aria-hidden="true">
+        <div class="graph-clip" [style.width.px]="viewportWidth()">
+        <svg class="graph-overlay" [attr.width]="graphWidth()" [style.transform]="horizontalTransform()" aria-hidden="true">
           <g [attr.transform]="'translate(0 ' + -scrollTop() + ')'">
             @for (edge of edges(); track $index) {
               <path [attr.d]="edge.d" [attr.stroke]="edge.color" fill="none" stroke-width="2" />
@@ -94,10 +98,12 @@
             }
           </g>
         </svg>
+        </div>
 
         <cdk-virtual-scroll-viewport class="list-viewport" [itemSize]="rowHeight">
           <div
             class="row"
+            [style.width.px]="tableWidth()"
             *cdkVirtualFor="let entry of graphCommits(); trackBy: trackByHash"
             [class.selected]="entry.commit.hash === selectedHash()"
             (click)="commitClick.emit(entry.commit)"
@@ -155,6 +161,9 @@
             </div>
           </div>
         </cdk-virtual-scroll-viewport>
+        @if (!pendingLabel() && graphCommits().length === 0) {
+          <div class="empty">{{ search().trim() ? 'No matching commits' : 'No commits to show' }}</div>
+        }
       </div>
 
       @if (unloaded() > 0 && !historyLoading()) {
@@ -164,9 +173,5 @@
         </div>
       }
 
-      @if (historyLoading()) {
-        <div class="history-loading">Loading history…</div>
-      }
-    }
   </div>
 </div>

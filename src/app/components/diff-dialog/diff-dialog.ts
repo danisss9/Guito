@@ -42,6 +42,7 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
   protected readonly binary = signal(false);
   protected readonly sideBySide = signal(true);
 
+  private destroyed = false;
   private editor: any = null;
   private models: any[] = [];
 
@@ -57,6 +58,7 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
 
     try {
       const monaco = await this.monacoService.load();
+      if (this.destroyed) return;
       const file = this.file();
       const originalRef = file.status === 'added' && !file.oldPath ? 'EMPTY' : this.originalRef();
 
@@ -65,6 +67,7 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
         firstValueFrom(this.git.getFileContent(file.path, this.modifiedRef())),
       ]);
 
+      if (this.destroyed) return;
       if (original.binary || modified.binary) {
         this.binary.set(true);
         this.loading.set(false);
@@ -110,6 +113,7 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.editor?.dispose();
     this.editor = null;
     for (const model of this.models) {

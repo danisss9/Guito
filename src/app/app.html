@@ -17,7 +17,7 @@
     [branches]="branches()"
     [selectedBranch]="selectedBranch()"
     [showRemote]="showRemote()"
-    [busy]="busy()"
+    [busy]="busy() || mutationBusy() || statusLoading()"
     (branchChange)="selectedBranch.set($event)"
     (remoteToggle)="onRemoteToggle($event)"
     (searchChange)="search.set($event)"
@@ -26,12 +26,18 @@
   />
 
   @if (error()) {
-    <div class="error-banner">{{ error() }}</div>
+    <div class="error-banner">{{ error() }} <button type="button" (click)="refresh()" [disabled]="loading()">Retry</button></div>
+  }
+  @if (statusError() && selectedCommit()?.hash !== workingHash) {
+    <div class="error-banner" role="alert">{{ statusError() }}
+      <button type="button" (click)="refreshWorking()" [disabled]="statusLoading()">Retry status</button>
+    </div>
   }
 
   <main class="content">
     <app-commit-table
-      [commits]="filteredCommits()"
+      [commits]="displayedCommits()"
+      [loadingLabel]="tableLoading()"
       [selectedHash]="selectedCommit()?.hash ?? ''"
       [search]="search()"
       [selectedBranch]="selectedBranch()"
@@ -45,16 +51,20 @@
       (loadAllRequested)="loadAllCommits()"
     />
     @if (selectedCommit(); as commit) {
-      <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
+      @if (commit.hash === workingHash) {
+        <app-working-panel [changes]="workingChanges()" [busy]="busy() || mutationBusy() || statusLoading()"
+          [statusLoading]="statusLoading()" [statusError]="statusError()"
+          [subject]="commitSubject()" [description]="commitDescription()"
+          (subjectChange)="commitSubject.set($event)" (descriptionChange)="commitDescription.set($event)"
+          (stageChange)="changeStage($event)" (commitRequested)="commitChanges()"
+          (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
+      } @else {
+        <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
+      }
     }
   </main>
 
   <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
   <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="promptState.set(null)" />
 
-  @if (loading()) {
-    <div class="loading-overlay">
-      <div class="spinner"></div>
-    </div>
-  }
 </div>

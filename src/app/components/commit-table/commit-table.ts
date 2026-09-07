@@ -6,6 +6,9 @@ import {
 } from '@angular/cdk/scrolling';
 import {
   ChangeDetectionStrategy,
+  afterRenderEffect,
+  untracked,
+  NgZone,
   Component,
   OnDestroy,
   computed,
@@ -71,6 +74,9 @@ export class CommitTable implements OnDestroy {
   readonly workingChanges = input<WorkingChanges | null>(null);
   readonly unloaded = input(0);
   readonly historyLoading = input(false);
+  readonly loadingLabel = input('');
+  protected readonly graphLoading = signal(false);
+  protected readonly pendingLabel = computed(() => this.loadingLabel() || (this.graphLoading() ? 'Drawing commit graph...' : ''));
 
   readonly commitClick = output<GitCommit>();
   readonly contextMenu = output<ContextMenuEvent>();
@@ -83,7 +89,10 @@ export class CommitTable implements OnDestroy {
   private readonly viewport = viewChild(CdkVirtualScrollViewport);
 
   /** Scroll offset and viewport height drive which graph rows are drawn. */
+  private readonly zone = inject(NgZone);
   protected readonly scrollTop = signal(0);
+  protected readonly scrollLeft = signal(0);
+  protected readonly viewportWidth = signal(0);
   private readonly viewportHeight = signal(0);
 
   constructor() {
@@ -94,34 +103,38 @@ export class CommitTable implements OnDestroy {
       this.updateGraph(commits);
     });
 
-    // Start over at the top whenever the filter context changes.
-    effect(() => {
-      this.search();
-      this.selectedBranch();
-      this.viewport()?.scrollToIndex(0);
-    });
-
-    // (Re)wire scroll and size tracking whenever the viewport (re)appears.
-    effect(() => {
+    // Resizing and CDK data updates need measurement after the DOM has rendered.
+    afterRenderEffect(() => {
+      this.graphCommits(); this.columnWidths();
       const viewport = this.viewport();
-      if (!viewport) {
-        return;
-      }
-
-      const element = viewport.elementRef.nativeElement;
-      const observer = new ResizeObserver(() => this.viewportHeight.set(element.clientHeight));
-      observer.observe(element);
-      this.viewportHeight.set(element.clientHeight);
-
-      const subscription = viewport.elementScrolled().subscribe(() => {
-        this.scrollTop.set(viewport.measureScrollOffset('top'));
-      });
-
-      return () => {
-        observer.disconnect();
-        subscription.unsubscribe();
-      };
+      if (viewport) untracked(() => { viewport.checkViewportSize(); this.measureViewport(); });
     });
+    afterRenderEffect(() => {
+      this.search(); this.selectedBranch(); this.showRemote();
+      const viewport = this.viewport();
+      if (viewport) untracked(() => { viewport.scrollToOffset(0); this.measureViewport(); });
+    });
+    effect(onCleanup => {
+      const viewport = this.viewport();
+      if (!viewport) return;
+      const observer = new ResizeObserver(() => {
+        this.zone.run(() => { viewport.checkViewportSize(); this.measureViewport(); });
+      });
+      observer.observe(viewport.elementRef.nativeElement);
+      const subscription = viewport.elementScrolled().subscribe(() => {
+        this.zone.run(() => this.measureViewport());
+      });
+      onCleanup(() => { observer.disconnect(); subscription.unsubscribe(); });
+    });
+  }
+
+  private measureViewport(): void {
+    const element = this.viewport()?.elementRef.nativeElement;
+    if (!element) return;
+    this.scrollTop.set(element.scrollTop);
+    this.scrollLeft.set(element.scrollLeft);
+    this.viewportWidth.set(element.clientWidth);
+    this.viewportHeight.set(element.clientHeight);
   }
 
   protected readonly columnWidths = signal<Record<ResizableColumn, number>>({
@@ -138,11 +151,13 @@ export class CommitTable implements OnDestroy {
   private updateGraph(commits: readonly GitCommit[]): void {
     // Supersede any in-flight worker request; its reply is dropped on arrival.
     this.graphSubscription?.unsubscribe();
+    this.graphLoading.set(true);
     this.graphSubscription = this.graph.compute(commits).subscribe((lanes) => {
       // Length mismatch means the history changed while computing.
       if (lanes.length !== commits.length) {
         return;
       }
+      this.graphLoading.set(false);
       this.graphCommits.set(
         commits.map((commit, index) => ({
           commit,
@@ -161,6 +176,10 @@ export class CommitTable implements OnDestroy {
   protected readonly graphColumnWidth = computed(() =>
     Math.max(this.graphWidth(), this.columnWidths().graph),
   );
+
+  protected readonly tableWidth = computed(() => Math.max(this.viewportWidth(),
+    this.graphColumnWidth() + this.columnWidths().date + this.columnWidths().author + this.columnWidths().commit + 280));
+  protected readonly horizontalTransform = computed(() => 'translateX(' + -this.scrollLeft() + 'px)');
 
   protected readonly graphHeight = computed(() => this.graphCommits().length * ROW_HEIGHT);
 
@@ -244,7 +263,8 @@ export class CommitTable implements OnDestroy {
   });
 
   protected readonly hasWorkingChanges = computed(
-    () => (this.workingChanges()?.files.length ?? 0) > 0,
+    () => { const changes = this.workingChanges(); return !!changes &&
+      (changes.staged.length + changes.unstaged.length + changes.untracked.length + changes.conflicted.length > 0); },
   );
 
   protected readonly workingHash = WORKING_HASH;

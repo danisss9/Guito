@@ -1,0 +1,141 @@
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import type { SimpleGit } from 'simple-git';
+
+type DiffParser = (patch: string) => any[];
+interface Change { path: string; oldPath: string; code: string }
+
+/** NUL-delimited metadata is authoritative: patch headers quote unusual filenames. */
+function names(raw: string): Change[] {
+  const fields = raw.split('\0');
+  const result: Change[] = [];
+  for (let i = 0; fields[i];) {
+    const code = fields[i++];
+    const first = fields[i++];
+    const renamed = /^[RC]/.test(code);
+    result.push({ code, path: renamed ? fields[i++] : first, oldPath: first });
+  }
+  return result;
+}
+
+export function workingTree(git: SimpleGit, parse: DiffParser) {
+  const hasHead = async () => {
+    try { await git.raw(['rev-parse', '--verify', 'HEAD']); return true; }
+    catch { return false; }
+  };
+
+  async function changes(args: string[]) {
+    const common = ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--find-renames', '--diff-filter=ACDMRT', ...args];
+    const metadata = names(await git.raw([...common, '--name-status', '-z']));
+    const patches = parse(await git.raw([...common, '--patch']));
+    return metadata.map((entry, index) => ({
+      lines: [], additions: 0, deletions: 0, ...patches[index],
+      path: entry.path,
+      oldPath: entry.code[0] === 'A' ? '' : entry.oldPath,
+      status: patches[index]?.status === 'binary' ? 'binary' :
+        ({ A: 'added', D: 'deleted', R: 'renamed' }[entry.code[0]] ?? 'modified'),
+    }));
+  }
+
+  async function status() {
+    const fields = (await git.raw(['status', '--porcelain=v1', '-z', '--untracked-files=all'])).split('\0');
+    const entries: { path: string; oldPath: string; index: string; working: string }[] = [];
+    for (let i = 0; fields[i];) {
+      const field = fields[i++];
+      const index = field[0], working = field[1], path = field.slice(3);
+      const oldPath = /[RC]/.test(index + working) ? fields[i++] : '';
+      entries.push({ path, oldPath, index, working });
+    }
+    return entries;
+  }
+
+  async function untrackedDiff(root: string, path: string) {
+    const buffer = await readFile(join(root, path));
+    const binary = buffer.includes(0);
+    const text = buffer.toString('utf8');
+    const lines = text ? text.replace(/\n$/, '').split('\n') : [];
+    return {
+      path, oldPath: '', status: binary ? 'binary' : 'added',
+      lines: binary ? [] : lines.map((text, i) => ({ type: 'add', newLine: i + 1, text })),
+      additions: binary ? 0 : lines.length, deletions: 0,
+    };
+  }
+
+  async function snapshot() {
+    const root = (await git.revparse(['--show-toplevel'])).trim();
+    const entries = await status();
+    const stagedFiles = await changes(['--cached']);
+    const unstagedFiles = await changes([]);
+    const untracked = entries.filter(e => e.index === '?').map(e => e.path);
+    const conflicted = entries.filter(e => e.index === 'U' || e.working === 'U' || ['AA', 'DD'].includes(e.index + e.working)).map(e => e.path);
+    for (const path of untracked) unstagedFiles.push(await untrackedDiff(root, path));
+    for (const path of conflicted) {
+      if (!unstagedFiles.some(file => file.path === path)) {
+        unstagedFiles.push({ path, oldPath: path, status: 'modified', lines: [], additions: 0, deletions: 0 });
+      }
+    }
+    const combined = await hasHead() ? await changes(['HEAD']) : [...stagedFiles];
+    const files = new Map(combined.map(file => [file.path, file]));
+    // The combined diff can be empty even when index and working changes cancel.
+    for (const file of [...stagedFiles, ...unstagedFiles]) if (!files.has(file.path)) files.set(file.path, file);
+    return {
+      files: [...files.values()], stagedFiles, unstagedFiles, conflicted,
+      staged: stagedFiles.map(file => file.path),
+      unstaged: unstagedFiles.filter(file => !untracked.includes(file.path)).map(file => file.path),
+      untracked,
+    };
+  }
+
+  async function validate(files: unknown): Promise<string[]> {
+    if (!Array.isArray(files) || !files.length || files.some(file => typeof file !== 'string' || !file)) {
+      throw new Error('Select at least one file.');
+    }
+    const root = (await git.revparse(['--show-toplevel'])).trim();
+    for (const file of files) {
+      const rel = relative(root, resolve(root, file));
+      if (file.includes('\0') || isAbsolute(file) || !rel || rel === '..' || rel.startsWith(`..${sep}`) ||
+          isAbsolute(rel) || file.split(/[\\/]/).some((part: string) => part === '..' || part.toLowerCase() === '.git')) {
+        throw new Error('Select repository-relative file paths.');
+      }
+    }
+    return [...new Set(files as string[])];
+  }
+
+  async function stage(files: unknown) {
+    const selected = await validate(files);
+    const entries = await status();
+    const paths = new Set<string>();
+    for (const path of selected) {
+      const entry = entries.find(e => e.path === path);
+      if (!entry) throw new Error(`File is no longer changed: ${path}`);
+      paths.add(path);
+      if (entry.oldPath && /[RC]/.test(entry.working)) paths.add(entry.oldPath);
+    }
+    await git.raw(['--literal-pathspecs', 'add', '-A', '--', ...paths]);
+  }
+
+  async function unstage(files: unknown) {
+    const selected = await validate(files);
+    const entries = names(await git.raw(['diff', '--cached', '--name-status', '--find-renames', '-z']));
+    const paths = new Set<string>();
+    for (const path of selected) {
+      const entry = entries.find(e => e.path === path);
+      if (!entry) throw new Error(`File is no longer staged: ${path}`);
+      paths.add(path);
+      paths.add(entry.oldPath);
+    }
+    await git.raw(await hasHead()
+      ? ['--literal-pathspecs', 'reset', '-q', 'HEAD', '--', ...paths]
+      : ['--literal-pathspecs', 'rm', '--cached', '-f', '--ignore-unmatch', '--', ...paths]);
+  }
+
+  async function commit(message: unknown, description: unknown) {
+    if (typeof message !== 'string' || !message.trim() || /[\r\n\0]/.test(message)) throw new Error('Enter a commit subject on one line.');
+    if (description !== undefined && (typeof description !== 'string' || description.includes('\0'))) throw new Error('Invalid commit description.');
+    if ((await git.raw(['ls-files', '--unmerged', '-z'])).length) throw new Error('Resolve conflicts before committing.');
+    if (!(await git.raw(['diff', '--cached', '--name-only', '-z'])).length) throw new Error('Stage changes before committing.');
+    await git.commit([message.trim(), ...(description ? [description as string] : [])]);
+  }
+
+  return { snapshot, stage, unstage, commit };
+}

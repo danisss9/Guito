@@ -62,6 +62,9 @@ export interface CommitDiff {
 }
 
 export interface WorkingChanges {
+  stagedFiles: FileDiff[];
+  unstagedFiles: FileDiff[];
+  conflicted: string[];
   files: FileDiff[];
   staged: string[];
   unstaged: string[];

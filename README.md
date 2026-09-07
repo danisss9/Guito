@@ -9,12 +9,13 @@ The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese w
 ## Features
 
 - Visual commit graph with branch and tag references.
-- Commit search by subject, author, or hash.
+- Commit search by subject, body, author, or hash, with loading feedback and retries.
 - Local and remote branch filtering.
 - Commit and working-tree diffs powered by the Monaco editor, with inline and side-by-side layouts.
 - Fetch, pull, pull with rebase, push, and sync actions.
 - Context actions for creating branches and tags, checking out commits, cherry-picking, reverting, merging, rebasing, resetting, and exporting archives.
 - Working-tree actions for stashing changes, resetting tracked changes, and cleaning untracked files.
+- Stage and unstage files with multi-selection, preview staged and unstaged diffs, and commit staged changes.
 - Browser-based CLI and a VS Code extension with local, Remote SSH, Dev Container, and Codespaces support.
 
 > [!CAUTION]
@@ -47,6 +48,12 @@ After installing the extension, open a trusted workspace containing a Git reposi
 - run **Guito: Open Guito** from the Command Palette.
 
 In a multi-root workspace, Guito asks which repository to open. Git must be available on the local or remote VS Code extension host.
+
+## Stage and commit changes
+
+Click **Uncommitted changes** to open the staged and unstaged file lists. Click to select a file, Ctrl/Cmd-click to toggle individual files, or Shift-click to select a range. Use the per-file buttons, selected-file actions, or **Stage all** / **Unstage all**. The separate **Diff** button previews only the changes in that list.
+
+Enter a commit message and optional description, then choose **Commit staged changes**. Only staged changes are committed; unstaged edits remain on disk. Commit drafts stay available when you close and reopen the panel during the session.
 
 ## CLI options
 

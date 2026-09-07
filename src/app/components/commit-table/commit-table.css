@@ -46,7 +46,7 @@
 .resizer {
   position: absolute;
   top: 0;
-  right: -3px;
+  right: 0;
   width: 6px;
   height: 100%;
   cursor: col-resize;
@@ -73,6 +73,9 @@
 }
 
 .list-viewport {
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
 }
 
@@ -313,3 +316,14 @@
   color: var(--text-dim);
   font-size: 12px;
 }
+
+.pinned-clip { overflow: hidden; flex: none; max-width: 100%; }
+.table-body { position: relative; }
+.graph-clip { position: absolute; inset: 0 auto 0 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.table-head, .row { box-sizing: border-box; }
+.head-cell.cell-desc, .cell-desc { min-width: 280px; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.table-loading { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-alt); color: var(--text); font-size: 12px; white-space: nowrap; }
+.spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

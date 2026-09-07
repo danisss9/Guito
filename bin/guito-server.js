@@ -8,6 +8,7 @@ import fastifyCors from '@fastify/cors';
 import fastifyCompress from '@fastify/compress';
 import { simpleGit } from 'simple-git';
 import { promisify } from 'node:util';
+import { workingTree } from './working-tree.js';
 const execFileAsync = promisify(execFile);
 export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, }) {
     // Initialize server
@@ -128,6 +129,14 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             files.push(current);
         return files;
     }
+    const working = workingTree(git, parseUnifiedDiff);
+    // Keep validation and the corresponding index mutation in one operation.
+    let mutationQueue = Promise.resolve();
+    const mutate = (action) => {
+        const result = mutationQueue.then(action);
+        mutationQueue = result.catch(() => { });
+        return result;
+    };
     const repoRoot = async () => (await git.revparse(['--show-toplevel'])).trim();
     // ==================== Repository ====================
     app.get('/api/repo', async (_req, resp) => {
@@ -221,8 +230,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     app.post('/api/commit', async (req, resp) => {
         try {
-            const { message, description } = req.body;
-            await git.commit([message, ...(description ? [description] : [])], { '--allow-empty': null });
+            const { message, description } = req.body ?? {};
+            await mutate(() => working.commit(message, description));
             return resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -291,10 +300,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     app.post('/api/stage', async (req, resp) => {
         try {
-            const { files } = req.body;
-            if (Array.isArray(files) && files.length > 0) {
-                await git.add(files);
-            }
+            await mutate(() => working.stage(req.body?.files));
             return resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -303,10 +309,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     app.post('/api/unstage', async (req, resp) => {
         try {
-            const { files } = req.body;
-            if (Array.isArray(files) && files.length > 0) {
-                await git.reset(['HEAD', ...files]);
-            }
+            await mutate(() => working.unstage(req.body?.files));
             return resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -664,57 +667,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // ==================== Working Changes ====================
     app.get('/api/working-changes', async (_req, resp) => {
         try {
-            const root = await repoRoot();
-            // Combined diff of the working tree + index against HEAD.
-            const rawDiff = await git.raw(['diff', 'HEAD', '--no-color', '--find-renames']);
-            const files = parseUnifiedDiff(rawDiff);
-            // Untracked files are not part of `git diff` — add them as new files.
-            const status = await git.status();
-            for (const file of status.not_added ?? []) {
-                let isBinary = false;
-                let content = '';
-                try {
-                    const buffer = await readFile(join(root, file));
-                    if (buffer.includes(0)) {
-                        isBinary = true;
-                    }
-                    else {
-                        content = buffer.toString('utf8');
-                    }
-                }
-                catch {
-                    content = '';
-                }
-                if (isBinary) {
-                    files.push({
-                        path: file,
-                        oldPath: '',
-                        status: 'binary',
-                        lines: [],
-                        additions: 0,
-                        deletions: 0,
-                    });
-                }
-                else {
-                    const lines = content.length > 0 ? content.split('\n') : [];
-                    files.push({
-                        path: file,
-                        oldPath: '',
-                        status: 'added',
-                        lines: lines.map((text, index) => ({ type: 'add', newLine: index + 1, text })),
-                        additions: lines.length,
-                        deletions: 0,
-                    });
-                }
-            }
-            const stagedRaw = await git.raw(['diff', '--name-only', '--cached']);
-            const unstagedRaw = await git.raw(['diff', '--name-only']);
-            return resp.type('application/json').send({
-                files,
-                staged: stagedRaw.split('\n').filter(Boolean),
-                unstaged: unstagedRaw.split('\n').filter(Boolean),
-                untracked: status.not_added ?? [],
-            });
+            await mutationQueue;
+            return resp.type('application/json').send(await working.snapshot());
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });
@@ -750,7 +704,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 return resp.type('application/json').send({ content: '' });
             }
             try {
-                const content = await git.raw(['show', `${ref}:${path}`]);
+                const content = await git.raw(['show', ref === 'INDEX' ? `:${path}` : `${ref}:${path}`]);
                 if (content.includes('\u0000')) {
                     return resp.type('application/json').send({ binary: true, content: '' });
                 }
