@@ -1,0 +1,178 @@
+<div class="backdrop" (click)="onBackdropClick()"></div>
+<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="create-pr-title">
+  <header class="dialog-head">
+    <h3 class="title" id="create-pr-title">Create Pull Request</h3>
+    <button
+      class="icon-btn"
+      type="button"
+      title="Close"
+      aria-label="Close dialog"
+      [disabled]="creating()"
+      (click)="closed.emit()"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </header>
+
+  @if (result(); as created) {
+    <div class="success">
+      <p class="success-line">✔ Pull Request #{{ created.id }} created</p>
+      @if (created.url) {
+        <a class="pr-link" [href]="created.url" target="_blank" rel="noopener">
+          Open in Azure DevOps
+        </a>
+      }
+      <p class="hint">Source branch: {{ created.branch }}</p>
+      @if (created.warnings?.length) {
+        @for (warning of created.warnings; track warning) {
+          <p class="warning">{{ warning }}</p>
+        }
+      }
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" (click)="closed.emit()">Close</button>
+    </div>
+  } @else {
+    <div class="form">
+      <label class="field">
+        <span class="field-label">Title</span>
+        <input
+          class="input"
+          type="text"
+          placeholder="Pull request title"
+          [value]="title()"
+          (input)="onTitleInput($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field-label">Description</span>
+        <textarea
+          class="input description"
+          rows="3"
+          placeholder="Optional description"
+          [value]="description()"
+          (input)="onDescriptionInput($event)"
+        ></textarea>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Source branch</span>
+        <select class="input" (change)="onSourceChange($event)">
+          <optgroup label="New branch">
+            <option [value]="newBranchValue" [selected]="source() === newBranchValue">
+              ➕ Create new branch (random name)
+            </option>
+          </optgroup>
+          <optgroup label="Local branches">
+            @for (branch of localBranches(); track branch.name) {
+              <option [value]="branch.name" [selected]="source() === branch.name">
+                {{ branch.name }}
+              </option>
+            }
+          </optgroup>
+          <optgroup label="Remote branches">
+            @for (branch of remoteBranches(); track branch.name) {
+              <option [value]="branch.name" [selected]="source() === branch.name">
+                {{ branch.name }}
+              </option>
+            }
+          </optgroup>
+        </select>
+      </label>
+      @if (source() === newBranchValue) {
+        <p class="hint">
+          A new branch (pr/xxxxxx) will be created from the current HEAD and pushed before the
+          pull request is created.
+        </p>
+      }
+
+      <label class="field">
+        <span class="field-label">Target branch</span>
+        <select class="input" (change)="onTargetChange($event)">
+          @for (branch of remoteBranches(); track branch.name) {
+            <option [value]="branch.name" [selected]="target() === branch.name">
+              {{ branch.name }}
+            </option>
+          }
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Required reviewers</span>
+        <app-chip-input
+          placeholder="Search users by name or email"
+          [chips]="requiredReviewers()"
+          [suggestions]="requiredReviewerSuggestions()"
+          [loading]="reviewersLoading()"
+          [query]="requiredReviewerQuery()"
+          (queryChange)="requiredReviewerQuery.set($event)"
+          (select)="addRequiredReviewer($event)"
+          (remove)="removeRequiredReviewer($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field-label">Optional reviewers</span>
+        <app-chip-input
+          placeholder="Search users by name or email"
+          [chips]="optionalReviewers()"
+          [suggestions]="optionalReviewerSuggestions()"
+          [loading]="reviewersLoading()"
+          [query]="optionalReviewerQuery()"
+          (queryChange)="optionalReviewerQuery.set($event)"
+          (select)="addOptionalReviewer($event)"
+          (remove)="removeOptionalReviewer($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field-label">Work items</span>
+        <app-chip-input
+          placeholder="Search by id or title"
+          [chips]="workItemChips()"
+          [suggestions]="workItemSuggestions()"
+          [loading]="workItemsLoading()"
+          [query]="workItemQuery()"
+          (queryChange)="workItemQuery.set($event)"
+          (select)="addWorkItem($event)"
+          (remove)="removeWorkItem($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span class="field-label">Tags</span>
+        <app-chip-input
+          placeholder="Add tags (Enter to add)"
+          [chips]="tagChips()"
+          [suggestions]="filteredTagSuggestions()"
+          [loading]="tagsLoading()"
+          [query]="tagQuery()"
+          [allowFreeText]="true"
+          (queryChange)="tagQuery.set($event)"
+          (select)="addTag($event)"
+          (remove)="removeTag($event)"
+        />
+      </label>
+      @if (tagQuery().trim() && !tagSuggestions().length && !tagsLoading()) {
+        <p class="hint">Press Enter to add "{{ tagQuery().trim() }}" as a new tag.</p>
+      }
+
+      @if (error()) {
+        <p class="error" role="alert">{{ error() }}</p>
+      }
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn" [disabled]="creating()" (click)="closed.emit()">
+        Cancel
+      </button>
+      <button type="button" class="btn btn-primary" [disabled]="!canCreate()" (click)="create()">
+        {{ creating() ? 'Creating...' : 'Create Pull Request' }}
+      </button>
+    </div>
+  }
+</div>

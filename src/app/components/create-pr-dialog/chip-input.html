@@ -1,0 +1,49 @@
+<div class="chip-input">
+  <div class="chip-row">
+    @for (chip of chips(); track chip.id) {
+      <span class="chip">
+        <span class="chip-label" [title]="chip.description ?? chip.label">{{ chip.label }}</span>
+        <button
+          type="button"
+          class="chip-remove"
+          [attr.aria-label]="'Remove ' + chip.label"
+          [disabled]="disabled()"
+          (click)="remove.emit(chip)"
+        >
+          ×
+        </button>
+      </span>
+    }
+    <input
+      class="chip-query"
+      type="text"
+      [attr.placeholder]="chips().length ? '' : placeholder()"
+      [value]="query()"
+      [disabled]="disabled()"
+      (input)="onInput($event)"
+      (keydown)="onKeydown($event)"
+      (focus)="open.set(true)"
+      (blur)="onBlur()"
+    />
+  </div>
+  @if (open() && (loading() || suggestions().length > 0)) {
+    <ul class="suggestions" role="listbox">
+      @if (loading()) {
+        <li class="suggestion-hint">Searching...</li>
+      }
+      @for (suggestion of suggestions(); track suggestion.id; let index = $index) {
+        <li
+          role="option"
+          [attr.aria-selected]="index === highlight()"
+          [class.active]="index === highlight()"
+          (mousedown)="onSuggestionMouseDown($event, suggestion)"
+        >
+          <span class="suggestion-label">{{ suggestion.label }}</span>
+          @if (suggestion.description) {
+            <span class="suggestion-desc">{{ suggestion.description }}</span>
+          }
+        </li>
+      }
+    </ul>
+  }
+</div>

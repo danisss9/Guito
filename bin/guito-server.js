@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
-import { execFile } from 'node:child_process';
-import { readFile, rm } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -10,7 +11,166 @@ import { simpleGit } from 'simple-git';
 import { promisify } from 'node:util';
 import { workingTree } from './working-tree.js';
 const execFileAsync = promisify(execFile);
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, }) {
+const AZURE_API_VERSION = '4.1';
+/**
+ * Extracts {projectPath, repo} from an Azure DevOps git remote URL.
+ * Supports https (with optional credentials) and ssh (scp-style and ssh://)
+ * forms, a trailing .git, and URL-encoded segments such as %20.
+ */
+export function parseAzureRemoteUrl(remoteUrl) {
+    const value = (remoteUrl ?? '').trim();
+    if (!value) {
+        return null;
+    }
+    let path;
+    const urlMatch = value.match(/^[a-z][a-z0-9+.\-]*:\/\/[^/]*\/(.*)$/i);
+    if (urlMatch) {
+        path = urlMatch[1];
+    }
+    else {
+        // scp-style ssh: git@host:Collection/Project/_git/Repo(.git)
+        const scpMatch = value.match(/^[^@/]+@[^:]+:(.+)$/);
+        if (!scpMatch) {
+            return null;
+        }
+        path = scpMatch[1];
+    }
+    path = path.replace(/\.git\/?$/i, '');
+    try {
+        path = decodeURIComponent(path);
+    }
+    catch {
+        // Keep the raw path when it contains invalid percent-escapes.
+    }
+    const gitIndex = path.toLowerCase().lastIndexOf('/_git/');
+    if (gitIndex < 0) {
+        return null;
+    }
+    const projectPath = path.slice(0, gitIndex).replace(/^\/+|\/+$/g, '');
+    const repo = path.slice(gitIndex + '/_git/'.length).replace(/^\/+|\/+$/g, '');
+    if (!projectPath || !repo) {
+        return null;
+    }
+    return { projectPath, repo };
+}
+/**
+ * Builds the encoded "{origin}[/{collection}]/{project}" prefix for Azure
+ * DevOps REST calls. When the base URL already contains the collection
+ * prefix of the remote path it is not duplicated.
+ */
+export function buildAzureProjectPrefix(baseUrl, remoteUrl) {
+    const base = (baseUrl ?? '').trim().replace(/\/+$/, '');
+    if (!base) {
+        return null;
+    }
+    const info = parseAzureRemoteUrl(remoteUrl);
+    if (!info) {
+        return null;
+    }
+    const encodePath = (value) => value
+        .split('/')
+        .filter(Boolean)
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+    try {
+        const parsed = new URL(base);
+        const basePath = parsed.pathname.replace(/^\/+|\/+$/g, '');
+        if (basePath && info.projectPath.toLowerCase().startsWith(basePath.toLowerCase())) {
+            return `${parsed.origin}/${encodePath(info.projectPath)}`;
+        }
+        return `${parsed.origin}${basePath ? `/${encodePath(basePath)}` : ''}/${encodePath(info.projectPath)}`;
+    }
+    catch {
+        return `${base}/${encodePath(info.projectPath)}`;
+    }
+}
+/** Builds the pullrequests REST URL from the server base URL and origin remote. */
+export function buildAzurePullRequestUrl(baseUrl, remoteUrl) {
+    const prefix = buildAzureProjectPrefix(baseUrl, remoteUrl);
+    if (!prefix) {
+        return null;
+    }
+    const info = parseAzureRemoteUrl(remoteUrl);
+    if (!info) {
+        return null;
+    }
+    return `${prefix}/_git/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
+}
+/**
+ * Default Azure DevOps HTTP runner: shells out to the Windows built-in
+ * curl.exe with NTLM + Negotiate and an empty username, which authenticates
+ * with the current Windows session (SSPI single sign-on).
+ */
+function defaultAzureRequest(method, url, body) {
+    return new Promise((resolveRequest, rejectRequest) => {
+        const args = [
+            '-sS',
+            '--ntlm',
+            '--negotiate',
+            '-u',
+            ':',
+            '--max-time',
+            '60',
+            '-w',
+            '\n%{http_code}',
+            '-X',
+            method,
+        ];
+        if (method === 'POST') {
+            args.push('-H', 'Content-Type: application/json', '--data-binary', '@-');
+        }
+        args.push(url);
+        const child = spawn('curl.exe', args, { windowsHide: true });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk) => {
+            stdout += chunk;
+        });
+        child.stderr.on('data', (chunk) => {
+            stderr += chunk;
+        });
+        // EPIPE when curl exits before reading the whole body; the close handler
+        // reports the real failure.
+        child.stdin.on('error', () => { });
+        child.on('error', (err) => {
+            rejectRequest(new Error(`Failed to run curl.exe (Windows integrated auth requires Windows): ${err.message}`));
+        });
+        child.on('close', (code) => {
+            if (code !== 0) {
+                rejectRequest(new Error(stderr.trim() || `curl.exe exited with code ${code}.`));
+                return;
+            }
+            // -w appends "\n<http_code>" after the response body.
+            const separator = stdout.lastIndexOf('\n');
+            const status = Number.parseInt(stdout.slice(separator + 1), 10);
+            if (separator < 0 || !Number.isFinite(status)) {
+                rejectRequest(new Error('Unexpected curl.exe output (missing HTTP status).'));
+                return;
+            }
+            resolveRequest({ status, body: stdout.slice(0, separator) });
+        });
+        child.stdin.end(body, 'utf8');
+    });
+}
+const randomBranchSuffix = () => {
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const bytes = randomBytes(6);
+    let suffix = '';
+    for (const byte of bytes) {
+        suffix += alphabet[byte % alphabet.length];
+    }
+    return suffix;
+};
+/** Extracts Azure DevOps' human-readable error message from a REST response. */
+const azureErrorMessage = (result) => {
+    try {
+        return String(JSON.parse(result.body)?.message ?? '');
+    }
+    catch {
+        return result.body;
+    }
+};
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, azureRequestImpl, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -138,6 +298,58 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         return result;
     };
     const repoRoot = async () => (await git.revparse(['--show-toplevel'])).trim();
+    // ==================== Azure DevOps settings ====================
+    // Settings live in the repository's git directory so they are per-repo and
+    // never committed. The VS Code extension passes its own setting via
+    // azureDevOpsUrl, which wins over the file.
+    let settingsPath = '';
+    try {
+        const gitDir = (await git.revparse(['--absolute-git-dir'])).trim();
+        settingsPath = join(gitDir, 'guito-settings.json');
+    }
+    catch {
+        settingsPath = join(repositoryPath, '.git', 'guito-settings.json');
+    }
+    const readSettings = async () => {
+        try {
+            return JSON.parse(await readFile(settingsPath, 'utf8'));
+        }
+        catch {
+            return {};
+        }
+    };
+    const writeSettings = async (settings) => {
+        await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+    };
+    const azureRequest = azureRequestImpl ?? defaultAzureRequest;
+    const configuredAzureUrl = azureDevOpsUrl?.trim() ?? '';
+    const effectiveAzureUrl = async () => {
+        if (configuredAzureUrl) {
+            return { url: configuredAzureUrl, source: 'vscode' };
+        }
+        const settings = await readSettings();
+        const url = typeof settings.azureDevOpsUrl === 'string' ? settings.azureDevOpsUrl.trim() : '';
+        return { url, source: url ? 'file' : '' };
+    };
+    /** Resolves the Azure DevOps project prefix or throws a user-facing error. */
+    const azureProjectContext = async () => {
+        const effective = await effectiveAzureUrl();
+        if (!effective.url) {
+            throw new Error('Azure DevOps URL is not configured. Set it in Settings (gear icon) or the guito.azureDevOpsUrl VS Code setting.');
+        }
+        let remoteUrl = '';
+        try {
+            remoteUrl = (await git.remote(['get-url', 'origin'])).trim();
+        }
+        catch {
+            throw new Error('No "origin" remote is configured for this repository.');
+        }
+        const prefix = buildAzureProjectPrefix(effective.url, remoteUrl);
+        if (!prefix) {
+            throw new Error(`The origin remote does not point to an Azure DevOps project: ${remoteUrl}`);
+        }
+        return { prefix, remoteUrl };
+    };
     // ==================== Repository ====================
     app.get('/api/repo', async (_req, resp) => {
         try {
@@ -634,6 +846,257 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const { remote } = req.body;
             await git.remote(['prune', remote || 'origin']);
             return resp.type('application/json').send({ success: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Settings ====================
+    app.get('/api/settings', async (_req, resp) => {
+        try {
+            const effective = await effectiveAzureUrl();
+            return resp
+                .type('application/json')
+                .send({ azureDevOpsUrl: effective.url, source: effective.source });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.post('/api/settings', async (req, resp) => {
+        try {
+            const url = String(req.body?.azureDevOpsUrl ?? '').trim();
+            if (url && !/^https?:\/\//i.test(url)) {
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({ error: 'The Azure DevOps URL must start with http:// or https://.' });
+            }
+            const settings = await readSettings();
+            settings.azureDevOpsUrl = url;
+            await writeSettings(settings);
+            const effective = await effectiveAzureUrl();
+            return resp
+                .type('application/json')
+                .send({ azureDevOpsUrl: effective.url, source: effective.source });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Azure DevOps Pull Requests ====================
+    app.post('/api/azure-devops/pullrequest', async (req, resp) => {
+        try {
+            const { sourceBranch, targetBranch, title, description, newBranch } = req.body ?? {};
+            if (!targetBranch) {
+                return resp.status(400).type('application/json').send({ error: 'targetBranch required' });
+            }
+            const { prefix, remoteUrl } = await azureProjectContext();
+            const info = parseAzureRemoteUrl(remoteUrl);
+            if (!info) {
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({ error: 'Unable to build the Azure DevOps pull request URL.' });
+            }
+            const prUrl = `${prefix}/_git/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
+            let source = String(sourceBranch ?? '').trim();
+            if (newBranch) {
+                // Create a remote-only branch from the current HEAD; the local
+                // repository and the checked-out branch stay untouched.
+                const name = `pr/${randomBranchSuffix()}`;
+                await git.push(['origin', `HEAD:refs/heads/${name}`]);
+                source = name;
+            }
+            else {
+                if (!source) {
+                    return resp.status(400).type('application/json').send({ error: 'sourceBranch required' });
+                }
+                if (source.startsWith('origin/')) {
+                    // Remote-tracking branch: the PR source is the branch name on the remote.
+                    source = source.slice('origin/'.length);
+                }
+                else {
+                    // Publish the branch first when the remote does not have it yet.
+                    // The remote-tracking ref is a local check; a redundant push is a
+                    // harmless no-op ("Everything up-to-date").
+                    // rev-parse --verify --quiet does not fail reliably through
+                    // simple-git, so list the tracking refs instead.
+                    const trackingRefs = await git.raw([
+                        'for-each-ref',
+                        'refs/remotes/origin',
+                        '--format=%(refname)',
+                    ]);
+                    const published = trackingRefs
+                        .split('\n')
+                        .some((line) => line.trim() === `refs/remotes/origin/${source}`);
+                    if (!published) {
+                        await git.push(['origin', source]);
+                    }
+                }
+            }
+            const payload = {
+                sourceRefName: `refs/heads/${source}`,
+                targetRefName: `refs/heads/${targetBranch}`,
+            };
+            const trimmedTitle = String(title ?? '').trim();
+            const trimmedDescription = String(description ?? '').trim();
+            if (trimmedTitle) {
+                payload.title = trimmedTitle;
+            }
+            if (trimmedDescription) {
+                payload.description = trimmedDescription;
+            }
+            const reviewerList = Array.isArray(req.body?.reviewers) ? req.body.reviewers : [];
+            const payloadReviewers = reviewerList
+                .map((entry) => ({ id: String(entry?.id ?? ''), isRequired: !!entry?.required }))
+                .filter((entry) => entry.id);
+            if (payloadReviewers.length) {
+                payload.reviewers = payloadReviewers;
+            }
+            const workItemList = Array.isArray(req.body?.workItems) ? req.body.workItems : [];
+            const payloadWorkItems = workItemList
+                .map((id) => Number(id))
+                .filter((id) => Number.isInteger(id) && id > 0);
+            if (payloadWorkItems.length) {
+                payload.workItems = payloadWorkItems.map((id) => ({ id }));
+            }
+            const result = await azureRequest('POST', prUrl, JSON.stringify(payload));
+            if (result.status < 200 || result.status >= 300) {
+                return resp.status(400).type('application/json').send({
+                    error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
+                });
+            }
+            const created = JSON.parse(result.body);
+            // Tags (labels) are a separate resource; add them after the PR exists.
+            const labelNames = (Array.isArray(req.body?.labels) ? req.body.labels : [])
+                .map((name) => String(name ?? '').trim())
+                .filter(Boolean);
+            const warnings = [];
+            if (labelNames.length && created.pullRequestId) {
+                // Built from the prefix: prUrl already carries the api-version query.
+                const labelsUrl = `${prefix}/_git/${encodeURIComponent(info.repo)}` +
+                    `/pullrequests/${created.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`;
+                for (const name of labelNames) {
+                    try {
+                        const labelResult = await azureRequest('POST', labelsUrl, JSON.stringify({ name }));
+                        if (labelResult.status < 200 || labelResult.status >= 300) {
+                            warnings.push(`Could not add tag "${name}" (HTTP ${labelResult.status}).`);
+                        }
+                    }
+                    catch (err) {
+                        warnings.push(`Could not add tag "${name}": ${err.message}`);
+                    }
+                }
+            }
+            return resp.type('application/json').send({
+                id: created.pullRequestId,
+                url: created._links?.web?.href ?? '',
+                branch: source,
+                ...(warnings.length ? { warnings } : {}),
+            });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Azure DevOps PR metadata ====================
+    // Identity search for the reviewer pickers (the endpoint the Azure DevOps
+    // web UI itself uses; undocumented but stable across TFS 2018+).
+    app.get('/api/azure-devops/reviewers', async (req, resp) => {
+        try {
+            const query = String((req.query ?? {}).query ?? '').trim();
+            if (!query) {
+                return resp.type('application/json').send({ reviewers: [] });
+            }
+            const { prefix } = await azureProjectContext();
+            const url = `${prefix}/_apis/identitypicker/identities?api-version=${AZURE_API_VERSION}` +
+                '&identityTypes=msa-uuid,umd&queryType=nameAndEmail&searchFilter=' +
+                `&showImage=False&filterValue=${encodeURIComponent(query)}`;
+            const result = await azureRequest('GET', url, '');
+            if (result.status < 200 || result.status >= 300) {
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({ error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.` });
+            }
+            const data = JSON.parse(result.body);
+            const list = Array.isArray(data) ? data : (data.results ?? data.identities ?? []);
+            const reviewers = list
+                .map((entry) => ({
+                id: String(entry?.id ?? entry?.identity?.id ?? ''),
+                label: String(entry?.label ?? entry?.displayName ?? entry?.name ?? ''),
+                description: entry?.description ? String(entry.description) : undefined,
+            }))
+                .filter((entry) => entry.id && entry.label);
+            return resp.type('application/json').send({ reviewers });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Work item search by id or title: a WIQL query returns ids, a batch read
+    // then fetches title/state for the first matches.
+    app.get('/api/azure-devops/workitems', async (req, resp) => {
+        try {
+            const query = String((req.query ?? {}).query ?? '').trim();
+            if (!query) {
+                return resp.type('application/json').send({ workItems: [] });
+            }
+            const { prefix } = await azureProjectContext();
+            const clauses = [`[System.Title] CONTAINS '${query.replace(/'/g, "''")}'`];
+            if (/^\d+$/.test(query)) {
+                clauses.push(`[System.Id] = '${query}'`);
+            }
+            const wiql = 'SELECT [System.Id], [System.Title], [System.State] FROM WorkItems ' +
+                `WHERE ${clauses.map((clause) => `(${clause})`).join(' OR ')} ` +
+                'ORDER BY [System.ChangedDate] DESC';
+            const wiqlResult = await azureRequest('POST', `${prefix}/_apis/wit/wiql?api-version=${AZURE_API_VERSION}`, JSON.stringify({ query: wiql }));
+            if (wiqlResult.status < 200 || wiqlResult.status >= 300) {
+                return resp.status(400).type('application/json').send({
+                    error: azureErrorMessage(wiqlResult) || `Azure DevOps returned HTTP ${wiqlResult.status}.`,
+                });
+            }
+            const ids = (JSON.parse(wiqlResult.body).workItems ?? [])
+                .map((entry) => Number(entry?.id))
+                .filter((id) => Number.isInteger(id) && id > 0)
+                .slice(0, 20);
+            if (!ids.length) {
+                return resp.type('application/json').send({ workItems: [] });
+            }
+            const batchResult = await azureRequest('GET', `${prefix}/_apis/wit/workitems?ids=${ids.join(',')}` +
+                `&fields=System.Id,System.Title,System.State&api-version=${AZURE_API_VERSION}`, '');
+            if (batchResult.status < 200 || batchResult.status >= 300) {
+                return resp.status(400).type('application/json').send({
+                    error: azureErrorMessage(batchResult) || `Azure DevOps returned HTTP ${batchResult.status}.`,
+                });
+            }
+            const workItems = (JSON.parse(batchResult.body).value ?? []).map((item) => ({
+                id: Number(item?.id),
+                title: String(item?.fields?.['System.Title'] ?? ''),
+                state: String(item?.fields?.['System.State'] ?? ''),
+            }));
+            return resp.type('application/json').send({ workItems });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Work item tag names for the tag autocomplete.
+    app.get('/api/azure-devops/tags', async (_req, resp) => {
+        try {
+            const { prefix } = await azureProjectContext();
+            const result = await azureRequest('GET', `${prefix}/_apis/wit/tags?api-version=${AZURE_API_VERSION}`, '');
+            if (result.status < 200 || result.status >= 300) {
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({ error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.` });
+            }
+            const tags = (JSON.parse(result.body).value ?? [])
+                .map((tag) => String(tag?.name ?? '').trim())
+                .filter(Boolean);
+            return resp.type('application/json').send({ tags });
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });

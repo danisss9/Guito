@@ -14,10 +14,12 @@ import { catchError } from 'rxjs/operators';
 import { CommitDetail } from './components/commit-detail/commit-detail';
 import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
+import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
 import { WorkingPanel } from './components/working-panel/working-panel';
 import { Toolbar } from './components/toolbar/toolbar';
 import {
+  AzureSettings,
   BranchInfo,
   CommitsResponse,
   ContextMenuState,
@@ -53,7 +55,7 @@ function loadCommitDraft(): CommitDraft {
 
 @Component({
   selector: 'app-root',
-  imports: [Toolbar, CommitTable, CommitDetail, ContextMenu, PromptDialog, WorkingPanel],
+  imports: [Toolbar, CommitTable, CommitDetail, ContextMenu, PromptDialog, WorkingPanel, CreatePrDialog],
   templateUrl: './app.html',
   styleUrl: './app.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -99,6 +101,11 @@ export class App implements OnDestroy {
   protected readonly contextMenuState = signal<ContextMenuState | null>(null);
   protected readonly contextMenuTarget = signal<any>(null);
   protected readonly promptState = signal<PromptState | null>(null);
+  /** Azure DevOps integration settings; null until the first refresh. */
+  protected readonly azureSettings = signal<AzureSettings | null>(null);
+  protected readonly hasAzureUrl = computed(() => !!this.azureSettings()?.azureDevOpsUrl);
+  /** Whether the Create Pull Request dialog is open. */
+  protected readonly prDialogOpen = signal(false);
   /** Files awaiting confirmation for the unstaged-discard dialog. */
   private readonly pendingDiscard = signal<string[] | null>(null);
 
@@ -279,6 +286,9 @@ export class App implements OnDestroy {
       history: this.git.getCommits(LOAD_PAGE_SIZE),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
+      settings: this.git.getSettings().pipe(
+        catchError(() => of(null)),
+      ),
       working: this.git.getWorkingChanges().pipe(
         catchError((err) => {
           this.statusError.set(this.errorMessage(err));
@@ -286,11 +296,14 @@ export class App implements OnDestroy {
         }),
       ),
     }).subscribe({
-      next: ({ history, branches, repo, working }) => {
+      next: ({ history, branches, repo, settings, working }) => {
         this.commits.set(history.commits);
         this.totalCommits.set(Math.max(history.total, history.commits.length));
         this.branches.set(branches);
         this.repoName.set(repo.name);
+        if (settings) {
+          this.azureSettings.set(settings);
+        }
         if (working) {
           this.workingChanges.set(working);
           this.statusError.set('');
@@ -480,11 +493,23 @@ export class App implements OnDestroy {
   }
 
   protected runRemoteAction(
-    action: 'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync',
+    action:
+      | 'fetch'
+      | 'pull'
+      | 'pull-rebase'
+      | 'rebase-from'
+      | 'push'
+      | 'push-force'
+      | 'sync'
+      | 'create-pr',
   ): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     if (action === 'rebase-from') {
       this.openRebaseFromDialog();
+      return;
+    }
+    if (action === 'create-pr') {
+      this.prDialogOpen.set(true);
       return;
     }
     if (action === 'push-force') {
@@ -542,6 +567,27 @@ export class App implements OnDestroy {
       okLabel: 'Rebase',
       searchable: true,
     });
+  }
+
+  /** Opens the Azure DevOps URL editor behind the toolbar's gear icon. */
+  protected openAzureSettings(): void {
+    const settings = this.azureSettings();
+    const label = settings?.source === 'vscode'
+      ? 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Currently provided by the VS Code setting guito.azureDevOpsUrl; a value saved here applies only while that setting is empty.'
+      : 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Leave empty to disable pull request creation.';
+    this.promptState.set({
+      title: 'Azure DevOps URL',
+      label,
+      value: settings?.azureDevOpsUrl ?? '',
+      placeholder: 'https://server/DefaultCollection',
+      allowEmpty: true,
+      okLabel: 'Save',
+    });
+  }
+
+  /** Refreshes after a pull request was created (a new remote branch may exist). */
+  protected onPrCreated(): void {
+    this.refresh();
   }
 
   protected onContextMenu(event: { x: number; y: number; target: any }): void {
@@ -1029,6 +1075,14 @@ export class App implements OnDestroy {
           error: (err) => this.error.set(this.errorMessage(err)),
         });
       }
+      return;
+    }
+
+    if (state.title === 'Azure DevOps URL') {
+      this.git.saveSettings(value.trim()).subscribe({
+        next: (settings) => this.azureSettings.set(settings),
+        error: (err) => this.error.set(this.errorMessage(err)),
+      });
       return;
     }
   }

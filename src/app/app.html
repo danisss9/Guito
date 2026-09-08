@@ -20,12 +20,14 @@
     [busy]="busy() || mutationBusy() || statusLoading()"
     [matchIndex]="searchIndex()"
     [matchCount]="searchMatches().length"
+    [prEnabled]="hasAzureUrl()"
     (branchChange)="selectedBranch.set($event)"
     (remoteToggle)="onRemoteToggle($event)"
     (searchChange)="search.set($event)"
     (searchNavigate)="navigateSearch($event)"
     (refresh)="refresh()"
     (remoteAction)="runRemoteAction($event)"
+    (settingsClick)="openAzureSettings()"
   />
 
   @if (error()) {
@@ -71,5 +73,12 @@
 
   <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
   <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="onPromptCancel()" />
+  @if (prDialogOpen()) {
+    <app-create-pr-dialog
+      [branches]="branches()"
+      (closed)="prDialogOpen.set(false)"
+      (created)="onPrCreated()"
+    />
+  }
 
 </div>

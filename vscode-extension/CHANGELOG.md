@@ -4,6 +4,9 @@
 
 - Add a "Rebase (from)..." action to the pull menu that rebases the current branch onto a picked branch, with origin/main as the default choice and a scrollable option list.
 - Add a "Push (force)" action to the push menu, shown in red and confirmed with a dialog before overwriting the remote branch.
+- Add a "Create Pull Request..." action to the push menu that creates a pull request on an on-prem Azure DevOps Server and shows a link to the created pull request.
+- Add required and optional reviewers, work item links, and tags to pull request creation, with autocomplete suggestions from the Azure DevOps API.
+- Add the guito.azureDevOpsUrl setting that points Guito at the Azure DevOps Server and enables the pull request actions, authenticated with Windows integrated authentication.
 
 ## 0.6.0
 

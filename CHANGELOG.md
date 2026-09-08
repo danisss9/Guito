@@ -8,6 +8,10 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 - Rebase the current branch onto any branch from the pull menu. The new "Rebase (from)..." entry opens a branch picker with origin/main as the default choice, and the option list scrolls when a repository has many branches.
 - Force push from the push menu. The red "Push (force)" entry asks for confirmation before overwriting the remote branch with the local history.
+- Create pull requests on an on-prem Azure DevOps Server from the push menu. After setting the server URL with the new settings button (or the guito.azureDevOpsUrl VS Code setting), a "Create Pull Request..." entry opens a dialog with title, description, source and target branches, and shows a link to the created pull request when it is created.
+- Fill pull requests with optional metadata: required and optional reviewers, linked work items searched by id or title, and tags, all with autocomplete suggestions from the Azure DevOps API.
+- Create the pull request from a new remote branch with a random name without leaving the current branch, and publish the source branch to the remote automatically when it has not been pushed yet.
+- Authenticate to Azure DevOps with Windows integrated authentication, so no credentials are stored or entered for on-prem servers.
 
 ## [0.6.0] - 2026-09-07
 

@@ -1,13 +1,20 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, defer, throwError, finalize } from 'rxjs';
+import { map } from 'rxjs/operators';
 import {
+  AzureSettings,
   BranchInfo,
   CommitDiff,
   CommitSearchResponse,
   CommitsResponse,
+  CreatePrRequest,
+  CreatePrResult,
   FileContent,
   GitCommit,
+  PrReviewerSuggestion,
+  PrTagSuggestion,
+  PrWorkItemSuggestion,
   RepoInfo,
   StashScope,
   WorkingChanges,
@@ -19,7 +26,7 @@ export class GitService {
   private readonly base = '/api';
   readonly mutating = signal(false);
 
-  private mutate(request: () => Observable<unknown>): Observable<unknown> {
+  private mutate<T>(request: () => Observable<T>): Observable<T> {
     return defer(() => {
       if (this.mutating())
         return throwError(() => ({
@@ -173,5 +180,45 @@ export class GitService {
 
   pushTag(name: string, remote = 'origin'): Observable<unknown> {
     return this.mutate(() => this.http.post(`${this.base}/tag/push`, { name, remote }));
+  }
+
+  getSettings(): Observable<AzureSettings> {
+    return this.http.get<AzureSettings>(`${this.base}/settings`);
+  }
+
+  saveSettings(azureDevOpsUrl: string): Observable<AzureSettings> {
+    return this.http.post<AzureSettings>(`${this.base}/settings`, { azureDevOpsUrl });
+  }
+
+  /** Creates an Azure DevOps pull request; may push the source branch first. */
+  createPr(request: CreatePrRequest): Observable<CreatePrResult> {
+    return this.mutate(() =>
+      this.http.post<CreatePrResult>(`${this.base}/azure-devops/pullrequest`, request),
+    );
+  }
+
+  /** Identity picker search for pull request reviewers. */
+  searchReviewers(query: string): Observable<PrReviewerSuggestion[]> {
+    return this.http
+      .get<{ reviewers: PrReviewerSuggestion[] }>(`${this.base}/azure-devops/reviewers`, {
+        params: new HttpParams().set('query', query),
+      })
+      .pipe(map((response) => response.reviewers));
+  }
+
+  /** Work item search (by id or title) for pull request linking. */
+  searchWorkItems(query: string): Observable<PrWorkItemSuggestion[]> {
+    return this.http
+      .get<{ workItems: PrWorkItemSuggestion[] }>(`${this.base}/azure-devops/workitems`, {
+        params: new HttpParams().set('query', query),
+      })
+      .pipe(map((response) => response.workItems));
+  }
+
+  /** Work item tag names for pull request tag autocomplete. */
+  getPrTags(): Observable<PrTagSuggestion[]> {
+    return this.http
+      .get<{ tags: string[] }>(`${this.base}/azure-devops/tags`)
+      .pipe(map((response) => response.tags.map((name) => ({ name }))));
   }
 }

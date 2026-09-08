@@ -134,3 +134,52 @@ export interface PromptState {
   /** Shows a filter box above the choice list (useful for long option lists). */
   searchable?: boolean;
 }
+
+/** Azure DevOps integration settings served by the Guito server. */
+export interface AzureSettings {
+  azureDevOpsUrl: string;
+  /** Where the effective URL comes from: the VS Code setting or the server-side file. */
+  source: 'vscode' | 'file' | '';
+}
+
+export interface CreatePrRequest {
+  sourceBranch: string;
+  targetBranch: string;
+  title?: string;
+  description?: string;
+  /** Creates a remote-only branch (pr/xxxxxx) from HEAD as the PR source. */
+  newBranch?: boolean;
+  /** Reviewers to add: identity id from the picker + whether required. */
+  reviewers?: { id: string; required: boolean }[];
+  /** Work item ids to link to the pull request. */
+  workItems?: number[];
+  /** Tags (labels) to add to the pull request. */
+  labels?: string[];
+}
+
+export interface CreatePrResult {
+  id: number;
+  url: string;
+  branch: string;
+  /** Non-fatal problems, e.g. tags that could not be added. */
+  warnings?: string[];
+}
+
+/** Reviewer candidate returned by the Azure DevOps identity picker. */
+export interface PrReviewerSuggestion {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+/** Work item match returned by the Azure DevOps WIQL search. */
+export interface PrWorkItemSuggestion {
+  id: number;
+  title: string;
+  state: string;
+}
+
+/** Work item tag name returned by the Azure DevOps tags API. */
+export interface PrTagSuggestion {
+  name: string;
+}

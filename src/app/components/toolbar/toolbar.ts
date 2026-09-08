@@ -31,6 +31,8 @@ export class Toolbar {
   readonly matchIndex = input(-1);
   /** Total number of commits matching the current search. */
   readonly matchCount = input(0);
+  /** Azure DevOps URL is configured; enables the Create Pull Request menu item. */
+  readonly prEnabled = input(false);
 
   readonly branchChange = output<string>();
   readonly remoteToggle = output<boolean>();
@@ -38,8 +40,9 @@ export class Toolbar {
   readonly searchNavigate = output<'next' | 'prev'>();
   readonly refresh = output<void>();
   readonly remoteAction = output<
-    'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync'
+    'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync' | 'create-pr'
   >();
+  readonly settingsClick = output<void>();
   protected readonly openMenu = signal<'pull' | 'push' | null>(null);
 
   /** Raw search text; bound to the input so typing stays responsive. */
@@ -90,7 +93,14 @@ export class Toolbar {
   }
 
   protected chooseRemoteAction(
-    action: 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync',
+    action:
+      | 'pull'
+      | 'pull-rebase'
+      | 'rebase-from'
+      | 'push'
+      | 'push-force'
+      | 'sync'
+      | 'create-pr',
   ): void {
     this.openMenu.set(null);
     this.remoteAction.emit(action);
