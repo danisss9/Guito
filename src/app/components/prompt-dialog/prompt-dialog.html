@@ -6,8 +6,20 @@
       <p class="label">{{ s.label }}</p>
     }
     @if (options().length > 0) {
+      @if (s.searchable) {
+        <input
+          #searchEl
+          class="input"
+          type="text"
+          placeholder="Search…"
+          aria-label="Search options"
+          [value]="search()"
+          (input)="onSearch($event)"
+          (keydown.enter)="onSearchEnter($event)"
+        />
+      }
       <div class="options" role="radiogroup">
-        @for (option of options(); track option.value) {
+        @for (option of filteredOptions(); track option.value) {
           <button
             type="button"
             class="option"
@@ -26,6 +38,8 @@
               }
             </span>
           </button>
+        } @empty {
+          <p class="no-results">No matching branches</p>
         }
       </div>
     } @else if (!s.confirmOnly) {
@@ -50,7 +64,10 @@
         class="btn btn-primary"
         type="button"
         [class.btn-danger]="s.danger"
-        [disabled]="options().length === 0 && !s.confirmOnly && !s.allowEmpty && !value().trim()"
+        [disabled]="
+          (options().length === 0 && !s.confirmOnly && !s.allowEmpty && !value().trim()) ||
+          (s.searchable && filteredOptions().length === 0)
+        "
         (click)="confirm()"
       >
         {{ s.okLabel || 'OK' }}

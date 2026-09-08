@@ -238,6 +238,15 @@
   color: var(--text-bright);
 }
 
+.remote-menu button.danger {
+  color: var(--red);
+}
+
+.remote-menu button.danger:hover {
+  background: rgba(244, 135, 113, 0.12);
+  color: #f48771;
+}
+
 .icon-btn:hover {
   background: var(--bg-hover);
   color: var(--text-bright);

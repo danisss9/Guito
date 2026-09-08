@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- Add a "Rebase (from)..." action to the pull menu that rebases the current branch onto a picked branch, with origin/main as the default choice and a scrollable option list.
+- Add a "Push (force)" action to the push menu, shown in red and confirmed with a dialog before overwriting the remote branch.
+
 ## 0.6.0
 
 - Stage and unstage individual files, selected ranges, or all changes from the Uncommitted changes panel, with Ctrl/Cmd and Shift selection and separate staged/unstaged diff previews.

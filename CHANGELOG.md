@@ -2,6 +2,13 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] - 2026-09-08
+
+### Added
+
+- Rebase the current branch onto any branch from the pull menu. The new "Rebase (from)..." entry opens a branch picker with origin/main as the default choice, and the option list scrolls when a repository has many branches.
+- Force push from the push menu. The red "Push (force)" entry asks for confirmation before overwriting the remote branch with the local history.
+
 ## [0.6.0] - 2026-09-07
 
 ### Added

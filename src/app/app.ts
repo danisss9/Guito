@@ -479,8 +479,26 @@ export class App implements OnDestroy {
     this.showRemote.set(show);
   }
 
-  protected runRemoteAction(action: 'fetch' | 'pull' | 'pull-rebase' | 'push' | 'sync'): void {
+  protected runRemoteAction(
+    action: 'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync',
+  ): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
+    if (action === 'rebase-from') {
+      this.openRebaseFromDialog();
+      return;
+    }
+    if (action === 'push-force') {
+      // Force push rewrites remote history; confirm before running it.
+      this.promptState.set({
+        title: 'Force push?',
+        label:
+          'This will overwrite the remote branch with your local history. Remote commits missing locally may be lost.',
+        confirmOnly: true,
+        okLabel: 'Force Push',
+        danger: true,
+      });
+      return;
+    }
     this.busy.set(true);
     this.error.set('');
 
@@ -504,6 +522,25 @@ export class App implements OnDestroy {
         this.busy.set(false);
         this.error.set(this.errorMessage(err));
       },
+    });
+  }
+
+  /** Opens the branch picker behind the pull button's "Rebase (from)..." entry. */
+  private openRebaseFromDialog(): void {
+    const names = new Set(this.branches().map((branch) => branch.name));
+    // origin/main wins over origin/master; both float to the top as the default choice.
+    const preferred = ['origin/main', 'origin/master'].filter((name) => names.has(name));
+    preferred.forEach((name) => names.delete(name));
+    const options = [...preferred, ...names];
+    if (options.length === 0) {
+      options.push('origin/main', 'origin/master');
+    }
+    this.promptState.set({
+      title: 'Rebase from branch',
+      label: 'Rebase the current branch onto:',
+      options: options.map((name) => ({ value: name, label: name })),
+      okLabel: 'Rebase',
+      searchable: true,
     });
   }
 
@@ -909,6 +946,14 @@ export class App implements OnDestroy {
       return;
     }
 
+    if (state.title === 'Force push?') {
+      this.git.push(true).subscribe({
+        next: () => this.refresh(),
+        error: (err) => this.error.set(this.errorMessage(err)),
+      });
+      return;
+    }
+
     if (state.title === 'Discard unstaged changes?') {
       const files = this.pendingDiscard();
       this.pendingDiscard.set(null);
@@ -970,6 +1015,17 @@ export class App implements OnDestroy {
             if (this.selectedBranch() === name) this.selectedBranch.set('');
             this.refresh();
           },
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
+      }
+      return;
+    }
+
+    if (state.title === 'Rebase from branch') {
+      const branch = value.trim();
+      if (branch) {
+        this.git.rebase(branch).subscribe({
+          next: () => this.refresh(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });
       }

@@ -118,6 +118,7 @@
         <div class="remote-menu" role="menu">
           <button type="button" role="menuitem" (click)="chooseRemoteAction('pull')">Pull</button>
           <button type="button" role="menuitem" (click)="chooseRemoteAction('pull-rebase')">Pull (rebase)</button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('rebase-from')">Rebase (from)...</button>
         </div>
       }
     </div>
@@ -139,6 +140,14 @@
       @if (openMenu() === 'push') {
         <div class="remote-menu" role="menu">
           <button type="button" role="menuitem" (click)="chooseRemoteAction('push')">Push</button>
+          <button
+            type="button"
+            role="menuitem"
+            class="danger"
+            (click)="chooseRemoteAction('push-force')"
+          >
+            Push (force)
+          </button>
           <button type="button" role="menuitem" (click)="chooseRemoteAction('sync')">Sync</button>
         </div>
       }

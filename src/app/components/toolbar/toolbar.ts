@@ -37,7 +37,9 @@ export class Toolbar {
   readonly searchChange = output<string>();
   readonly searchNavigate = output<'next' | 'prev'>();
   readonly refresh = output<void>();
-  readonly remoteAction = output<'fetch' | 'pull' | 'pull-rebase' | 'push' | 'sync'>();
+  readonly remoteAction = output<
+    'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync'
+  >();
   protected readonly openMenu = signal<'pull' | 'push' | null>(null);
 
   /** Raw search text; bound to the input so typing stays responsive. */
@@ -87,7 +89,9 @@ export class Toolbar {
     this.openMenu.update((current) => (current === menu ? null : menu));
   }
 
-  protected chooseRemoteAction(action: 'pull' | 'pull-rebase' | 'push' | 'sync'): void {
+  protected chooseRemoteAction(
+    action: 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync',
+  ): void {
     this.openMenu.set(null);
     this.remoteAction.emit(action);
   }

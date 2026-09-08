@@ -81,8 +81,8 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/pull`, { rebase }));
   }
 
-  push(): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/push`, {}));
+  push(force = false): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/push`, { force }));
   }
 
   sync(): Observable<unknown> {

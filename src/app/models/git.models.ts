@@ -131,4 +131,6 @@ export interface PromptState {
   okLabel?: string;
   /** When present, the dialog shows a choice list instead of a text input. */
   options?: PromptOption[];
+  /** Shows a filter box above the choice list (useful for long option lists). */
+  searchable?: boolean;
 }
