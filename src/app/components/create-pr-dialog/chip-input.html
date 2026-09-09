@@ -26,10 +26,14 @@
       (blur)="onBlur()"
     />
   </div>
-  @if (open() && (loading() || suggestions().length > 0)) {
+  @if (error()) { <p class="lookup-error" role="alert">{{ error() }}</p> }
+  @if (open() && (loading() || suggestions().length > 0 || query().trim())) {
     <ul class="suggestions" role="listbox">
       @if (loading()) {
         <li class="suggestion-hint">Searching...</li>
+      }
+      @if (!loading() && !error() && !suggestions().length) {
+        <li class="suggestion-hint">No matches</li>
       }
       @for (suggestion of suggestions(); track suggestion.id; let index = $index) {
         <li

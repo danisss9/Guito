@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnDestroy,
+  HostListener,
   computed,
   effect,
   inject,
@@ -16,6 +17,7 @@ import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
 import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
+import { SearchBox } from './components/search-box/search-box';
 import { WorkingPanel } from './components/working-panel/working-panel';
 import { Toolbar } from './components/toolbar/toolbar';
 import {
@@ -24,6 +26,8 @@ import {
   CommitsResponse,
   ContextMenuState,
   GitCommit,
+  GitIdentity,
+  RepositoryState,
   MenuItem,
   PromptState,
   StashScope,
@@ -55,7 +59,16 @@ function loadCommitDraft(): CommitDraft {
 
 @Component({
   selector: 'app-root',
-  imports: [Toolbar, CommitTable, CommitDetail, ContextMenu, PromptDialog, WorkingPanel, CreatePrDialog],
+  imports: [
+    Toolbar,
+    CommitTable,
+    CommitDetail,
+    ContextMenu,
+    PromptDialog,
+    WorkingPanel,
+    CreatePrDialog,
+    SearchBox,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -95,6 +108,10 @@ export class App implements OnDestroy {
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly repoName = signal('');
+  protected readonly identity = signal<GitIdentity>({ name: '', email: '' });
+  private lastRepositoryState: RepositoryState | null = null;
+  private stateSub: Subscription | null = null;
+  private readonly refreshTimer = window.setInterval(() => this.checkRepository(), 3000);
   protected readonly workingChanges = signal<WorkingChanges | null>(null);
   protected readonly totalCommits = signal(0);
   protected readonly historyLoading = signal(false);
@@ -104,6 +121,8 @@ export class App implements OnDestroy {
   /** Azure DevOps integration settings; null until the first refresh. */
   protected readonly azureSettings = signal<AzureSettings | null>(null);
   protected readonly hasAzureUrl = computed(() => !!this.azureSettings()?.azureDevOpsUrl);
+  /** Automatic reloading can be disabled with the guito.autoReload setting. */
+  protected readonly autoReload = computed(() => this.azureSettings()?.autoReload !== false);
   /** Whether the Create Pull Request dialog is open. */
   protected readonly prDialogOpen = signal(false);
   /** Files awaiting confirmation for the unstaged-discard dialog. */
@@ -263,13 +282,51 @@ export class App implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    window.clearInterval(this.refreshTimer);
+    this.stateSub?.unsubscribe();
     this.refreshSub?.unsubscribe();
     this.historySub?.unsubscribe();
     this.workingSub?.unsubscribe();
     this.searchSub?.unsubscribe();
   }
 
-  protected refresh(): void {
+  @HostListener('window:focus')
+  @HostListener('document:visibilitychange')
+  protected checkRepository(): void {
+    if (
+      !this.autoReload() ||
+      document.hidden ||
+      this.loading() ||
+      this.historyLoading() ||
+      this.statusLoading() ||
+      this.busy() ||
+      this.mutationBusy() ||
+      (this.stateSub && !this.stateSub.closed)
+    )
+      return;
+    this.stateSub = this.git.getRepositoryState().subscribe({
+      next: (state) => {
+        // A user action may have started while the probe was in flight.
+        if (
+          this.loading() ||
+          this.historyLoading() ||
+          this.statusLoading() ||
+          this.busy() ||
+          this.mutationBusy()
+        )
+          return;
+        const previous = this.lastRepositoryState;
+        this.lastRepositoryState = state;
+        if (!previous || previous.history !== state.history) this.refresh(true);
+        else if (previous.working !== state.working) this.refreshWorking();
+      },
+      error: () => {
+        /* Retry on the next interval or when focus returns. */
+      },
+    });
+  }
+
+  protected refresh(automatic = false): void {
     // A refresh supersedes any in-flight history page or working-tree request.
     this.historySub?.unsubscribe();
     this.workingSub?.unsubscribe();
@@ -283,14 +340,15 @@ export class App implements OnDestroy {
 
     this.refreshSub?.unsubscribe();
     this.refreshSub = forkJoin({
-      history: this.git.getCommits(LOAD_PAGE_SIZE),
+      history: this.git.getCommits(
+        automatic ? Math.max(LOAD_PAGE_SIZE, this.commits().length) : LOAD_PAGE_SIZE,
+      ),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
-      settings: this.git.getSettings().pipe(
-        catchError(() => of(null)),
-      ),
+      settings: this.git.getSettings().pipe(catchError(() => of(null))),
       working: this.git.getWorkingChanges().pipe(
         catchError((err) => {
+          this.lastRepositoryState = null;
           this.statusError.set(this.errorMessage(err));
           return of(null);
         }),
@@ -301,6 +359,18 @@ export class App implements OnDestroy {
         this.totalCommits.set(Math.max(history.total, history.commits.length));
         this.branches.set(branches);
         this.repoName.set(repo.name);
+        this.identity.set(repo.identity ?? { name: '', email: '' });
+        if (
+          this.selectedBranch() &&
+          !branches.some((branch) => branch.name === this.selectedBranch())
+        ) {
+          this.selectedBranch.set('');
+        }
+        const selected = this.selectedCommit();
+        if (selected && selected.hash !== WORKING_HASH) {
+          const updated = history.commits.find((commit) => commit.hash === selected.hash);
+          if (updated) this.selectedCommit.set({ ...selected, ...updated });
+        }
         if (settings) {
           this.azureSettings.set(settings);
         }
@@ -313,6 +383,7 @@ export class App implements OnDestroy {
         this.historyGeneration.update((value) => value + 1);
       },
       error: (err) => {
+        this.lastRepositoryState = null;
         this.error.set(this.errorMessage(err));
         this.filterFailed.set(true);
         this.statusError.set(this.errorMessage(err));
@@ -333,6 +404,7 @@ export class App implements OnDestroy {
         this.statusLoading.set(false);
       },
       error: (err) => {
+        this.lastRepositoryState = null;
         this.statusError.set(this.errorMessage(err));
         this.statusLoading.set(false);
       },
@@ -572,9 +644,10 @@ export class App implements OnDestroy {
   /** Opens the Azure DevOps URL editor behind the toolbar's gear icon. */
   protected openAzureSettings(): void {
     const settings = this.azureSettings();
-    const label = settings?.source === 'vscode'
-      ? 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Currently provided by the VS Code setting guito.azureDevOpsUrl; a value saved here applies only while that setting is empty.'
-      : 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Leave empty to disable pull request creation.';
+    const label =
+      settings?.source === 'vscode'
+        ? 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Currently provided by the VS Code setting guito.azureDevOpsUrl; a value saved here applies only while that setting is empty.'
+        : 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Leave empty to disable pull request creation.';
     this.promptState.set({
       title: 'Azure DevOps URL',
       label,
@@ -868,8 +941,8 @@ export class App implements OnDestroy {
           message: 'Uncommitted changes',
           refs: '',
           body: '',
-          author_name: 'You',
-          author_email: '',
+          author_name: this.identity().name || 'You',
+          author_email: this.identity().email,
           parents: [],
         });
         break;

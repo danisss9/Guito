@@ -34,7 +34,7 @@ child.stderr.on('data', chunk => { launchError += chunk.toString(); });
 let browser;
 let workbench;
 try {
-  const deadline = Date.now() + 45000;
+  const deadline = Date.now() + 90000;
   while (Date.now() < deadline) {
     try { browser = await chromium.connectOverCDP('http://127.0.0.1:9347'); break; }
     catch { await new Promise(resolve => setTimeout(resolve, 500)); }
@@ -47,7 +47,7 @@ try {
     if (page) break;
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  assert.ok(page, 'VS Code workbench did not open');
+  assert.ok(page, `VS Code workbench did not open: ${context.pages().map(page => page.url()).join(', ')}`);
   workbench = page;
   await page.locator('.monaco-workbench').waitFor();
   await page.locator('.statusbar-item').filter({ hasText: 'Guito' }).click();
@@ -70,9 +70,13 @@ try {
   await app.getByText('No staged changes.', { exact: true }).waitFor();
   assert.equal(git('log', '-1', '--format=%s').trim(), 'Commit from extension smoke test');
   assert.equal(git('status', '--porcelain'), '');
+  git('checkout', '-b', 'external-checkout');
+  git('commit', '--allow-empty', '-m', 'External extension commit');
+  await app.locator('.list-viewport .row').filter({ hasText: 'External extension commit' }).waitFor({ timeout: 15000 });
+  assert.match(await app.locator('.list-viewport .row').first().textContent(), /external-checkout/);
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/vscode-smoke.png' });
-  console.log('VS Code smoke passed: authenticated nested iframe, history, stage, and commit.');
+  console.log('VS Code smoke passed: authenticated nested iframe, history, stage, commit, and automatic refresh after external checkout/commit.');
 } catch (error) {
   await mkdir('test-results', { recursive: true });
   await workbench?.screenshot({ path: 'test-results/vscode-smoke-failure.png' }).catch(() => {});

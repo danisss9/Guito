@@ -1,0 +1,65 @@
+<div class="search">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+  <input
+    #searchInput
+    type="text"
+    placeholder="Search commits"
+    [value]="searchValue()"
+    (input)="onSearch($event)"
+    (keydown)="onSearchKeydown($event)"
+  />
+  @if (searchValue()) {
+    <button
+      type="button"
+      class="clear-btn"
+      title="Clear search"
+      aria-label="Clear search"
+      (click)="clearSearch()"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  }
+</div>
+@if (searchValue()) {
+  <div class="search-nav">
+    <button
+      type="button"
+      class="nav-btn"
+      title="Previous match (Shift+Enter)"
+      aria-label="Previous match"
+      [disabled]="matchCount() === 0"
+      (click)="searchNavigate.emit('prev')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="18 15 12 9 6 15" />
+      </svg>
+    </button>
+    <span class="count">
+      @if (matchCount() === 0) {
+        No matches
+      } @else if (matchIndex() < 0) {
+        {{ matchCount() }} matches
+      } @else {
+        {{ matchIndex() + 1 }} of {{ matchCount() }}
+      }
+    </span>
+    <button
+      type="button"
+      class="nav-btn"
+      title="Next match (Enter)"
+      aria-label="Next match"
+      [disabled]="matchCount() === 0"
+      (click)="searchNavigate.emit('next')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+    </button>
+  </div>
+}

@@ -1,3 +1,4 @@
+import { AuthorAvatar } from '../author-avatar/author-avatar';
 import { DatePipe } from '@angular/common';
 import {
   CdkFixedSizeVirtualScroll,
@@ -23,6 +24,7 @@ import { Subscription } from 'rxjs';
 import {
   ContextMenuEvent,
   GitCommit,
+  GitIdentity,
   RefBadge,
   WORKING_HASH,
   WorkingChanges,
@@ -59,7 +61,7 @@ interface HighlightSegment {
   match: boolean;
 }
 
-type ResizableColumn = 'graph' | 'date' | 'author' | 'commit';
+type ResizableColumn = 'graph' | 'description' | 'date' | 'author' | 'commit';
 
 const ROW_HEIGHT = 34;
 const LANE_WIDTH = 14;
@@ -73,6 +75,7 @@ const COLUMN_WIDTHS_KEY = 'guito.columnWidths';
 
 const DEFAULT_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
   graph: 0, // 0 = auto (derived from the lane count)
+  description: 480,
   date: 132,
   author: 150,
   commit: 84,
@@ -81,6 +84,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
 /** Smallest width a column can be resized to; the graph column is auto-sized. */
 const MIN_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
   graph: 0,
+  description: 48,
   date: 48,
   author: 48,
   commit: 48,
@@ -100,7 +104,13 @@ function loadColumnWidths(): Record<ResizableColumn, number> {
 
 @Component({
   selector: 'app-commit-table',
-  imports: [DatePipe, CdkFixedSizeVirtualScroll, CdkVirtualForOf, CdkVirtualScrollViewport],
+  imports: [
+    AuthorAvatar,
+    DatePipe,
+    CdkFixedSizeVirtualScroll,
+    CdkVirtualForOf,
+    CdkVirtualScrollViewport,
+  ],
   templateUrl: './commit-table.html',
   styleUrl: './commit-table.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -108,6 +118,7 @@ function loadColumnWidths(): Record<ResizableColumn, number> {
 export class CommitTable implements OnDestroy {
   readonly commits = input.required<GitCommit[]>();
   readonly selectedHash = input.required<string>();
+  readonly identity = input<GitIdentity>({ name: '', email: '' });
   readonly search = input<string>('');
   readonly selectedBranch = input<string>('');
   readonly showRemote = input(true);
@@ -196,6 +207,24 @@ export class CommitTable implements OnDestroy {
         subscription.unsubscribe();
       });
     });
+    // Fill the window with the table on load and after window resizes. The
+    // saved column widths are read untracked so dragging a column never
+    // re-fills it: a drag changes only the dragged column and may leave the
+    // table narrower until the window is resized again.
+    effect(() => {
+      this.viewportWidth();
+      this.graphCommits();
+      untracked(() => {
+        const spare =
+          this.viewportWidth() -
+          this.graphColumnWidth() -
+          this.columnWidths().date -
+          this.columnWidths().author -
+          this.columnWidths().commit -
+          this.columnWidths().description;
+        this.fillerWidth.set(Math.max(0, spare));
+      });
+    });
   }
 
   private measureViewport(): void {
@@ -263,15 +292,25 @@ export class CommitTable implements OnDestroy {
     Math.max(this.graphWidth(), this.columnWidths().graph),
   );
 
-  protected readonly tableWidth = computed(() =>
-    Math.max(
-      this.viewportWidth(),
+  /**
+   * Extra width added to the saved Description width so the table fills the
+   * window. Frozen between window resizes (see the refill effect): a column
+   * drag changes only the dragged column, and the saved widths act as the
+   * minimums when the window is narrow.
+   */
+  protected readonly fillerWidth = signal(0);
+
+  protected readonly descriptionWidth = computed(
+    () => this.columnWidths().description + this.fillerWidth(),
+  );
+
+  protected readonly tableWidth = computed(
+    () =>
       this.graphColumnWidth() +
-        this.columnWidths().date +
-        this.columnWidths().author +
-        this.columnWidths().commit +
-        280,
-    ),
+      this.columnWidths().date +
+      this.columnWidths().author +
+      this.columnWidths().commit +
+      this.descriptionWidth(),
   );
   protected readonly horizontalTransform = computed(
     () => 'translateX(' + -this.scrollLeft() + 'px)',
@@ -394,8 +433,8 @@ export class CommitTable implements OnDestroy {
     message: 'Uncommitted changes',
     refs: '',
     body: '',
-    author_name: 'You',
-    author_email: '',
+    author_name: this.identity().name || 'You',
+    author_email: this.identity().email,
     parents: [],
   }));
 
@@ -408,8 +447,19 @@ export class CommitTable implements OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
-    const current = column === 'graph' ? this.graphColumnWidth() : this.columnWidths()[column];
-    this.resizeState = { column, startX: event.clientX, startWidth: current };
+    if (column === 'graph') {
+      this.resizeState = { column, startX: event.clientX, startWidth: this.graphColumnWidth() };
+    } else if (column === 'description') {
+      // Fold the fill width into the saved width: from here on the drag sets
+      // the exact on-screen width, and the table may end up narrower until
+      // the window is resized again.
+      const width = this.descriptionWidth();
+      this.columnWidths.update((widths) => ({ ...widths, description: width }));
+      this.fillerWidth.set(0);
+      this.resizeState = { column, startX: event.clientX, startWidth: width };
+    } else {
+      this.resizeState = { column, startX: event.clientX, startWidth: this.columnWidths()[column] };
+    }
 
     document.addEventListener('mousemove', this.onResizeMove);
     document.addEventListener('mouseup', this.onResizeEnd);

@@ -11,6 +11,13 @@
       </svg>
       <span class="title">Guito</span>
     </div>
+
+    <app-search-box
+      [matchIndex]="searchIndex()"
+      [matchCount]="searchMatches().length"
+      (searchChange)="search.set($event)"
+      (searchNavigate)="navigateSearch($event)"
+    />
   </header>
 
   <app-toolbar
@@ -18,13 +25,9 @@
     [selectedBranch]="selectedBranch()"
     [showRemote]="showRemote()"
     [busy]="busy() || mutationBusy() || statusLoading()"
-    [matchIndex]="searchIndex()"
-    [matchCount]="searchMatches().length"
     [prEnabled]="hasAzureUrl()"
     (branchChange)="selectedBranch.set($event)"
     (remoteToggle)="onRemoteToggle($event)"
-    (searchChange)="search.set($event)"
-    (searchNavigate)="navigateSearch($event)"
     (refresh)="refresh()"
     (remoteAction)="runRemoteAction($event)"
     (settingsClick)="openAzureSettings()"
@@ -40,7 +43,7 @@
   }
 
   <main class="content">
-    <app-commit-table
+    <app-commit-table [identity]="identity()"
       [commits]="displayedCommits()"
       [loadingLabel]="tableLoading()"
       [selectedHash]="selectedCommit()?.hash ?? ''"

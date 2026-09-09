@@ -10,8 +10,10 @@ import fastifyCompress from '@fastify/compress';
 import { simpleGit } from 'simple-git';
 import { promisify } from 'node:util';
 import { workingTree } from './working-tree.js';
+import { avatarCache } from './avatars.js';
+import { repositoryState } from './repository-state.js';
 const execFileAsync = promisify(execFile);
-const AZURE_API_VERSION = '4.1';
+const AZURE_API_VERSION = '5.0';
 /**
  * Extracts {projectPath, repo} from an Azure DevOps git remote URL.
  * Supports https (with optional credentials) and ssh (scp-style and ssh://)
@@ -74,11 +76,19 @@ export function buildAzureProjectPrefix(baseUrl, remoteUrl) {
         .join('/');
     try {
         const parsed = new URL(base);
-        const basePath = parsed.pathname.replace(/^\/+|\/+$/g, '');
-        if (basePath && info.projectPath.toLowerCase().startsWith(basePath.toLowerCase())) {
-            return `${parsed.origin}/${encodePath(info.projectPath)}`;
-        }
-        return `${parsed.origin}${basePath ? `/${encodePath(basePath)}` : ''}/${encodePath(info.projectPath)}`;
+        const decode = (path) => path
+            .split('/')
+            .filter(Boolean)
+            .map((segment) => decodeURIComponent(segment));
+        const baseParts = decode(parsed.pathname);
+        const remoteParts = info.projectPath.split('/').filter(Boolean);
+        let overlap = Math.min(baseParts.length, remoteParts.length);
+        while (overlap &&
+            !baseParts
+                .slice(-overlap)
+                .every((part, index) => part.toLowerCase() === remoteParts[index].toLowerCase()))
+            overlap--;
+        return `${parsed.origin}/${[...baseParts, ...remoteParts.slice(overlap)].map(encodeURIComponent).join('/')}`;
     }
     catch {
         return `${base}/${encodePath(info.projectPath)}`;
@@ -94,7 +104,7 @@ export function buildAzurePullRequestUrl(baseUrl, remoteUrl) {
     if (!info) {
         return null;
     }
-    return `${prefix}/_git/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
+    return `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
 }
 /**
  * Default Azure DevOps HTTP runner: shells out to the Windows built-in
@@ -170,7 +180,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, azureRequestImpl, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, autoReload, azureRequestImpl, avatarFetchImpl, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -207,6 +217,27 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     }
     // Initialize git lib
     const git = simpleGit(repositoryPath);
+    const avatars = avatarCache(avatarFetchImpl);
+    app.get('/api/avatar', async (req, reply) => {
+        const email = String(req.query?.email ?? '').trim();
+        if (!email || email.length > 320)
+            return reply.code(400).send({ error: 'Valid email required' });
+        const image = await avatars(email);
+        reply.header('Cache-Control', 'private, max-age=3600');
+        return image ? reply.type(image.contentType).send(image.data) : reply.code(204).send();
+    });
+    let stateRequest;
+    app.get('/api/repository-state', async (_req, reply) => {
+        try {
+            stateRequest ?? (stateRequest = repositoryState(git, repositoryPath).finally(() => {
+                stateRequest = undefined;
+            }));
+            return await stateRequest;
+        }
+        catch (err) {
+            return reply.code(400).send({ error: err.message });
+        }
+    });
     // ==================== Diff parsing ====================
     function parseUnifiedDiff(rawDiff) {
         const files = [];
@@ -350,11 +381,36 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         }
         return { prefix, remoteUrl };
     };
+    /** Merges the VS Code settings with the server-side settings file. */
+    const effectiveSettings = async () => {
+        const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
+        const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
+        return {
+            azureDevOpsUrl: azure.url,
+            source: azure.source,
+            autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
+        };
+    };
+    const configuredIdentity = async () => {
+        const config = await git.listConfig();
+        return {
+            name: String(config.all['user.name'] ?? '').trim(),
+            email: String(config.all['user.email'] ?? '').trim(),
+        };
+    };
+    const authorIdentity = (name, email, identity) => ({
+        author_name: identity.name && identity.email && email.trim().toLowerCase() === identity.email.toLowerCase()
+            ? identity.name
+            : name,
+        author_email: email,
+    });
     // ==================== Repository ====================
     app.get('/api/repo', async (_req, resp) => {
         try {
             const root = (await git.revparse(['--show-toplevel'])).trim();
-            return resp.type('application/json').send({ root, name: basename(root) });
+            return resp
+                .type('application/json')
+                .send({ root, name: basename(root), identity: await configuredIdentity() });
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });
@@ -389,12 +445,14 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             if (Number.isFinite(skip) && skip > 0) {
                 options['--skip'] = String(skip);
             }
-            const [log, count] = await Promise.all([
+            const [log, count, identity] = await Promise.all([
                 git.log(options),
                 git.raw(['rev-list', '--count', '--all']),
+                configuredIdentity(),
             ]);
             const commits = log.all.map((commit) => ({
                 ...commit,
+                ...authorIdentity(commit.author_name, commit.author_email, identity),
                 parents: String(commit.parents ?? '')
                     .split(' ')
                     .filter(Boolean),
@@ -854,10 +912,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // ==================== Settings ====================
     app.get('/api/settings', async (_req, resp) => {
         try {
-            const effective = await effectiveAzureUrl();
-            return resp
-                .type('application/json')
-                .send({ azureDevOpsUrl: effective.url, source: effective.source });
+            const settings = await effectiveSettings();
+            return resp.type('application/json').send(settings);
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });
@@ -875,10 +931,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const settings = await readSettings();
             settings.azureDevOpsUrl = url;
             await writeSettings(settings);
-            const effective = await effectiveAzureUrl();
-            return resp
-                .type('application/json')
-                .send({ azureDevOpsUrl: effective.url, source: effective.source });
+            const effective = await effectiveSettings();
+            return resp.type('application/json').send(effective);
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });
@@ -899,7 +953,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     .type('application/json')
                     .send({ error: 'Unable to build the Azure DevOps pull request URL.' });
             }
-            const prUrl = `${prefix}/_git/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
+            const prUrl = `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
             let source = String(sourceBranch ?? '').trim();
             if (newBranch) {
                 // Create a remote-only branch from the current HEAD; the local
@@ -936,8 +990,11 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 }
             }
             const payload = {
+                isDraft: req.body?.isDraft === true,
                 sourceRefName: `refs/heads/${source}`,
-                targetRefName: `refs/heads/${targetBranch}`,
+                targetRefName: `refs/heads/${String(targetBranch)
+                    .replace(/^refs\/heads\//, '')
+                    .replace(/^origin\//, '')}`,
             };
             const trimmedTitle = String(title ?? '').trim();
             const trimmedDescription = String(description ?? '').trim();
@@ -959,11 +1016,14 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 .map((id) => Number(id))
                 .filter((id) => Number.isInteger(id) && id > 0);
             if (payloadWorkItems.length) {
-                payload.workItems = payloadWorkItems.map((id) => ({ id }));
+                payload.workItemRefs = payloadWorkItems.map((id) => ({ id: String(id) }));
             }
             const result = await azureRequest('POST', prUrl, JSON.stringify(payload));
             if (result.status < 200 || result.status >= 300) {
-                return resp.status(400).type('application/json').send({
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({
                     error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
                 });
             }
@@ -975,7 +1035,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const warnings = [];
             if (labelNames.length && created.pullRequestId) {
                 // Built from the prefix: prUrl already carries the api-version query.
-                const labelsUrl = `${prefix}/_git/${encodeURIComponent(info.repo)}` +
+                const labelsUrl = `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}` +
                     `/pullrequests/${created.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`;
                 for (const name of labelNames) {
                     try {
@@ -1001,8 +1061,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         }
     });
     // ==================== Azure DevOps PR metadata ====================
-    // Identity search for the reviewer pickers (the endpoint the Azure DevOps
-    // web UI itself uses; undocumented but stable across TFS 2018+).
+    // Collection-scoped identity IDs can be passed directly as PR reviewers.
     app.get('/api/azure-devops/reviewers', async (req, resp) => {
         try {
             const query = String((req.query ?? {}).query ?? '').trim();
@@ -1010,23 +1069,34 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 return resp.type('application/json').send({ reviewers: [] });
             }
             const { prefix } = await azureProjectContext();
-            const url = `${prefix}/_apis/identitypicker/identities?api-version=${AZURE_API_VERSION}` +
-                '&identityTypes=msa-uuid,umd&queryType=nameAndEmail&searchFilter=' +
-                `&showImage=False&filterValue=${encodeURIComponent(query)}`;
+            const collection = prefix.slice(0, prefix.lastIndexOf('/'));
+            const identityBase = collection.replace('https://dev.azure.com/', 'https://vssps.dev.azure.com/');
+            const url = `${identityBase}/_apis/identities?api-version=5.0` +
+                `&searchFilter=General&filterValue=${encodeURIComponent(query)}&queryMembership=None`;
             const result = await azureRequest('GET', url, '');
             if (result.status < 200 || result.status >= 300) {
                 return resp
                     .status(400)
                     .type('application/json')
-                    .send({ error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.` });
+                    .send({
+                    error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
+                });
             }
             const data = JSON.parse(result.body);
-            const list = Array.isArray(data) ? data : (data.results ?? data.identities ?? []);
+            const list = Array.isArray(data) ? data : (data.value ?? data.identities ?? []);
             const reviewers = list
                 .map((entry) => ({
                 id: String(entry?.id ?? entry?.identity?.id ?? ''),
-                label: String(entry?.label ?? entry?.displayName ?? entry?.name ?? ''),
-                description: entry?.description ? String(entry.description) : undefined,
+                label: String(entry?.customDisplayName ||
+                    entry?.providerDisplayName ||
+                    entry?.label ||
+                    entry?.displayName ||
+                    entry?.name ||
+                    ''),
+                description: entry?.properties?.Mail?.$value ??
+                    entry?.properties?.Account?.$value ??
+                    entry?.description ??
+                    undefined,
             }))
                 .filter((entry) => entry.id && entry.label);
             return resp.type('application/json').send({ reviewers });
@@ -1039,21 +1109,26 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // then fetches title/state for the first matches.
     app.get('/api/azure-devops/workitems', async (req, resp) => {
         try {
-            const query = String((req.query ?? {}).query ?? '').trim();
+            const query = String((req.query ?? {}).query ?? '')
+                .trim()
+                .replace(/^#(?=\d+$)/, '');
             if (!query) {
                 return resp.type('application/json').send({ workItems: [] });
             }
             const { prefix } = await azureProjectContext();
             const clauses = [`[System.Title] CONTAINS '${query.replace(/'/g, "''")}'`];
             if (/^\d+$/.test(query)) {
-                clauses.push(`[System.Id] = '${query}'`);
+                clauses.push(`[System.Id] = ${Number(query)}`);
             }
             const wiql = 'SELECT [System.Id], [System.Title], [System.State] FROM WorkItems ' +
-                `WHERE ${clauses.map((clause) => `(${clause})`).join(' OR ')} ` +
+                `WHERE [System.TeamProject] = @project AND (${clauses.map((clause) => `(${clause})`).join(' OR ')}) ` +
                 'ORDER BY [System.ChangedDate] DESC';
-            const wiqlResult = await azureRequest('POST', `${prefix}/_apis/wit/wiql?api-version=${AZURE_API_VERSION}`, JSON.stringify({ query: wiql }));
+            const wiqlResult = await azureRequest('POST', `${prefix}/_apis/wit/wiql?$top=20&api-version=${AZURE_API_VERSION}`, JSON.stringify({ query: wiql }));
             if (wiqlResult.status < 200 || wiqlResult.status >= 300) {
-                return resp.status(400).type('application/json').send({
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({
                     error: azureErrorMessage(wiqlResult) || `Azure DevOps returned HTTP ${wiqlResult.status}.`,
                 });
             }
@@ -1067,7 +1142,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             const batchResult = await azureRequest('GET', `${prefix}/_apis/wit/workitems?ids=${ids.join(',')}` +
                 `&fields=System.Id,System.Title,System.State&api-version=${AZURE_API_VERSION}`, '');
             if (batchResult.status < 200 || batchResult.status >= 300) {
-                return resp.status(400).type('application/json').send({
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({
                     error: azureErrorMessage(batchResult) || `Azure DevOps returned HTTP ${batchResult.status}.`,
                 });
             }
@@ -1082,20 +1160,46 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
-    // Work item tag names for the tag autocomplete.
+    // Existing pull request labels for the tag autocomplete.
     app.get('/api/azure-devops/tags', async (_req, resp) => {
         try {
-            const { prefix } = await azureProjectContext();
-            const result = await azureRequest('GET', `${prefix}/_apis/wit/tags?api-version=${AZURE_API_VERSION}`, '');
-            if (result.status < 200 || result.status >= 300) {
-                return resp
-                    .status(400)
-                    .type('application/json')
-                    .send({ error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.` });
+            const { prefix, remoteUrl } = await azureProjectContext();
+            const repo = parseAzureRemoteUrl(remoteUrl).repo;
+            // PR labels are distinct from Azure Boards work item tags.
+            const names = new Set();
+            for (let skip = 0;; skip += 100) {
+                const result = await azureRequest('GET', `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests` +
+                    `?searchCriteria.status=all&$top=100&$skip=${skip}&api-version=${AZURE_API_VERSION}`, '');
+                if (result.status < 200 || result.status >= 300) {
+                    throw new Error(azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`);
+                }
+                const data = JSON.parse(result.body);
+                const requests = Array.isArray(data) ? data : (data.value ?? []);
+                // Some Server releases omit labels from the PR list response.
+                // Read those resources explicitly, with at most five requests in flight.
+                for (let offset = 0; offset < requests.length; offset += 5) {
+                    const labels = await Promise.all(requests.slice(offset, offset + 5).map(async (request) => {
+                        if (Array.isArray(request.labels))
+                            return request.labels;
+                        if (!Number.isInteger(request.pullRequestId))
+                            return [];
+                        const result = await azureRequest('GET', `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}` +
+                            `/pullrequests/${request.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`, '');
+                        if (result.status < 200 || result.status >= 300) {
+                            throw new Error(azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`);
+                        }
+                        const data = JSON.parse(result.body);
+                        return Array.isArray(data) ? data : (data.value ?? []);
+                    }));
+                    for (const label of labels.flat()) {
+                        if (typeof label.name === 'string' && label.name.trim())
+                            names.add(label.name.trim());
+                    }
+                }
+                if (requests.length < 100)
+                    break;
             }
-            const tags = (JSON.parse(result.body).value ?? [])
-                .map((tag) => String(tag?.name ?? '').trim())
-                .filter(Boolean);
+            const tags = [...names].sort((a, b) => a.localeCompare(b));
             return resp.type('application/json').send({ tags });
         }
         catch (err) {
@@ -1126,8 +1230,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 message,
                 refs: '',
                 body: body ?? '',
-                author_name: authorName,
-                author_email: authorEmail,
+                ...authorIdentity(authorName, authorEmail, await configuredIdentity()),
                 parents: String(parents ?? '')
                     .split(' ')
                     .filter(Boolean),

@@ -2,7 +2,7 @@
   "name": "guito",
   "displayName": "Guito",
   "description": "Explore and manage the current Git repository with Guito inside VS Code.",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "publisher": "danisss9",
   "license": "MIT",
   "icon": "logo.png",
@@ -61,6 +61,12 @@
           "default": "",
           "scope": "window",
           "description": "Base URL of your on-prem Azure DevOps Server (e.g. https://server/DefaultCollection). Enables the Create Pull Request action in the push menu. Requests authenticate with Windows integrated auth (your current Windows session)."
+        },
+        "guito.autoReload": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Automatically reload commits and the working tree when the repository changes outside Guito (for example from a terminal)."
         }
       }
     }

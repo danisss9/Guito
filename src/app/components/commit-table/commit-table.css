@@ -39,7 +39,7 @@
 }
 
 .head-cell.cell-desc {
-  flex: 1;
+  flex: none;
   min-width: 0;
 }
 
@@ -119,7 +119,7 @@
 }
 
 .cell-desc {
-  flex: 1;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -327,3 +327,5 @@
 .spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+.cell-author app-author-avatar { margin-right: 6px; }

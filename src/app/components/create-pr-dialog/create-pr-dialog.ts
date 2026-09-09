@@ -4,6 +4,7 @@ import {
   HostListener,
   OnInit,
   WritableSignal,
+  DestroyRef,
   computed,
   inject,
   input,
@@ -11,7 +12,8 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { catchError, switchMap } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
 import { BranchInfo, CreatePrResult } from '../../models/git.models';
 import { ChipInput, ChipSuggestion } from './chip-input';
 import { GitService } from '../../services/git.service';
@@ -28,6 +30,7 @@ const NEW_BRANCH = '__new__';
 })
 export class CreatePrDialog implements OnInit {
   private readonly git = inject(GitService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly branches = input.required<BranchInfo[]>();
   readonly closed = output<void>();
@@ -35,6 +38,7 @@ export class CreatePrDialog implements OnInit {
   readonly created = output<CreatePrResult>();
 
   protected readonly newBranchValue = NEW_BRANCH;
+  protected readonly isDraft = signal(false);
   protected readonly title = signal('');
   protected readonly description = signal('');
   protected readonly source = signal('');
@@ -56,7 +60,12 @@ export class CreatePrDialog implements OnInit {
   protected readonly optionalReviewerSuggestions = signal<ChipSuggestion[]>([]);
   protected readonly workItemSuggestions = signal<ChipSuggestion[]>([]);
   protected readonly tagSuggestions = signal<ChipSuggestion[]>([]);
-  protected readonly reviewersLoading = signal(false);
+  protected readonly requiredReviewersLoading = signal(false);
+  protected readonly optionalReviewersLoading = signal(false);
+  protected readonly requiredReviewersError = signal('');
+  protected readonly optionalReviewersError = signal('');
+  protected readonly workItemsError = signal('');
+  protected readonly tagsError = signal('');
   protected readonly workItemsLoading = signal(false);
   protected readonly tagsLoading = signal(false);
 
@@ -82,16 +91,40 @@ export class CreatePrDialog implements OnInit {
   });
 
   constructor() {
-    // Debounced Azure DevOps lookups while typing (2+ characters).
-    toObservable(this.requiredReviewerQuery)
-      .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed())
-      .subscribe((query) => this.lookupReviewers(query, this.requiredReviewerSuggestions));
-    toObservable(this.optionalReviewerQuery)
-      .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed())
-      .subscribe((query) => this.lookupReviewers(query, this.optionalReviewerSuggestions));
-    toObservable(this.workItemQuery)
-      .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed())
-      .subscribe((query) => this.lookupWorkItems(query));
+    this.bindLookup(this.requiredReviewerQuery, this.requiredReviewerSuggestions,
+      this.requiredReviewersLoading, this.requiredReviewersError,
+      (query) => this.git.searchReviewers(query),
+      (item) => ({ id: item.id, label: item.label, description: item.description }), 2);
+    this.bindLookup(this.optionalReviewerQuery, this.optionalReviewerSuggestions,
+      this.optionalReviewersLoading, this.optionalReviewersError,
+      (query) => this.git.searchReviewers(query),
+      (item) => ({ id: item.id, label: item.label, description: item.description }), 2);
+    this.bindLookup(this.workItemQuery, this.workItemSuggestions,
+      this.workItemsLoading, this.workItemsError,
+      (query) => this.git.searchWorkItems(query),
+      (item) => ({ id: String(item.id), label: `#${item.id} ${item.title}`, description: item.state }), 1);
+  }
+
+  private bindLookup<T>(query: WritableSignal<string>, target: WritableSignal<ChipSuggestion[]>,
+    loading: WritableSignal<boolean>, error: WritableSignal<string>,
+    search: (query: string) => Observable<T[]>, toChip: (item: T) => ChipSuggestion, minimum: number): void {
+    toObservable(query).pipe(
+      // Cancel old HTTP requests as soon as the query changes.
+      switchMap((value) => {
+        target.set([]);
+        error.set('');
+        loading.set(value.trim().length >= minimum);
+        if (value.trim().length < minimum) return of([] as T[]);
+        return new Observable<string>((subscriber) => {
+          const timeout = setTimeout(() => { subscriber.next(value.trim()); subscriber.complete(); }, 300);
+          return () => clearTimeout(timeout);
+        }).pipe(switchMap(search), catchError((err) => {
+          error.set(err?.error?.error || 'Unable to load suggestions. Try searching again.');
+          return of([] as T[]);
+        }));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((items) => { target.set(items.map(toChip)); loading.set(false); });
   }
 
   ngOnInit(): void {
@@ -111,14 +144,15 @@ export class CreatePrDialog implements OnInit {
 
     // Tag names are a small fixed list; load them once for autocomplete.
     this.tagsLoading.set(true);
-    this.git.getPrTags().subscribe({
+    this.git.getPrTags().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (tags) => {
         this.tagSuggestions.set(
           tags.map((tag) => ({ id: tag.name.toLowerCase(), label: tag.name })),
         );
         this.tagsLoading.set(false);
       },
-      error: () => {
+      error: (err) => {
+        this.tagsError.set(err?.error?.error || 'Unable to load tags. You can still add a tag with Enter.');
         this.tagSuggestions.set([]);
         this.tagsLoading.set(false);
       },
@@ -152,58 +186,6 @@ export class CreatePrDialog implements OnInit {
 
   protected onTargetChange(event: Event): void {
     this.target.set((event.target as HTMLSelectElement).value);
-  }
-
-  private lookupReviewers(query: string, target: WritableSignal<ChipSuggestion[]>): void {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      target.set([]);
-      this.reviewersLoading.set(false);
-      return;
-    }
-    this.reviewersLoading.set(true);
-    this.git.searchReviewers(trimmed).subscribe({
-      next: (reviewers) => {
-        target.set(
-          reviewers.map((reviewer) => ({
-            id: reviewer.id,
-            label: reviewer.label,
-            description: reviewer.description,
-          })),
-        );
-        this.reviewersLoading.set(false);
-      },
-      error: () => {
-        target.set([]);
-        this.reviewersLoading.set(false);
-      },
-    });
-  }
-
-  private lookupWorkItems(query: string): void {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      this.workItemSuggestions.set([]);
-      this.workItemsLoading.set(false);
-      return;
-    }
-    this.workItemsLoading.set(true);
-    this.git.searchWorkItems(trimmed).subscribe({
-      next: (items) => {
-        this.workItemSuggestions.set(
-          items.map((item) => ({
-            id: String(item.id),
-            label: `#${item.id} ${item.title}`,
-            description: item.state,
-          })),
-        );
-        this.workItemsLoading.set(false);
-      },
-      error: () => {
-        this.workItemSuggestions.set([]);
-        this.workItemsLoading.set(false);
-      },
-    });
   }
 
   private isReviewerSelected(id: string): boolean {
@@ -281,6 +263,7 @@ export class CreatePrDialog implements OnInit {
         title: this.title().trim() || undefined,
         description: this.description().trim() || undefined,
         newBranch: isNewBranch,
+        isDraft: this.isDraft(),
         reviewers: reviewers.length ? reviewers : undefined,
         workItems: workItems.length ? workItems : undefined,
         labels: labels.length ? labels : undefined,

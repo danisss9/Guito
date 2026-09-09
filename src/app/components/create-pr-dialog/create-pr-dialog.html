@@ -101,13 +101,19 @@
         </select>
       </label>
 
+      <label class="draft-option">
+        <input type="checkbox" [checked]="isDraft()" [disabled]="creating()"
+          (change)="isDraft.set($any($event.target).checked)" />
+        Create as draft
+      </label>
+
       <label class="field">
         <span class="field-label">Required reviewers</span>
         <app-chip-input
           placeholder="Search users by name or email"
           [chips]="requiredReviewers()"
           [suggestions]="requiredReviewerSuggestions()"
-          [loading]="reviewersLoading()"
+          [loading]="requiredReviewersLoading()" [error]="requiredReviewersError()"
           [query]="requiredReviewerQuery()"
           (queryChange)="requiredReviewerQuery.set($event)"
           (select)="addRequiredReviewer($event)"
@@ -121,7 +127,7 @@
           placeholder="Search users by name or email"
           [chips]="optionalReviewers()"
           [suggestions]="optionalReviewerSuggestions()"
-          [loading]="reviewersLoading()"
+          [loading]="optionalReviewersLoading()" [error]="optionalReviewersError()"
           [query]="optionalReviewerQuery()"
           (queryChange)="optionalReviewerQuery.set($event)"
           (select)="addOptionalReviewer($event)"
@@ -135,7 +141,7 @@
           placeholder="Search by id or title"
           [chips]="workItemChips()"
           [suggestions]="workItemSuggestions()"
-          [loading]="workItemsLoading()"
+          [loading]="workItemsLoading()" [error]="workItemsError()"
           [query]="workItemQuery()"
           (queryChange)="workItemQuery.set($event)"
           (select)="addWorkItem($event)"
@@ -149,7 +155,7 @@
           placeholder="Add tags (Enter to add)"
           [chips]="tagChips()"
           [suggestions]="filteredTagSuggestions()"
-          [loading]="tagsLoading()"
+          [loading]="tagsLoading()" [error]="tagsError()"
           [query]="tagQuery()"
           [allowFreeText]="true"
           (queryChange)="tagQuery.set($event)"

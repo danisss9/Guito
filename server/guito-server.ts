@@ -10,6 +10,8 @@ import fastifyCompress from '@fastify/compress';
 import { simpleGit } from 'simple-git';
 import { promisify } from 'node:util';
 import { workingTree } from './working-tree.js';
+import { avatarCache } from './avatars.js';
+import { repositoryState } from './repository-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -38,11 +40,14 @@ export interface GuitoServerOptions {
   apiToken?: string;
   /** Azure DevOps Server base URL from the VS Code setting (wins over the settings file). */
   azureDevOpsUrl?: string;
+  /** Whether Guito reloads automatically when the repository changes (wins over the settings file). */
+  autoReload?: boolean;
   /** Injectable Azure DevOps HTTP runner; defaults to curl.exe with Windows integrated auth. */
   azureRequestImpl?: AzureRequestImpl;
+  avatarFetchImpl?: typeof fetch;
 }
 
-const AZURE_API_VERSION = '4.1';
+const AZURE_API_VERSION = '5.0';
 
 export interface AzureRemoteInfo {
   /** Collection/project path, e.g. "DefaultCollection/My Project". */
@@ -117,11 +122,22 @@ export function buildAzureProjectPrefix(baseUrl: string, remoteUrl: string): str
 
   try {
     const parsed = new URL(base);
-    const basePath = parsed.pathname.replace(/^\/+|\/+$/g, '');
-    if (basePath && info.projectPath.toLowerCase().startsWith(basePath.toLowerCase())) {
-      return `${parsed.origin}/${encodePath(info.projectPath)}`;
-    }
-    return `${parsed.origin}${basePath ? `/${encodePath(basePath)}` : ''}/${encodePath(info.projectPath)}`;
+    const decode = (path: string) =>
+      path
+        .split('/')
+        .filter(Boolean)
+        .map((segment) => decodeURIComponent(segment));
+    const baseParts = decode(parsed.pathname);
+    const remoteParts = info.projectPath.split('/').filter(Boolean);
+    let overlap = Math.min(baseParts.length, remoteParts.length);
+    while (
+      overlap &&
+      !baseParts
+        .slice(-overlap)
+        .every((part, index) => part.toLowerCase() === remoteParts[index].toLowerCase())
+    )
+      overlap--;
+    return `${parsed.origin}/${[...baseParts, ...remoteParts.slice(overlap)].map(encodeURIComponent).join('/')}`;
   } catch {
     return `${base}/${encodePath(info.projectPath)}`;
   }
@@ -137,7 +153,7 @@ export function buildAzurePullRequestUrl(baseUrl: string, remoteUrl: string): st
   if (!info) {
     return null;
   }
-  return `${prefix}/_git/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
+  return `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
 }
 
 /**
@@ -232,7 +248,9 @@ export async function startGuitoServer({
   port = 8080,
   apiToken,
   azureDevOpsUrl,
+  autoReload,
   azureRequestImpl,
+  avatarFetchImpl,
 }: GuitoServerOptions): Promise<RunningGuitoServer> {
   // Initialize server
   const app = fastify({
@@ -279,6 +297,28 @@ export async function startGuitoServer({
 
   // Initialize git lib
   const git = simpleGit(repositoryPath);
+
+  const avatars = avatarCache(avatarFetchImpl);
+  app.get('/api/avatar', async (req: any, reply) => {
+    const email = String(req.query?.email ?? '').trim();
+    if (!email || email.length > 320)
+      return reply.code(400).send({ error: 'Valid email required' });
+    const image = await avatars(email);
+    reply.header('Cache-Control', 'private, max-age=3600');
+    return image ? reply.type(image.contentType).send(image.data) : reply.code(204).send();
+  });
+
+  let stateRequest: ReturnType<typeof repositoryState> | undefined;
+  app.get('/api/repository-state', async (_req, reply) => {
+    try {
+      stateRequest ??= repositoryState(git, repositoryPath).finally(() => {
+        stateRequest = undefined;
+      });
+      return await stateRequest;
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
 
   // ==================== Diff parsing ====================
   function parseUnifiedDiff(rawDiff: string): any[] {
@@ -434,11 +474,47 @@ export async function startGuitoServer({
     return { prefix, remoteUrl };
   };
 
+  /** Merges the VS Code settings with the server-side settings file. */
+  const effectiveSettings = async (): Promise<{
+    azureDevOpsUrl: string;
+    source: 'vscode' | 'file' | '';
+    autoReload: boolean;
+  }> => {
+    const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
+    const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
+    return {
+      azureDevOpsUrl: azure.url,
+      source: azure.source,
+      autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
+    };
+  };
+
+  const configuredIdentity = async () => {
+    const config = await git.listConfig();
+    return {
+      name: String(config.all['user.name'] ?? '').trim(),
+      email: String(config.all['user.email'] ?? '').trim(),
+    };
+  };
+  const authorIdentity = (
+    name: string,
+    email: string,
+    identity: { name: string; email: string },
+  ) => ({
+    author_name:
+      identity.name && identity.email && email.trim().toLowerCase() === identity.email.toLowerCase()
+        ? identity.name
+        : name,
+    author_email: email,
+  });
+
   // ==================== Repository ====================
   app.get('/api/repo', async (_req, resp) => {
     try {
       const root = (await git.revparse(['--show-toplevel'])).trim();
-      return resp.type('application/json').send({ root, name: basename(root) });
+      return resp
+        .type('application/json')
+        .send({ root, name: basename(root), identity: await configuredIdentity() });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -475,13 +551,15 @@ export async function startGuitoServer({
         options['--skip'] = String(skip);
       }
 
-      const [log, count] = await Promise.all([
+      const [log, count, identity] = await Promise.all([
         git.log(options as Parameters<typeof git.log>[0]),
         git.raw(['rev-list', '--count', '--all']),
+        configuredIdentity(),
       ]);
 
       const commits = log.all.map((commit: any) => ({
         ...commit,
+        ...authorIdentity(commit.author_name, commit.author_email, identity),
         parents: String(commit.parents ?? '')
           .split(' ')
           .filter(Boolean),
@@ -949,10 +1027,8 @@ export async function startGuitoServer({
   // ==================== Settings ====================
   app.get('/api/settings', async (_req, resp) => {
     try {
-      const effective = await effectiveAzureUrl();
-      return resp
-        .type('application/json')
-        .send({ azureDevOpsUrl: effective.url, source: effective.source });
+      const settings = await effectiveSettings();
+      return resp.type('application/json').send(settings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -970,10 +1046,8 @@ export async function startGuitoServer({
       const settings = await readSettings();
       settings.azureDevOpsUrl = url;
       await writeSettings(settings);
-      const effective = await effectiveAzureUrl();
-      return resp
-        .type('application/json')
-        .send({ azureDevOpsUrl: effective.url, source: effective.source });
+      const effective = await effectiveSettings();
+      return resp.type('application/json').send(effective);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -995,7 +1069,7 @@ export async function startGuitoServer({
           .type('application/json')
           .send({ error: 'Unable to build the Azure DevOps pull request URL.' });
       }
-      const prUrl = `${prefix}/_git/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
+      const prUrl = `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
 
       let source = String(sourceBranch ?? '').trim();
       if (newBranch) {
@@ -1032,8 +1106,11 @@ export async function startGuitoServer({
       }
 
       const payload: Record<string, unknown> = {
+        isDraft: req.body?.isDraft === true,
         sourceRefName: `refs/heads/${source}`,
-        targetRefName: `refs/heads/${targetBranch}`,
+        targetRefName: `refs/heads/${String(targetBranch)
+          .replace(/^refs\/heads\//, '')
+          .replace(/^origin\//, '')}`,
       };
       const trimmedTitle = String(title ?? '').trim();
       const trimmedDescription = String(description ?? '').trim();
@@ -1056,7 +1133,7 @@ export async function startGuitoServer({
         .map((id: unknown) => Number(id))
         .filter((id: number) => Number.isInteger(id) && id > 0);
       if (payloadWorkItems.length) {
-        payload.workItems = payloadWorkItems.map((id: number) => ({ id }));
+        payload.workItemRefs = payloadWorkItems.map((id: number) => ({ id: String(id) }));
       }
 
       const result = await azureRequest('POST', prUrl, JSON.stringify(payload));
@@ -1078,7 +1155,7 @@ export async function startGuitoServer({
       if (labelNames.length && created.pullRequestId) {
         // Built from the prefix: prUrl already carries the api-version query.
         const labelsUrl =
-          `${prefix}/_git/${encodeURIComponent(info.repo)}` +
+          `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}` +
           `/pullrequests/${created.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`;
         for (const name of labelNames) {
           try {
@@ -1104,8 +1181,7 @@ export async function startGuitoServer({
   });
 
   // ==================== Azure DevOps PR metadata ====================
-  // Identity search for the reviewer pickers (the endpoint the Azure DevOps
-  // web UI itself uses; undocumented but stable across TFS 2018+).
+  // Collection-scoped identity IDs can be passed directly as PR reviewers.
   app.get('/api/azure-devops/reviewers', async (req: any, resp) => {
     try {
       const query = String((req.query ?? {}).query ?? '').trim();
@@ -1113,10 +1189,14 @@ export async function startGuitoServer({
         return resp.type('application/json').send({ reviewers: [] });
       }
       const { prefix } = await azureProjectContext();
+      const collection = prefix.slice(0, prefix.lastIndexOf('/'));
+      const identityBase = collection.replace(
+        'https://dev.azure.com/',
+        'https://vssps.dev.azure.com/',
+      );
       const url =
-        `${prefix}/_apis/identitypicker/identities?api-version=${AZURE_API_VERSION}` +
-        '&identityTypes=msa-uuid,umd&queryType=nameAndEmail&searchFilter=' +
-        `&showImage=False&filterValue=${encodeURIComponent(query)}`;
+        `${identityBase}/_apis/identities?api-version=5.0` +
+        `&searchFilter=General&filterValue=${encodeURIComponent(query)}&queryMembership=None`;
       const result = await azureRequest('GET', url, '');
       if (result.status < 200 || result.status >= 300) {
         return resp
@@ -1127,12 +1207,23 @@ export async function startGuitoServer({
           });
       }
       const data = JSON.parse(result.body);
-      const list = Array.isArray(data) ? data : (data.results ?? data.identities ?? []);
+      const list = Array.isArray(data) ? data : (data.value ?? data.identities ?? []);
       const reviewers = list
         .map((entry: any) => ({
           id: String(entry?.id ?? entry?.identity?.id ?? ''),
-          label: String(entry?.label ?? entry?.displayName ?? entry?.name ?? ''),
-          description: entry?.description ? String(entry.description) : undefined,
+          label: String(
+            entry?.customDisplayName ||
+              entry?.providerDisplayName ||
+              entry?.label ||
+              entry?.displayName ||
+              entry?.name ||
+              '',
+          ),
+          description:
+            entry?.properties?.Mail?.$value ??
+            entry?.properties?.Account?.$value ??
+            entry?.description ??
+            undefined,
         }))
         .filter((entry: { id: string; label: string }) => entry.id && entry.label);
       return resp.type('application/json').send({ reviewers });
@@ -1145,22 +1236,24 @@ export async function startGuitoServer({
   // then fetches title/state for the first matches.
   app.get('/api/azure-devops/workitems', async (req: any, resp) => {
     try {
-      const query = String((req.query ?? {}).query ?? '').trim();
+      const query = String((req.query ?? {}).query ?? '')
+        .trim()
+        .replace(/^#(?=\d+$)/, '');
       if (!query) {
         return resp.type('application/json').send({ workItems: [] });
       }
       const { prefix } = await azureProjectContext();
       const clauses = [`[System.Title] CONTAINS '${query.replace(/'/g, "''")}'`];
       if (/^\d+$/.test(query)) {
-        clauses.push(`[System.Id] = '${query}'`);
+        clauses.push(`[System.Id] = ${Number(query)}`);
       }
       const wiql =
         'SELECT [System.Id], [System.Title], [System.State] FROM WorkItems ' +
-        `WHERE ${clauses.map((clause) => `(${clause})`).join(' OR ')} ` +
+        `WHERE [System.TeamProject] = @project AND (${clauses.map((clause) => `(${clause})`).join(' OR ')}) ` +
         'ORDER BY [System.ChangedDate] DESC';
       const wiqlResult = await azureRequest(
         'POST',
-        `${prefix}/_apis/wit/wiql?api-version=${AZURE_API_VERSION}`,
+        `${prefix}/_apis/wit/wiql?$top=20&api-version=${AZURE_API_VERSION}`,
         JSON.stringify({ query: wiql }),
       );
       if (wiqlResult.status < 200 || wiqlResult.status >= 300) {
@@ -1205,26 +1298,56 @@ export async function startGuitoServer({
     }
   });
 
-  // Work item tag names for the tag autocomplete.
+  // Existing pull request labels for the tag autocomplete.
   app.get('/api/azure-devops/tags', async (_req, resp) => {
     try {
-      const { prefix } = await azureProjectContext();
-      const result = await azureRequest(
-        'GET',
-        `${prefix}/_apis/wit/tags?api-version=${AZURE_API_VERSION}`,
-        '',
-      );
-      if (result.status < 200 || result.status >= 300) {
-        return resp
-          .status(400)
-          .type('application/json')
-          .send({
-            error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
-          });
+      const { prefix, remoteUrl } = await azureProjectContext();
+      const repo = parseAzureRemoteUrl(remoteUrl)!.repo;
+      // PR labels are distinct from Azure Boards work item tags.
+      const names = new Set<string>();
+      for (let skip = 0; ; skip += 100) {
+        const result = await azureRequest(
+          'GET',
+          `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests` +
+            `?searchCriteria.status=all&$top=100&$skip=${skip}&api-version=${AZURE_API_VERSION}`,
+          '',
+        );
+        if (result.status < 200 || result.status >= 300) {
+          throw new Error(
+            azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
+          );
+        }
+        const data = JSON.parse(result.body);
+        const requests = Array.isArray(data) ? data : (data.value ?? []);
+        // Some Server releases omit labels from the PR list response.
+        // Read those resources explicitly, with at most five requests in flight.
+        for (let offset = 0; offset < requests.length; offset += 5) {
+          const labels = await Promise.all(
+            requests.slice(offset, offset + 5).map(async (request: any) => {
+              if (Array.isArray(request.labels)) return request.labels;
+              if (!Number.isInteger(request.pullRequestId)) return [];
+              const result = await azureRequest(
+                'GET',
+                `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}` +
+                  `/pullrequests/${request.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`,
+                '',
+              );
+              if (result.status < 200 || result.status >= 300) {
+                throw new Error(
+                  azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
+                );
+              }
+              const data = JSON.parse(result.body);
+              return Array.isArray(data) ? data : (data.value ?? []);
+            }),
+          );
+          for (const label of labels.flat()) {
+            if (typeof label.name === 'string' && label.name.trim()) names.add(label.name.trim());
+          }
+        }
+        if (requests.length < 100) break;
       }
-      const tags = (JSON.parse(result.body).value ?? [])
-        .map((tag: any) => String(tag?.name ?? '').trim())
-        .filter(Boolean);
+      const tags = [...names].sort((a, b) => a.localeCompare(b));
       return resp.type('application/json').send({ tags });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
@@ -1257,8 +1380,7 @@ export async function startGuitoServer({
         message,
         refs: '',
         body: body ?? '',
-        author_name: authorName,
-        author_email: authorEmail,
+        ...authorIdentity(authorName, authorEmail, await configuredIdentity()),
         parents: String(parents ?? '')
           .split(' ')
           .filter(Boolean),

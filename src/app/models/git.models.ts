@@ -78,7 +78,18 @@ export interface FileContent {
   binary?: boolean;
 }
 
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+export interface RepositoryState {
+  history: string;
+  working: string;
+}
+
 export interface RepoInfo {
+  identity: GitIdentity;
   root: string;
   name: string;
 }
@@ -140,6 +151,8 @@ export interface AzureSettings {
   azureDevOpsUrl: string;
   /** Where the effective URL comes from: the VS Code setting or the server-side file. */
   source: 'vscode' | 'file' | '';
+  /** Whether Guito polls the repository and refreshes automatically; defaults to true. */
+  autoReload?: boolean;
 }
 
 export interface CreatePrRequest {
@@ -149,6 +162,7 @@ export interface CreatePrRequest {
   description?: string;
   /** Creates a remote-only branch (pr/xxxxxx) from HEAD as the PR source. */
   newBranch?: boolean;
+  isDraft?: boolean;
   /** Reviewers to add: identity id from the picker + whether required. */
   reviewers?: { id: string; required: boolean }[];
   /** Work item ids to link to the pull request. */
@@ -179,7 +193,7 @@ export interface PrWorkItemSuggestion {
   state: string;
 }
 
-/** Work item tag name returned by the Azure DevOps tags API. */
+/** Existing label name from Azure DevOps pull requests. */
 export interface PrTagSuggestion {
   name: string;
 }

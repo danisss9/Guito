@@ -16,6 +16,7 @@ import {
   PrTagSuggestion,
   PrWorkItemSuggestion,
   RepoInfo,
+  RepositoryState,
   StashScope,
   WorkingChanges,
 } from '../models/git.models';
@@ -36,6 +37,10 @@ export class GitService {
       this.mutating.set(true);
       return request().pipe(finalize(() => this.mutating.set(false)));
     });
+  }
+
+  getRepositoryState(): Observable<RepositoryState> {
+    return this.http.get<RepositoryState>(`${this.base}/repository-state`);
   }
 
   getRepoInfo(): Observable<RepoInfo> {
@@ -215,7 +220,7 @@ export class GitService {
       .pipe(map((response) => response.workItems));
   }
 
-  /** Work item tag names for pull request tag autocomplete. */
+  /** Existing pull request label names for tag autocomplete. */
   getPrTags(): Observable<PrTagSuggestion[]> {
     return this.http
       .get<{ tags: string[] }>(`${this.base}/azure-devops/tags`)

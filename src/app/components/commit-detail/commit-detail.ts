@@ -1,3 +1,4 @@
+import { AuthorAvatar } from '../author-avatar/author-avatar';
 import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -13,12 +14,11 @@ import {
 import { Subscription } from 'rxjs';
 import { CommitDiff, FileDiff, GitCommit, WORKING_HASH } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
-import { hashString, laneColor } from '../../utils/graph';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 @Component({
   selector: 'app-commit-detail',
-  imports: [DatePipe, DiffDialog],
+  imports: [AuthorAvatar, DatePipe, DiffDialog],
   templateUrl: './commit-detail.html',
   styleUrl: './commit-detail.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -52,19 +52,6 @@ export class CommitDetail implements OnDestroy {
   protected readonly modifiedRef = computed(() =>
     this.isWorking() ? 'WORKING' : this.commit().hash,
   );
-
-  protected readonly initials = computed(() => {
-    const name = this.commit().author_name.trim();
-    if (!name) {
-      return '?';
-    }
-    const parts = name.split(/\s+/);
-    const first = parts[0].charAt(0);
-    const last = parts.length > 1 ? parts[parts.length - 1].charAt(0) : '';
-    return (first + last).toUpperCase();
-  });
-
-  protected readonly avatarColor = computed(() => laneColor(hashString(this.commit().author_name)));
 
   constructor() {
     effect(() => {

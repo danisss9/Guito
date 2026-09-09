@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.2
+
+- Show author avatars in the commit table and the commit detail pane, falling back to initials when no Gravatar image is available.
+- Refresh history and the working tree automatically when the repository changes outside Guito, and keep the loaded history, selected branch, and selected commit in sync.
+- Make the Description column of the commit table resizable and persist its width across sessions.
+- Show your configured Git user name for uncommitted changes and your own commits.
+- Move the commit search to the far right of the title bar.
+- Fill the window width with the commit table on load and when the window is resized; resizing a column changes only that column.
+- Add the guito.autoReload setting that controls automatic reloading of commits and the working tree (enabled by default).
+- Add a "Create as draft" option to the Create Pull Request dialog.
+- Suggest existing pull request labels instead of work item tags in the Create Pull Request tag field.
+- Show per-field loading and error state, cancel outdated requests, and display a "No matches" hint for reviewer, work item, and tag lookups.
+- Use the Azure DevOps repositories API for pull request and label URLs so they resolve on Azure DevOps Server.
+- Fix work item linking, scope work item search to the current team project, accept `#id` queries, and cap results at 20.
+- Strip `origin/` and `refs/heads/` prefixes from the pull request target branch.
+- Avoid duplicating collection path segments when building Azure DevOps base URLs.
+- Search reviewers through the collection identities API so they can be added to pull requests directly.
+
 ## 0.6.1
 
 - Add a "Rebase (from)..." action to the pull menu that rebases the current branch onto a picked branch, with origin/main as the default choice and a scrollable option list.

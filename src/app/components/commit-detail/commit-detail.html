@@ -10,7 +10,7 @@
     <h2 class="subject">{{ commit().message }}</h2>
 
     <div class="meta">
-      <span class="avatar" [style.background]="avatarColor()">{{ initials() }}</span>
+      <app-author-avatar [name]="commit().author_name" [email]="commit().author_email" />
       <span class="author">{{ commit().author_name }}</span>
       @if (!isWorking()) {
         <span class="separator">•</span>

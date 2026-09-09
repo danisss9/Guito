@@ -136,10 +136,9 @@ async function openRepository(
   }
 
   const token = randomBytes(32).toString('hex');
-  const azureDevOpsUrl = vscode.workspace
-    .getConfiguration('guito')
-    .get<string>('azureDevOpsUrl')
-    ?.trim();
+  const configuration = vscode.workspace.getConfiguration('guito');
+  const azureDevOpsUrl = configuration.get<string>('azureDevOpsUrl')?.trim();
+  const autoReload = configuration.get<boolean>('autoReload', true);
   const server = await startGuitoServer({
     repositoryPath: repository.root,
     uiRoot: vscode.Uri.joinPath(context.extensionUri, 'dist', 'ui').fsPath,
@@ -147,6 +146,7 @@ async function openRepository(
     port: 0,
     apiToken: token,
     azureDevOpsUrl: azureDevOpsUrl || undefined,
+    autoReload,
   });
 
   try {

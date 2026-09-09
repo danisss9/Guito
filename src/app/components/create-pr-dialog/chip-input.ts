@@ -28,6 +28,7 @@ export class ChipInput {
   readonly disabled = input(false);
   /** Enter adds the typed text as a chip when no suggestion matches (tags). */
   readonly allowFreeText = input(false);
+  readonly error = input('');
 
   readonly queryChange = output<string>();
   readonly select = output<ChipSuggestion>();

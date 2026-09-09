@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -449,17 +449,17 @@ test('builds the pull request REST URL', () => {
   const remote = 'https://server/DefaultCollection/Project/_git/Repo.git';
   assert.equal(
     buildAzurePullRequestUrl('https://server/DefaultCollection', remote),
-    'https://server/DefaultCollection/Project/_git/Repo/pullrequests?api-version=4.1',
+    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0',
   );
   // A bare host base must not lose the collection path.
   assert.equal(
     buildAzurePullRequestUrl('https://server', remote),
-    'https://server/DefaultCollection/Project/_git/Repo/pullrequests?api-version=4.1',
+    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0',
   );
   // Trailing slashes on the base are trimmed.
   assert.equal(
     buildAzurePullRequestUrl('https://server/DefaultCollection/', remote),
-    'https://server/DefaultCollection/Project/_git/Repo/pullrequests?api-version=4.1',
+    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0',
   );
   // Encoded project segments are re-encoded in the REST URL.
   assert.equal(
@@ -467,7 +467,7 @@ test('builds the pull request REST URL', () => {
       'https://server/tfs',
       'https://server/tfs/My%20Project/_git/My%20Repo',
     ),
-    'https://server/tfs/My%20Project/_git/My%20Repo/pullrequests?api-version=4.1',
+    'https://server/tfs/My%20Project/_apis/git/repositories/My%20Repo/pullrequests?api-version=5.0',
   );
   assert.equal(buildAzurePullRequestUrl('', remote), null);
   assert.equal(buildAzurePullRequestUrl('https://server', 'https://github.com/x/y.git'), null);
@@ -559,9 +559,10 @@ test('creates a pull request through Azure DevOps', async (context) => {
   assert.equal(calls.length, 1);
   assert.equal(
     calls[0].url,
-    'https://azure.example/DefaultCollection/Project/_git/Repo/pullrequests?api-version=4.1',
+    'https://azure.example/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0',
   );
   assert.deepEqual(calls[0].payload, {
+    isDraft: false,
     sourceRefName: 'refs/heads/main',
     targetRefName: 'refs/heads/main',
     title: 'My PR',
@@ -600,6 +601,7 @@ test('creates a pull request from a new random branch', async (context) => {
   // The random branch was pushed to the remote as the PR source.
   assert.ok(remoteBranches(remotePath).includes(`refs/heads/${created.branch}`));
   assert.deepEqual(calls[0].payload, {
+    isDraft: false,
     sourceRefName: `refs/heads/${created.branch}`,
     targetRefName: 'refs/heads/main',
   });
@@ -699,6 +701,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   assert.deepEqual(await saved.json(), {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
+    autoReload: true,
   });
 
   const loaded = await fetch(`${server.address}/api/settings`);
@@ -706,6 +709,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   assert.deepEqual(await loaded.json(), {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
+    autoReload: true,
   });
 
   // The settings file lives in the repository's git directory.
@@ -730,7 +734,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({ azureDevOpsUrl: '' }),
   });
   assert.equal(cleared.status, 200);
-  assert.deepEqual(await cleared.json(), { azureDevOpsUrl: '', source: '' });
+  assert.deepEqual(await cleared.json(), { azureDevOpsUrl: '', source: '', autoReload: true });
 
   // A VS Code-provided URL wins over the file and is reported as such.
   const extension = await startGuitoServer({
@@ -739,12 +743,42 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     host: '127.0.0.1',
     port: 0,
     azureDevOpsUrl: 'https://vscode/Collection',
+    autoReload: false,
   });
   context.after(() => extension.close());
   const fromExtension = await fetch(`${extension.address}/api/settings`);
   assert.deepEqual(await fromExtension.json(), {
     azureDevOpsUrl: 'https://vscode/Collection',
     source: 'vscode',
+    autoReload: false,
+  });
+
+  // Auto-reload falls back to the settings file when the extension does not
+  // pass it, and the extension value wins when it does.
+  await writeFile(
+    join(gitDir, 'guito-settings.json'),
+    JSON.stringify({ azureDevOpsUrl: 'https://server/DefaultCollection', autoReload: false }),
+    'utf8',
+  );
+  const fromFile = await fetch(`${server.address}/api/settings`);
+  assert.deepEqual(await fromFile.json(), {
+    azureDevOpsUrl: 'https://server/DefaultCollection',
+    source: 'file',
+    autoReload: false,
+  });
+  const reloaded = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+    autoReload: true,
+  });
+  context.after(() => reloaded.close());
+  const fromReloaded = await fetch(`${reloaded.address}/api/settings`);
+  assert.deepEqual(await fromReloaded.json(), {
+    azureDevOpsUrl: 'https://server/DefaultCollection',
+    source: 'file',
+    autoReload: true,
   });
 });
 
@@ -759,13 +793,19 @@ test('searches reviewers, work items, and tags through Azure DevOps', async (con
     azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ method, url, payload: body ? JSON.parse(body) : undefined });
-      if (url.includes('/_apis/identitypicker/identities')) {
+      if (url.includes('/_apis/identities')) {
         return {
           status: 200,
-          body: JSON.stringify([
-            { id: 'uuid-1', label: 'Jane Doe', description: 'jane@contoso.com' },
-            { id: 'uuid-2', label: 'John Roe' },
-          ]),
+          body: JSON.stringify({
+            value: [
+              {
+                id: 'uuid-1',
+                providerDisplayName: 'Jane Doe',
+                properties: { Mail: { $value: 'jane@contoso.com' } },
+              },
+              { id: 'uuid-2', providerDisplayName: 'John Roe' },
+            ],
+          }),
         };
       }
       if (url.includes('/_apis/wit/wiql')) {
@@ -782,8 +822,11 @@ test('searches reviewers, work items, and tags through Azure DevOps', async (con
           }),
         };
       }
-      if (url.includes('/_apis/wit/tags')) {
-        return { status: 200, body: JSON.stringify({ value: [{ name: 'perf' }, { name: 'ui' }] }) };
+      if (url.includes('/pullrequests?')) {
+        return {
+          status: 200,
+          body: JSON.stringify({ value: [{ labels: [{ name: 'perf' }, { name: 'ui' }] }] }),
+        };
       }
       return { status: 404, body: '' };
     },
@@ -800,7 +843,7 @@ test('searches reviewers, work items, and tags through Azure DevOps', async (con
       { id: 'uuid-2', label: 'John Roe' },
     ],
   });
-  assert.match(calls[0].url, /identitypicker\/identities/);
+  assert.match(calls[0].url, /DefaultCollection\/_apis\/identities/);
   assert.match(calls[0].url, /filterValue=jane/);
 
   const workItems = await fetch(
@@ -814,13 +857,15 @@ test('searches reviewers, work items, and tags through Azure DevOps', async (con
     ],
   });
   // The WIQL query matches the title and, for numeric input, the id too.
+  assert.equal(new URL(calls[1].url).searchParams.get('$top'), '20');
+  assert.match(calls[1].payload.query, /\[System\.TeamProject\] = @project/);
   assert.match(calls[1].payload.query, /\[System\.Title\] CONTAINS 'login'/);
 
   const byId = await fetch(
     `${server.address}/api/azure-devops/workitems?query=${encodeURIComponent('64')}`,
   );
   assert.equal(byId.status, 200);
-  assert.match(calls[3].payload.query, /\[System\.Id\] = '64'/);
+  assert.match(calls[3].payload.query, /\[System\.Id\] = 64/);
 
   const tags = await fetch(`${server.address}/api/azure-devops/tags`);
   assert.equal(tags.status, 200);
@@ -865,13 +910,14 @@ test('creates a pull request with reviewers, work items, and tags', async (conte
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       sourceBranch: 'main',
-      targetBranch: 'main',
+      targetBranch: 'origin/main',
       reviewers: [
         { id: 'uuid-1', required: true },
         { id: 'uuid-2', required: false },
       ],
       workItems: [64, 'not-a-number', 0],
       labels: ['perf', 'ui'],
+      isDraft: true,
     }),
   });
   assert.equal(response.status, 200);
@@ -879,15 +925,170 @@ test('creates a pull request with reviewers, work items, and tags', async (conte
   assert.equal(created.id, 55);
   assert.deepEqual(created.warnings, ['Could not add tag "ui" (HTTP 400).']);
 
+  assert.equal(calls[0].payload.isDraft, true);
+  assert.equal(calls[0].payload.targetRefName, 'refs/heads/main');
   // The create payload carries reviewers and only valid work item ids.
   assert.deepEqual(calls[0].payload.reviewers, [
     { id: 'uuid-1', isRequired: true },
     { id: 'uuid-2', isRequired: false },
   ]);
-  assert.deepEqual(calls[0].payload.workItems, [{ id: 64 }]);
+  assert.deepEqual(calls[0].payload.workItemRefs, [{ id: '64' }]);
   // Each tag is added through the labels endpoint after creation.
   assert.equal(calls[1].method, 'POST');
-  assert.match(calls[1].url, /pullrequests\/55\/labels\?api-version=4\.1/);
+  assert.match(calls[1].url, /pullrequests\/55\/labels\?api-version=5\.0/);
   assert.deepEqual(calls[1].payload, { name: 'perf' });
   assert.deepEqual(calls[2].payload, { name: 'ui' });
+});
+
+// Exercise real Git changes made outside the API, including linked worktrees.
+test('repository state detects external refs, checkout, index, edits, and configuration', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync('git', args, { cwd: repositoryPath, stdio: 'pipe' }).toString().trim();
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+  const state = async () => {
+    const response = await fetch(`${server.address}/api/repository-state`);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const initial = await state();
+  assert.deepEqual(await state(), initial);
+  git('checkout', '-b', 'external');
+  const checkout = await state();
+  assert.notEqual(checkout.history, initial.history);
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(join(repositoryPath, 'external.txt'), 'one\n');
+  const added = await state();
+  assert.equal(added.history, checkout.history);
+  assert.notEqual(added.working, checkout.working);
+  await writeFile(join(repositoryPath, 'external.txt'), 'two lines\nchanged\n');
+  assert.notEqual((await state()).working, added.working);
+  git('add', '.');
+  const staged = await state();
+  git('commit', '-m', 'Outside Guito');
+  const committed = await state();
+  assert.notEqual(committed.history, staged.history);
+  assert.notEqual(committed.working, staged.working);
+  git('config', 'user.name', 'Correct Name');
+  assert.notEqual((await state()).history, committed.history);
+  const beforeDetached = await state();
+  git('checkout', '--detach');
+  assert.notEqual((await state()).history, beforeDetached.history);
+  git('tag', 'outside-tag');
+  const tagged = await state();
+  git('pack-refs', '--all');
+  assert.deepEqual(await state(), tagged);
+
+  const linked = join(repositoryPath, 'linked');
+  git('worktree', 'add', '-b', 'linked-branch', linked);
+  const linkedServer = await startGuitoServer({
+    repositoryPath: linked,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => linkedServer.close());
+  const linkedState = async () =>
+    (await fetch(`${linkedServer.address}/api/repository-state`)).json();
+  const previous = await linkedState();
+  execFileSync('git', ['checkout', '--detach'], { cwd: linked, stdio: 'ignore' });
+  assert.notEqual((await linkedState()).history, previous.history);
+});
+
+test('author names use matching Git config and respect other authors and mailmaps', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync('git', args, { cwd: repositoryPath, stdio: 'pipe' }).toString().trim();
+  git('config', 'user.name', 'Correct Name');
+  git('commit', '--allow-empty', '--author=Other Author <other@example.test>', '-m', 'Other');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(join(repositoryPath, '.mailmap'), 'Canonical Other <other@example.test>\n');
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+  const repo = await (await fetch(`${server.address}/api/repo`)).json();
+  assert.deepEqual(repo.identity, { name: 'Correct Name', email: 'guito@example.test' });
+  const { commits } = await (await fetch(`${server.address}/api/commits`)).json();
+  assert.equal(commits[0].author_name, 'Canonical Other');
+  assert.equal(commits[1].author_name, 'Correct Name');
+  for (const commit of commits) {
+    const detail = await (
+      await fetch(`${server.address}/api/commit/detail`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hash: commit.hash }),
+      })
+    ).json();
+    assert.equal(detail.author_name, commit.author_name);
+  }
+});
+
+test('avatar cache normalizes email, deduplicates requests, and caches missing images', async () => {
+  const { avatarCache } = await import('../bin/avatars.js');
+  const { createHash } = await import('node:crypto');
+  const calls = [];
+  const cache = avatarCache(async (url) => {
+    calls.push(url);
+    return new Response('image', { headers: { 'content-type': 'image/png' } });
+  });
+  const images = await Promise.all([cache(' User@Example.com '), cache('user@example.com')]);
+  assert.equal(calls.length, 1);
+  assert.equal(images[0].data.toString(), 'image');
+  assert.equal(images[0], images[1]);
+  assert.match(calls[0], new RegExp(createHash('sha256').update('user@example.com').digest('hex')));
+  let missing = 0;
+  const negativeCache = avatarCache(async () => {
+    missing++;
+    return new Response('', { status: 404 });
+  });
+  assert.equal(await negativeCache('missing@example.test'), null);
+  assert.equal(await negativeCache('missing@example.test'), null);
+  assert.equal(missing, 1);
+});
+
+test('PR tags page through history and fetch omitted labels', async (context) => {
+  const { repositoryPath } = await createAzureRepository(context);
+  const calls = [];
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
+    azureRequestImpl: async (method, url) => {
+      calls.push(url);
+      const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/1/labels')) {
+        return { status: 200, body: JSON.stringify({ value: [{ name: 'fetched' }] }) };
+      }
+      const skip = parsed.searchParams.get('$skip');
+      const value =
+        skip === '0'
+          ? Array.from({ length: 100 }, (_, i) =>
+              i === 0
+                ? { pullRequestId: 1 }
+                : { pullRequestId: i + 1, labels: [{ name: 'shared' }] },
+            )
+          : [{ pullRequestId: 101, labels: [{ name: 'last-page' }, { name: 'shared' }] }];
+      return { status: 200, body: JSON.stringify({ value }) };
+    },
+  });
+  context.after(() => server.close());
+  const response = await fetch(`${server.address}/api/azure-devops/tags`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { tags: ['fetched', 'last-page', 'shared'] });
+  assert.equal(calls.length, 3);
+  assert.match(calls[2], /\$skip=100/);
 });

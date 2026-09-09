@@ -2,6 +2,32 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.2] - 2026-09-09
+
+### Added
+
+- Show author avatars in the commit table and the commit detail pane. Avatars are looked up by the author email on Gravatar, cached for a day, and fall back to initials when no image is available.
+- Refresh Guito automatically when the repository changes. A lightweight probe runs every few seconds and whenever the window regains focus, detects commits, branches, tags, configuration, mailmap, and working tree changes made outside Guito (for example from a terminal or another tool), and then refreshes the history and the Uncommitted changes panel. History pages that were already loaded are kept, and the selected branch and commit stay valid after the refresh.
+- Resize the Description column of the commit table by dragging, like the other columns. The chosen width is persisted across sessions together with the other column widths.
+- Create draft pull requests with a "Create as draft" option in the Create Pull Request dialog.
+- Move the commit search to the far right of the Guito title bar. The search box with its clear button, match counter, and previous/next navigation now sits next to the title instead of in the toolbar.
+- Add the guito.autoReload setting (enabled by default) that controls whether Guito refreshes automatically as described above; it can also be set per repository in the server-side settings file.
+
+### Changed
+
+- Fill the window width with the commit table on load and when the window is resized: the Description column widens to absorb spare room, while resizing a column changes only that column and may leave the table narrower until the window is resized again. The saved widths act as minimums on narrow windows.
+- The Uncommitted changes row shows your configured Git user name instead of "You", and commits display the author name from your Git configuration when the commit email matches it, while other authors and mailmap-rewritten names are left untouched.
+- Tag suggestions in the Create Pull Request dialog now list labels already used by the repository's pull requests instead of Azure Boards work item tags.
+- Reviewer, work item, and tag lookups in the Create Pull Request dialog show their own loading state and error message, cancel outdated requests while typing, and show a "No matches" hint instead of an empty list.
+
+### Fixed
+
+- Build pull request and pull request label URLs through the Azure DevOps repositories API so they resolve on Azure DevOps Server.
+- Link work items to pull requests using the refs format Azure DevOps expects, and scope work item search to the current team project, accepting `#id` queries and returning at most 20 results.
+- Strip `origin/` and `refs/heads/` prefixes from the pull request target branch before creating the pull request.
+- Build Azure DevOps base URLs without duplicating collection path segments when the server URL path overlaps the remote repository path.
+- Search reviewers through the collection identities API so the returned identities can be used directly as pull request reviewers.
+
 ## [0.6.1] - 2026-09-08
 
 ### Added
