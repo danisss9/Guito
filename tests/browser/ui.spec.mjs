@@ -465,9 +465,7 @@ test('resizing changes only the dragged column until the window is resized', asy
   await drag('author', -70);
   // Only the dragged column changes; the freed space is left alone, so the
   // table may end up narrower than the window.
-  expect(await widths()).toEqual(
-    before.map((width, index) => (index === 3 ? width - 70 : width)),
-  );
+  expect(await widths()).toEqual(before.map((width, index) => (index === 3 ? width - 70 : width)));
   expect(await page.locator('.table-head').evaluate((el) => el.clientWidth)).toBeLessThan(
     await page.locator('.list-viewport').evaluate((el) => el.clientWidth),
   );
