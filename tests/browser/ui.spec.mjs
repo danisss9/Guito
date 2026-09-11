@@ -39,6 +39,8 @@ async function setup(page, count = 700) {
     searchDelay: 0,
     refreshDelay: 0,
     historyRequests: 0,
+    historyRanges: [],
+    bodyMatchIndex: 600,
     stageRequests: [],
     commitRequests: [],
     contentRequests: [],
@@ -104,6 +106,7 @@ async function setup(page, count = 700) {
       case '/api/commits': {
         state.historyRequests++;
         const skip = Number(parsed.searchParams.get('skip') || 0);
+        state.historyRanges.push({ skip, limit: Number(parsed.searchParams.get('limit')) });
         await delay(state.refreshDelay);
         if (state.failedHistory && skip) return send({ error: 'History unavailable' }, 400);
         return send({
@@ -120,7 +123,12 @@ async function setup(page, count = 700) {
         await delay(state.searchDelay);
         return fail
           ? send({ error: 'Search unavailable' }, 400)
-          : send({ hashes: query === 'body-only' ? [commits[600].hash] : [] });
+          : send({
+              hashes: query === 'body-only' ? [commits[state.bodyMatchIndex].hash] : [],
+              indices: query === 'body-only'
+                ? { [commits[state.bodyMatchIndex].hash]: state.bodyMatchIndex }
+                : {},
+            });
       }
       case '/api/working-changes':
         return state.failedStatus ? send({ error: 'Status unavailable' }, 400) : send(snapshot());
@@ -230,6 +238,38 @@ test('search navigates body and author matches while retaining the surrounding h
   await search.press('Enter');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 7');
   expect(errors).toEqual([]);
+});
+
+test('search loads through a distant match in one request and reuses loaded pages', async ({ page }) => {
+  const { state, errors } = await setup(page, 3600);
+  state.bodyMatchIndex = 2700;
+  await page.getByPlaceholder('Search commits').fill('body-only');
+  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  const before = state.historyRequests;
+  await page.getByPlaceholder('Search commits').press('Enter');
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 2700');
+  expect(state.historyRequests - before).toBe(1);
+  expect(state.historyRanges.at(-1)).toEqual({ skip: 500, limit: 2500 });
+  await page.getByPlaceholder('Search commits').press('Enter');
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 2700');
+  expect(state.historyRequests - before).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('failed search navigation waits for explicit history retry', async ({ page }) => {
+  const { state } = await setup(page, 3600);
+  state.bodyMatchIndex = 2700;
+  state.failedHistory = true;
+  await page.getByPlaceholder('Search commits').fill('body-only');
+  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await page.getByPlaceholder('Search commits').press('Enter');
+  await expect(page.locator('.error-banner')).toContainText('History unavailable');
+  const requests = state.historyRequests;
+  await page.waitForTimeout(700);
+  expect(state.historyRequests).toBe(requests);
+  state.failedHistory = false;
+  await page.getByRole('button', { name: 'Load more commits', exact: true }).click();
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 2700');
 });
 
 test('rapid queries and refresh retain history and the latest match count', async ({ page }) => {

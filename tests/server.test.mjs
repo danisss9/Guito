@@ -205,6 +205,16 @@ test('omits commit bodies from the list and serves them on demand', async (conte
     )
   ).json();
   assert.deepEqual(search.hashes, [listed.hash]);
+  assert.equal(search.indices[listed.hash], list.commits.indexOf(listed));
+  const older = list.commits[1];
+  const olderSearch = await (
+    await fetch(`${server.address}/api/commits/search?query=${encodeURIComponent(older.message)}`)
+  ).json();
+  assert.equal(olderSearch.indices[older.hash], 1);
+  const targetPage = await (
+    await fetch(`${server.address}/api/commits?skip=${olderSearch.indices[older.hash]}&limit=1`)
+  ).json();
+  assert.equal(targetPage.commits[0].hash, older.hash);
 
   const noMatch = await (
     await fetch(`${server.address}/api/commits/search?query=nothing-matches-this`)

@@ -477,27 +477,36 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     app.get('/api/commits/search', async (req, resp) => {
         const query = String((req.query ?? {}).query ?? '').trim();
         if (!query) {
-            return resp.type('application/json').send({ hashes: [] });
+            return resp.type('application/json').send({ hashes: [], indices: {} });
         }
         try {
-            const raw = await git.raw([
-                'log',
-                '--all',
-                '-i',
-                '--fixed-strings',
-                `--grep=${query}`,
-                '--format=%H',
+            const [raw, history] = await Promise.all([
+                git.raw([
+                    'log',
+                    '--all',
+                    '-i',
+                    '--fixed-strings',
+                    `--grep=${query}`,
+                    '--format=%H',
+                ]),
+                git.raw(['log', '--all', '--format=%H']),
             ]);
+            const hashes = raw.split('\n').map((hash) => hash.trim()).filter(Boolean);
+            const matches = new Set(hashes);
+            // Use the same unfiltered Git log order as the paged history endpoint.
+            const indices = {};
+            history.split('\n').map((hash) => hash.trim()).filter(Boolean).forEach((hash, index) => {
+                if (matches.has(hash))
+                    indices[hash] = index;
+            });
             return resp.type('application/json').send({
-                hashes: raw
-                    .split('\n')
-                    .map((hash) => hash.trim())
-                    .filter(Boolean),
+                hashes,
+                indices,
             });
         }
         catch (err) {
             if (/does not have any commits yet|unknown revision|bad default revision/i.test(err.message ?? '')) {
-                return resp.type('application/json').send({ hashes: [] });
+                return resp.type('application/json').send({ hashes: [], indices: {} });
             }
             return resp.status(400).type('application/json').send({ error: err.message });
         }

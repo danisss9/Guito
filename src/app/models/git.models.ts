@@ -20,6 +20,8 @@ export interface CommitsResponse {
 /** Hashes of commits whose message (subject or body) matches a query. */
 export interface CommitSearchResponse {
   hashes: string[];
+  /** Zero-based positions in the unfiltered history, keyed by matching hash. */
+  indices: Record<string, number>;
 }
 
 export type RefType = 'head' | 'local' | 'remote' | 'tag';

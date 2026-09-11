@@ -142,6 +142,7 @@ export class App implements OnDestroy {
    * server across the whole history.
    */
   protected readonly bodyMatches = signal<string[]>([]);
+  private readonly searchHistoryIndices = signal<Record<string, number>>({});
 
   // In-flight requests; unsubscribing aborts the HTTP call and supersedes it.
   private refreshSub: Subscription | null = null;
@@ -229,6 +230,7 @@ export class App implements OnDestroy {
         this.searchSub?.unsubscribe();
         this.searchLoading.set(false);
         this.bodyMatches.set([]);
+        this.searchHistoryIndices.set({});
         this.filterFailed.set(false);
         this.error.set('');
         this.searchFocusHash.set('');
@@ -251,10 +253,11 @@ export class App implements OnDestroy {
     });
 
     // Focus a search match once it is displayed; while it is still unloaded,
-    // keep fetching pages until it appears (or the history is exhausted).
+    // fetch the missing history through its page in a single request.
     effect(() => {
       const hash = this.pendingSearchHash();
       if (!hash) return;
+      if (this.filterFailed()) return;
       const match = this.displayedCommits().find((commit) => commit.hash === hash);
       if (match) {
         untracked(() => {
@@ -264,7 +267,17 @@ export class App implements OnDestroy {
           this.pendingSearchHash.set('');
         });
       } else if (this.unloadedCommits() > 0 && !this.historyLoading() && !this.loading()) {
-        untracked(() => this.loadMoreCommits());
+        const index = this.searchHistoryIndices()[hash];
+        const skip = this.commits().length;
+        if (index !== undefined && index < skip) {
+          // Already loaded but hidden by the active branch filter.
+          this.pendingSearchHash.set('');
+          return;
+        }
+        const limit = index === undefined
+          ? undefined
+          : Math.ceil((index + 1 - skip) / LOAD_PAGE_SIZE) * LOAD_PAGE_SIZE;
+        untracked(() => this.loadHistory(this.git.getCommits(limit, skip)));
       } else if (!this.historyLoading() && !this.loading()) {
         // The match never appeared (e.g. outside the selected branch).
         this.pendingSearchHash.set('');
@@ -530,6 +543,7 @@ export class App implements OnDestroy {
     this.searchSub = this.git.searchCommits(query).subscribe({
       next: (result) => {
         this.bodyMatches.set(result.hashes);
+        this.searchHistoryIndices.set(result.indices ?? {});
         this.searchLoading.set(false);
       },
       error: (err) => {
