@@ -1,3 +1,4 @@
+import { ErrorBanner } from '../error-banner/error-banner';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -20,6 +21,7 @@ let dialogCounter = 0;
 
 @Component({
   selector: 'app-diff-dialog',
+  imports: [ErrorBanner],
   templateUrl: './diff-dialog.html',
   styleUrl: './diff-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

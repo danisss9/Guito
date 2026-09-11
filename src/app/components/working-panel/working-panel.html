@@ -7,7 +7,7 @@
   </div>
   @if (busy()) { <div class="state" role="status"><span class="spinner"></span>{{ statusLoading() ? 'Refreshing changes…' : 'Updating repository…' }}</div> }
   @if (statusError()) {
-    <div class="error" role="alert">{{ statusError() }} <button type="button" [disabled]="busy()" (click)="retry.emit()">Retry status</button></div>
+    <app-error-banner [message]="statusError()" retryLabel="Retry status" [busy]="statusLoading()" (retry)="retry.emit()" />
   }
   <div class="changes">
     @for (group of groups; track group) {

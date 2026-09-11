@@ -168,7 +168,7 @@
       }
 
       @if (error()) {
-        <p class="error" role="alert">{{ error() }}</p>
+        <app-error-banner [message]="error()" />
       }
     </div>
 

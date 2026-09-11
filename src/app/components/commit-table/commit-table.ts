@@ -120,6 +120,7 @@ export class CommitTable implements OnDestroy {
   readonly selectedHash = input.required<string>();
   readonly identity = input<GitIdentity>({ name: '', email: '' });
   readonly search = input<string>('');
+  readonly showGraph = input(true);
   readonly selectedBranch = input<string>('');
   readonly showRemote = input(true);
   readonly workingChanges = input<WorkingChanges | null>(null);
@@ -172,6 +173,8 @@ export class CommitTable implements OnDestroy {
     afterRenderEffect(() => {
       this.selectedBranch();
       this.showRemote();
+      this.showGraph();
+      if (!this.showGraph()) this.search();
       const viewport = this.viewport();
       if (viewport)
         untracked(() => {
@@ -266,6 +269,11 @@ export class CommitTable implements OnDestroy {
   private updateGraph(commits: readonly GitCommit[]): void {
     // Supersede any in-flight worker request; its reply is dropped on arrival.
     this.graphSubscription?.unsubscribe();
+    if (!this.showGraph()) {
+      this.graphLoading.set(false);
+      this.graphCommits.set(commits.map((commit) => ({ commit, lane: 0, parents: [] })));
+      return;
+    }
     this.graphLoading.set(true);
     this.graphSubscription = this.graph.compute(commits).subscribe((lanes) => {
       // Length mismatch means the history changed while computing.
@@ -289,7 +297,7 @@ export class CommitTable implements OnDestroy {
   });
 
   protected readonly graphColumnWidth = computed(() =>
-    Math.max(this.graphWidth(), this.columnWidths().graph),
+    this.showGraph() ? Math.max(this.graphWidth(), this.columnWidths().graph) : 0,
   );
 
   /**

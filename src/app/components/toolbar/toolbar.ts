@@ -22,6 +22,8 @@ export class Toolbar {
   readonly busy = input.required<boolean>();
   /** Azure DevOps URL is configured; enables the Create Pull Request menu item. */
   readonly prEnabled = input(false);
+  /** Whether the commit graph column is shown; toggled from the settings menu. */
+  readonly showGraph = input(true);
 
   readonly branchChange = output<string>();
   readonly remoteToggle = output<boolean>();
@@ -30,7 +32,8 @@ export class Toolbar {
     'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync' | 'create-pr'
   >();
   readonly settingsClick = output<void>();
-  protected readonly openMenu = signal<'pull' | 'push' | null>(null);
+  readonly graphToggle = output<boolean>();
+  protected readonly openMenu = signal<'pull' | 'push' | 'settings' | null>(null);
 
   protected readonly visibleBranches = computed(() => {
     return this.branches();
@@ -44,7 +47,7 @@ export class Toolbar {
     this.remoteToggle.emit((event.target as HTMLInputElement).checked);
   }
 
-  protected toggleMenu(menu: 'pull' | 'push', event: MouseEvent): void {
+  protected toggleMenu(menu: 'pull' | 'push' | 'settings', event: MouseEvent): void {
     event.stopPropagation();
     this.openMenu.update((current) => (current === menu ? null : menu));
   }
@@ -54,6 +57,15 @@ export class Toolbar {
   ): void {
     this.openMenu.set(null);
     this.remoteAction.emit(action);
+  }
+
+  protected chooseSettingsAction(action: 'azure-url' | 'toggle-graph'): void {
+    this.openMenu.set(null);
+    if (action === 'azure-url') {
+      this.settingsClick.emit();
+    } else {
+      this.graphToggle.emit(!this.showGraph());
+    }
   }
 
   @HostListener('document:click')

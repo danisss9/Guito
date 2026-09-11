@@ -191,8 +191,9 @@ export class GitService {
     return this.http.get<AzureSettings>(`${this.base}/settings`);
   }
 
-  saveSettings(azureDevOpsUrl: string): Observable<AzureSettings> {
-    return this.http.post<AzureSettings>(`${this.base}/settings`, { azureDevOpsUrl });
+  /** Persists the given settings keys server-side; omitted keys keep their value. */
+  saveSettings(settings: { azureDevOpsUrl?: string; showGraph?: boolean }): Observable<AzureSettings> {
+    return this.http.post<AzureSettings>(`${this.base}/settings`, settings);
   }
 
   /** Creates an Azure DevOps pull request; may push the source branch first. */

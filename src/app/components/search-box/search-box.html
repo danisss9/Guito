@@ -26,8 +26,17 @@
     </button>
   }
 </div>
+<button
+  type="button"
+  class="mode-btn"
+  aria-label="Filter search results"
+  [attr.aria-pressed]="filterMode()"
+  [title]="filterMode() ? 'Show matching commits only. Switch to navigation' : 'Navigate matches in history. Switch to filtering'"
+  (click)="filterModeChange.emit(!filterMode())"
+>{{ filterMode() ? 'Filter' : 'Navigate' }}</button>
 @if (searchValue()) {
   <div class="search-nav">
+    @if (!filterMode()) {
     <button
       type="button"
       class="nav-btn"
@@ -40,15 +49,17 @@
         <polyline points="18 15 12 9 6 15" />
       </svg>
     </button>
+    }
     <span class="count">
       @if (matchCount() === 0) {
         No matches
-      } @else if (matchIndex() < 0) {
+      } @else if (filterMode() || matchIndex() < 0) {
         {{ matchCount() }} matches
       } @else {
         {{ matchIndex() + 1 }} of {{ matchCount() }}
       }
     </span>
+    @if (!filterMode()) {
     <button
       type="button"
       class="nav-btn"
@@ -61,5 +72,6 @@
         <polyline points="6 9 12 15 18 9" />
       </svg>
     </button>
+    }
   </div>
 }

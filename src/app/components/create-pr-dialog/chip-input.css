@@ -111,5 +111,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.lookup-error { color: var(--danger, #f48771); font-size: 12px; margin: 4px 0; }

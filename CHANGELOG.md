@@ -10,10 +10,12 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Changed
 
+- Restyle error banners across the app with softer colors, rounded borders, an error icon, improved text wrapping, and accessible close buttons. Keep retry actions available and preserve staging and commit safeguards when status errors are dismissed.
 - Speed up navigation to unloaded search results by calculating their history indexes and loading all missing pages through the selected result in one request.
 
 ### Added
 
+- Toggle commit search between navigating matches in history and filtering to matching commits, with the Git graph hidden in filtering mode.
 - Open file diffs in the native VS Code diff tab. The new `guito.diffViewer` setting chooses between Guito's own diff dialog (the default) and a VS Code diff tab, which shows the file at both refs (commit, HEAD, index, or working tree) with VS Code's own diff editor. The setting takes effect immediately in open Guito panels; binary files and the standalone browser app keep using Guito's dialog.
 
 ## [0.6.2] - 2026-09-09

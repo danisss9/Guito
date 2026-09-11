@@ -1,3 +1,4 @@
+import { ErrorBanner } from '../error-banner/error-banner';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -16,7 +17,7 @@ type Group = 'staged' | 'unstaged';
 
 @Component({
   selector: 'app-working-panel',
-  imports: [DiffDialog],
+  imports: [ErrorBanner, DiffDialog],
   templateUrl: './working-panel.html',
   styleUrl: './working-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

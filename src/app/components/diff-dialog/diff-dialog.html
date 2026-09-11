@@ -40,7 +40,7 @@
     @if (loading()) {
       <div class="state">Loading diff…</div>
     } @else if (error()) {
-      <div class="state state-error">{{ error() }}</div>
+      <app-error-banner [message]="error()" />
     } @else if (binary()) {
       <div class="state">Binary file not shown.</div>
     }

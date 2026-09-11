@@ -24,6 +24,8 @@ export class SearchBox {
   readonly matchIndex = input(-1);
   /** Total number of commits matching the current search. */
   readonly matchCount = input(0);
+  readonly filterMode = input(false);
+  readonly filterModeChange = output<boolean>();
 
   readonly searchChange = output<string>();
   readonly searchNavigate = output<'next' | 'prev'>();
@@ -46,7 +48,7 @@ export class SearchBox {
 
   /** Enter jumps to the next match; Shift+Enter to the previous one. */
   protected onSearchKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !this.filterMode()) {
       event.preventDefault();
       this.searchNavigate.emit(event.shiftKey ? 'prev' : 'next');
     }

@@ -1,3 +1,4 @@
+import { ErrorBanner } from '../error-banner/error-banner';
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 
 /** A selectable suggestion behind a chip input. */
@@ -15,6 +16,7 @@ export interface ChipSuggestion {
  */
 @Component({
   selector: 'app-chip-input',
+  imports: [ErrorBanner],
   templateUrl: './chip-input.html',
   styleUrl: './chip-input.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

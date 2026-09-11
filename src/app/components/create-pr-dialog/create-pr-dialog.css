@@ -110,16 +110,7 @@ textarea.description {
   color: var(--text-dim);
 }
 
-.error {
-  margin: 0;
-  padding: 8px 10px;
-  border: 1px solid #a1260d;
-  border-radius: 4px;
-  background: rgba(161, 38, 13, 0.15);
-  color: #f48771;
-  font-size: 12px;
-  word-break: break-word;
-}
+
 
 .warning {
   margin: 0;

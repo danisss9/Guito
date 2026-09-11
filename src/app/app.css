@@ -39,14 +39,6 @@
   color: var(--text-dim);
 }
 
-.error-banner {
-  flex: none;
-  padding: 8px 14px;
-  background: #5a1d1d;
-  color: #f48771;
-  border-bottom: 1px solid #7a2d2d;
-  font-size: 12px;
-}
 
 .content {
   display: flex;

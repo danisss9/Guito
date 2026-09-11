@@ -483,14 +483,17 @@ export async function startGuitoServer({
     source: 'vscode' | 'file' | '';
     autoReload: boolean;
     diffViewer: 'guito' | 'vscode';
+    showGraph: boolean;
   }> => {
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
+    const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
     return {
       azureDevOpsUrl: azure.url,
       source: azure.source,
       autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
       diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
+      showGraph: fileShowGraph ?? true,
     };
   };
 
@@ -1049,15 +1052,21 @@ export async function startGuitoServer({
 
   app.post('/api/settings', async (req: any, resp) => {
     try {
-      const url = String(req.body?.azureDevOpsUrl ?? '').trim();
-      if (url && !/^https?:\/\//i.test(url)) {
-        return resp
-          .status(400)
-          .type('application/json')
-          .send({ error: 'The Azure DevOps URL must start with http:// or https://.' });
-      }
+      const body = req.body ?? {};
       const settings = await readSettings();
-      settings.azureDevOpsUrl = url;
+      if ('azureDevOpsUrl' in body) {
+        const url = String(body.azureDevOpsUrl ?? '').trim();
+        if (url && !/^https?:\/\//i.test(url)) {
+          return resp
+            .status(400)
+            .type('application/json')
+            .send({ error: 'The Azure DevOps URL must start with http:// or https://.' });
+        }
+        settings.azureDevOpsUrl = url;
+      }
+      if (typeof body.showGraph === 'boolean') {
+        settings.showGraph = body.showGraph;
+      }
       await writeSettings(settings);
       const effective = await effectiveSettings();
       return resp.type('application/json').send(effective);

@@ -240,6 +240,40 @@ test('search navigates body and author matches while retaining the surrounding h
   expect(errors).toEqual([]);
 });
 
+test('search toggles filtering, includes unloaded body matches, and restores the graph', async ({ page }) => {
+  const { errors } = await setup(page);
+  const search = page.getByPlaceholder('Search commits');
+  const toggle = page.getByRole('button', { name: 'Filter search results' });
+  const rows = page.locator('.list-viewport .row');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await search.fill('body-only');
+  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText('Commit 600');
+  await expect(page.locator('.graph-overlay, .cell-graph')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Next match', exact: true })).toHaveCount(0);
+  await search.fill('Special Author');
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toContainText('Commit 7');
+  await search.fill('no-match');
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByText('No matching commits', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+  await expect(rows.first()).toContainText('Commit 0');
+  await expect(page.locator('.graph-overlay')).toHaveCount(0);
+  await search.fill('Commit 42');
+  await expect(page.locator('.search-nav .count')).toHaveText('11 matches');
+  await expect(rows).toHaveCount(11);
+  await toggle.click();
+  await expect(page.locator('.graph-overlay')).toBeVisible();
+  await expect(rows.first()).toContainText('Commit 0');
+  await search.press('Enter');
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 42');
+  expect(errors).toEqual([]);
+});
+
 test('search loads through a distant match in one request and reuses loaded pages', async ({ page }) => {
   const { state, errors } = await setup(page, 3600);
   state.bodyMatchIndex = 2700;
@@ -599,4 +633,27 @@ test('external checkout and commit refresh the browser without a manual refresh'
     { timeout: 15000 },
   );
   await expect(page.locator('.list-viewport .row').first()).toContainText('outside-browser');
+});
+
+
+test('dismissing a status error preserves guards and a failed refresh shows it again', async ({ page }) => {
+  const { state } = await setup(page);
+  await page.locator('.working-row').click();
+  await page.getByLabel('Commit message', { exact: true }).fill('Keep this draft');
+  state.failedStatus = true;
+  await page.getByTitle('Refresh').click();
+  await expect(page.getByRole('alert')).toContainText('Status unavailable');
+  const close = page.getByRole('button', { name: 'Dismiss error' });
+  await close.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Stage all', exact: true })).toBeDisabled();
+  await page.getByTitle('Refresh').click();
+  await expect(page.getByRole('alert')).toContainText('Status unavailable');
+  state.failedStatus = false;
+  await page.getByRole('button', { name: 'Retry status' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeEnabled();
+  await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('Keep this draft');
 });

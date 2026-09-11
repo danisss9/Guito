@@ -1,10 +1,12 @@
 <div class="table" [attr.aria-busy]="!!pendingLabel()">
   <div class="pinned-clip" [style.width.px]="viewportWidth()">
   <div class="table-head" [style.width.px]="tableWidth()" [style.transform]="horizontalTransform()">
+    @if (showGraph()) {
     <div class="head-cell cell-graph" [style.width.px]="graphColumnWidth()">
       <span class="head-label">Graph</span>
       <div class="resizer" (mousedown)="startResize('graph', $event)"></div>
     </div>
+    }
     <div class="head-cell cell-desc" [style.width.px]="descriptionWidth()">
       <span class="head-label">Description</span>
       <div class="resizer" (mousedown)="startResize('description', $event)"></div>
@@ -31,12 +33,14 @@
       (click)="commitClick.emit(workingCommit())"
       (contextmenu)="onWorkingContextMenu($event)"
     >
+      @if (showGraph()) {
       <div class="cell cell-graph" [style.width.px]="graphColumnWidth()">
         <svg class="working-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 20h9" />
           <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
         </svg>
       </div>
+      }
       <div class="cell cell-desc" [style.width.px]="descriptionWidth()">
         <span class="badge badge-working">
           <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
@@ -77,6 +81,7 @@
           scroll offset: only the visible slice of nodes and edges is ever
           rendered, for any history size.
         -->
+        @if (showGraph()) {
         <div class="graph-clip" [style.width.px]="viewportWidth()">
         <svg class="graph-overlay" [attr.width]="graphWidth()" [style.transform]="horizontalTransform()" aria-hidden="true">
           <g [attr.transform]="'translate(0 ' + -scrollTop() + ')'">
@@ -100,6 +105,7 @@
           </g>
         </svg>
         </div>
+        }
 
         <cdk-virtual-scroll-viewport class="list-viewport" [itemSize]="rowHeight">
           <div
@@ -110,7 +116,9 @@
             (click)="commitClick.emit(entry.commit)"
             (contextmenu)="onRowContextMenu($event, entry.commit)"
           >
-            <div class="cell cell-graph" [style.width.px]="graphColumnWidth()"></div>
+            @if (showGraph()) {
+              <div class="cell cell-graph" [style.width.px]="graphColumnWidth()"></div>
+            }
             <div class="cell cell-desc" [style.width.px]="descriptionWidth()">
               @for (badge of badges(entry.commit); track badge.name) {
                 <span

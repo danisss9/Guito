@@ -1,3 +1,4 @@
+import { ErrorBanner } from '../error-banner/error-banner';
 import { AuthorAvatar } from '../author-avatar/author-avatar';
 import { DatePipe } from '@angular/common';
 import {
@@ -19,7 +20,7 @@ import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 @Component({
   selector: 'app-commit-detail',
-  imports: [AuthorAvatar, DatePipe, DiffDialog],
+  imports: [ErrorBanner, AuthorAvatar, DatePipe, DiffDialog],
   templateUrl: './commit-detail.html',
   styleUrl: './commit-detail.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

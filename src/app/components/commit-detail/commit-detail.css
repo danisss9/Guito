@@ -168,9 +168,7 @@
   color: var(--text-dim);
 }
 
-.state-error {
-  color: var(--red);
-}
+
 
 .file-status {
   flex: none;

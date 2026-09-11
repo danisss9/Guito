@@ -1,3 +1,4 @@
+import { ErrorBanner } from './components/error-banner/error-banner';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -60,6 +61,7 @@ function loadCommitDraft(): CommitDraft {
 @Component({
   selector: 'app-root',
   imports: [
+    ErrorBanner,
     Toolbar,
     CommitTable,
     CommitDetail,
@@ -103,6 +105,7 @@ export class App implements OnDestroy {
   protected readonly selectedBranch = signal('');
   protected readonly showRemote = signal(true);
   protected readonly search = signal('');
+  protected readonly filterSearch = signal(false);
   protected readonly selectedCommit = signal<GitCommit | null>(null);
   protected readonly loading = signal(false);
   protected readonly busy = signal(false);
@@ -123,6 +126,8 @@ export class App implements OnDestroy {
   protected readonly hasAzureUrl = computed(() => !!this.azureSettings()?.azureDevOpsUrl);
   /** Automatic reloading can be disabled with the guito.autoReload setting. */
   protected readonly autoReload = computed(() => this.azureSettings()?.autoReload !== false);
+  /** The commit graph column can be hidden from the settings menu. */
+  protected readonly showGraph = computed(() => this.azureSettings()?.showGraph !== false);
   /** Whether the Create Pull Request dialog is open. */
   protected readonly prDialogOpen = signal(false);
   /** Files awaiting confirmation for the unstaged-discard dialog. */
@@ -184,8 +189,7 @@ export class App implements OnDestroy {
       list = [];
     }
 
-    // The search does not filter the list; it only highlights matches and
-    // drives the match navigation (see searchMatches).
+    // Branch visibility applies in both search modes.
     return list;
   });
 
@@ -226,6 +230,7 @@ export class App implements OnDestroy {
       const query = this.search().trim();
       this.selectedBranch();
       this.historyGeneration();
+      this.filterSearch();
       untracked(() => {
         this.searchSub?.unsubscribe();
         this.searchLoading.set(false);
@@ -237,7 +242,7 @@ export class App implements OnDestroy {
         this.pendingSearchHash.set('');
         if (this.loading()) return;
         // Branch filtering is client-side, so the full history is needed.
-        if (this.selectedBranch() && this.unloadedCommits() > 0) this.loadAllCommits();
+        if ((this.selectedBranch() || (query && this.filterSearch())) && this.unloadedCommits() > 0) this.loadAllCommits();
         if (query) this.fetchBodyMatches(query);
       });
     });
@@ -248,7 +253,12 @@ export class App implements OnDestroy {
         !this.historyLoading() &&
         !this.filterFailed()
       ) {
-        this.displayedCommits.set(this.filteredCommits());
+        const matches = new Set(this.searchMatches());
+        this.displayedCommits.set(
+          this.filterSearch() && this.search().trim()
+            ? this.filteredCommits().filter((commit) => matches.has(commit.hash))
+            : this.filteredCommits(),
+        );
       }
     });
 
@@ -1166,12 +1176,20 @@ export class App implements OnDestroy {
     }
 
     if (state.title === 'Azure DevOps URL') {
-      this.git.saveSettings(value.trim()).subscribe({
+      this.git.saveSettings({ azureDevOpsUrl: value.trim() }).subscribe({
         next: (settings) => this.azureSettings.set(settings),
         error: (err) => this.error.set(this.errorMessage(err)),
       });
       return;
     }
+  }
+
+  /** Persists the graph visibility; the response carries the effective settings. */
+  protected onGraphToggle(show: boolean): void {
+    this.git.saveSettings({ showGraph: show }).subscribe({
+      next: (settings) => this.azureSettings.set(settings),
+      error: (err) => this.error.set(this.errorMessage(err)),
+    });
   }
 
   private ancestorsOf(head: string): Set<string> {

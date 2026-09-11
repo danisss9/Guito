@@ -1,3 +1,4 @@
+import { ErrorBanner } from '../error-banner/error-banner';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -23,7 +24,7 @@ const NEW_BRANCH = '__new__';
 
 @Component({
   selector: 'app-create-pr-dialog',
-  imports: [ChipInput],
+  imports: [ErrorBanner, ChipInput],
   templateUrl: './create-pr-dialog.html',
   styleUrl: './create-pr-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -4,6 +4,23 @@
   gap: 8px;
 }
 
+.mode-btn {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #2d2d2d;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mode-btn:hover,
+.mode-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--text-bright);
+}
+
 .search {
   display: flex;
   align-items: center;

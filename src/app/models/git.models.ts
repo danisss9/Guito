@@ -157,6 +157,8 @@ export interface AzureSettings {
   autoReload?: boolean;
   /** Where file diffs open; 'vscode' only inside the VS Code extension. */
   diffViewer?: 'guito' | 'vscode';
+  /** Whether the commit table shows the graph column; defaults to true. */
+  showGraph?: boolean;
 }
 
 export interface CreatePrRequest {

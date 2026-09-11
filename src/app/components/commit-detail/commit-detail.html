@@ -29,7 +29,7 @@
     @if (loading()) {
       <div class="state">Loading changes…</div>
     } @else if (error()) {
-      <div class="state state-error">{{ error() }}</div>
+      <app-error-banner [message]="error()" />
     } @else if (diff(); as d) {
       @if (d.files.length === 0) {
         <div class="state">No changes.</div>
