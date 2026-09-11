@@ -160,8 +160,9 @@ export function buildAzurePullRequestUrl(baseUrl: string, remoteUrl: string): st
 
 /**
  * Default Azure DevOps HTTP runner: shells out to the Windows built-in
- * curl.exe with NTLM + Negotiate and an empty username, which authenticates
- * with the current Windows session (SSPI single sign-on).
+ * curl.exe with Negotiate and an empty username, which authenticates with
+ * the current Windows session (SSPI single sign-on). Do not also request
+ * --ntlm: some curl builds omit that option while still supporting Negotiate.
  */
 function defaultAzureRequest(
   method: 'GET' | 'POST',
@@ -171,7 +172,6 @@ function defaultAzureRequest(
   return new Promise((resolveRequest, rejectRequest) => {
     const args = [
       '-sS',
-      '--ntlm',
       '--negotiate',
       '-u',
       ':',

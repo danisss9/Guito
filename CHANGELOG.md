@@ -4,6 +4,10 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep Azure DevOps Windows single sign-on working with curl builds that do not support `--ntlm`, using Negotiate with the current Windows session credentials.
+
 ### Changed
 
 - Speed up navigation to unloaded search results by calculating their history indexes and loading all missing pages through the selected result in one request.
