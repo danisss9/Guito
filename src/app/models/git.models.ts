@@ -65,6 +65,24 @@ export interface CommitDiff {
 
 export type StashScope = 'all' | 'staged' | 'unstaged';
 
+/** One entry of the stash stack, listed newest first. */
+export interface StashEntry {
+  index: number;
+  hash: string;
+  message: string;
+}
+
+/** A working directory attached to the repository (git worktree). */
+export interface WorktreeInfo {
+  path: string;
+  head: string;
+  branch: string;
+  bare: boolean;
+  detached: boolean;
+  /** Whether this worktree is the one Guito is currently serving. */
+  current: boolean;
+}
+
 export interface WorkingChanges {
   stagedFiles: FileDiff[];
   unstagedFiles: FileDiff[];
@@ -100,9 +118,11 @@ export interface RepoInfo {
 export const WORKING_HASH = '__working__';
 
 export interface ContextMenuTarget {
-  kind: 'commit' | 'branch' | 'tag' | 'working';
+  kind: 'commit' | 'branch' | 'tag' | 'working' | 'stash' | 'worktree';
   commit?: GitCommit;
   branch?: RefBadge;
+  stash?: StashEntry;
+  worktree?: WorktreeInfo;
 }
 
 export interface ContextMenuEvent {

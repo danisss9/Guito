@@ -18,9 +18,9 @@ import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
 import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
-import { SearchBox } from './components/search-box/search-box';
+import { SidePanel } from './components/side-panel/side-panel';
 import { WorkingPanel } from './components/working-panel/working-panel';
-import { Toolbar } from './components/toolbar/toolbar';
+import { Toolbar, RemoteAction } from './components/toolbar/toolbar';
 import {
   AzureSettings,
   BranchInfo,
@@ -31,9 +31,11 @@ import {
   RepositoryState,
   MenuItem,
   PromptState,
+  StashEntry,
   StashScope,
   WORKING_HASH,
   WorkingChanges,
+  WorktreeInfo,
 } from './models/git.models';
 import { GitService } from './services/git.service';
 import { authenticatedApiUrl } from './utils/session';
@@ -63,13 +65,13 @@ function loadCommitDraft(): CommitDraft {
   imports: [
     ErrorBanner,
     Toolbar,
+    SidePanel,
     CommitTable,
     CommitDetail,
     ContextMenu,
     PromptDialog,
     WorkingPanel,
     CreatePrDialog,
-    SearchBox,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -133,6 +135,12 @@ export class App implements OnDestroy {
   /** Files awaiting confirmation for the unstaged-discard dialog. */
   private readonly pendingDiscard = signal<string[] | null>(null);
 
+  /** Whether the left repository panel (branches, stashes, worktrees) is open. */
+  protected readonly panelOpen = signal(false);
+  protected readonly panelLoading = signal(false);
+  protected readonly stashes = signal<StashEntry[]>([]);
+  protected readonly worktrees = signal<WorktreeInfo[]>([]);
+
   /** Hash of the focused search match; '' = none focused. */
   protected readonly searchFocusHash = signal('');
   /** Match awaiting focus while pages are still being loaded. */
@@ -154,6 +162,7 @@ export class App implements OnDestroy {
   private historySub: Subscription | null = null;
   private workingSub: Subscription | null = null;
   private searchSub: Subscription | null = null;
+  private panelSub: Subscription | null = null;
 
   /** Commits known to exist in the repository but not yet fetched. */
   protected readonly unloadedCommits = computed(() =>
@@ -311,6 +320,7 @@ export class App implements OnDestroy {
     this.historySub?.unsubscribe();
     this.workingSub?.unsubscribe();
     this.searchSub?.unsubscribe();
+    this.panelSub?.unsubscribe();
   }
 
   @HostListener('window:focus')
@@ -345,6 +355,32 @@ export class App implements OnDestroy {
       },
       error: () => {
         /* Retry on the next interval or when focus returns. */
+      },
+    });
+  }
+
+  /** Opens/closes the left repository panel, loading its data on open. */
+  protected toggleSidePanel(): void {
+    this.panelOpen.update((open) => !open);
+    if (this.panelOpen()) this.loadSidePanelData();
+  }
+
+  /** Loads stashes and worktrees shown in the left repository panel. */
+  private loadSidePanelData(): void {
+    this.panelSub?.unsubscribe();
+    this.panelLoading.set(true);
+    this.panelSub = forkJoin({
+      stashes: this.git.getStashes(),
+      worktrees: this.git.getWorktrees(),
+    }).subscribe({
+      next: ({ stashes, worktrees }) => {
+        this.stashes.set(stashes);
+        this.worktrees.set(worktrees);
+        this.panelLoading.set(false);
+      },
+      error: (err) => {
+        this.panelLoading.set(false);
+        this.error.set(this.errorMessage(err));
       },
     });
   }
@@ -404,6 +440,8 @@ export class App implements OnDestroy {
         this.statusLoading.set(false);
         this.loading.set(false);
         this.historyGeneration.update((value) => value + 1);
+        // Stashes and worktrees may have changed with the history.
+        if (this.panelOpen()) this.loadSidePanelData();
       },
       error: (err) => {
         this.lastRepositoryState = null;
@@ -588,17 +626,7 @@ export class App implements OnDestroy {
     this.showRemote.set(show);
   }
 
-  protected runRemoteAction(
-    action:
-      | 'fetch'
-      | 'pull'
-      | 'pull-rebase'
-      | 'rebase-from'
-      | 'push'
-      | 'push-force'
-      | 'sync'
-      | 'create-pr',
-  ): void {
+  protected runRemoteAction(action: RemoteAction): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     if (action === 'rebase-from') {
       this.openRebaseFromDialog();
@@ -624,8 +652,8 @@ export class App implements OnDestroy {
     this.error.set('');
 
     const request =
-      action === 'fetch'
-        ? this.git.fetch()
+      action === 'fetch' || action === 'fetch-prune'
+        ? this.git.fetch(action === 'fetch-prune')
         : action === 'pull'
           ? this.git.pull()
           : action === 'pull-rebase'
@@ -743,6 +771,15 @@ export class App implements OnDestroy {
       items.push({ label: 'Unselect in Branches Dropdown', action: 'unselect-branch' });
       items.push({ separator: true });
       items.push({ label: 'Copy Branch Name to Clipboard', action: 'copy-branch-name' });
+    } else if (event.target.kind === 'stash') {
+      items.push({ label: 'Apply Stash', action: 'stash-apply' });
+      items.push({ label: 'Pop Stash', action: 'stash-pop' });
+      items.push({ separator: true });
+      items.push({ label: 'Drop Stash...', action: 'stash-drop', danger: true });
+      items.push({ separator: true });
+      items.push({ label: 'Copy Stash Name to Clipboard', action: 'copy-stash-name' });
+    } else if (event.target.kind === 'worktree') {
+      items.push({ label: 'Copy Worktree Path to Clipboard', action: 'copy-worktree-path' });
     } else {
       items.push({ label: 'Stash uncommitted changes...', action: 'stash-working' });
       items.push({ label: 'Reset uncommitted changes...', action: 'reset-working', danger: true });
@@ -935,6 +972,53 @@ export class App implements OnDestroy {
       case 'unselect-branch':
         this.selectedBranch.set('');
         break;
+      case 'stash-apply': {
+        const index = this.contextMenuTarget()?.stash?.index;
+        if (index !== undefined) {
+          this.git.stashApply(index).subscribe({
+            next: () => this.refresh(),
+            error: (err) => this.error.set(this.errorMessage(err)),
+          });
+        }
+        break;
+      }
+      case 'stash-pop': {
+        const index = this.contextMenuTarget()?.stash?.index;
+        if (index !== undefined) {
+          this.git.stashPop(index).subscribe({
+            next: () => this.refresh(),
+            error: (err) => this.error.set(this.errorMessage(err)),
+          });
+        }
+        break;
+      }
+      case 'stash-drop': {
+        const stash = this.contextMenuTarget()?.stash;
+        if (stash) {
+          this.promptState.set({
+            title: 'Drop stash?',
+            label: `This will permanently drop stash@{${stash.index}}.`,
+            confirmOnly: true,
+            okLabel: 'Drop',
+            danger: true,
+          });
+        }
+        break;
+      }
+      case 'copy-stash-name': {
+        const stash = this.contextMenuTarget()?.stash;
+        if (stash) {
+          void navigator.clipboard?.writeText(`stash@{${stash.index}}`);
+        }
+        break;
+      }
+      case 'copy-worktree-path': {
+        const path = this.contextMenuTarget()?.worktree?.path;
+        if (path) {
+          void navigator.clipboard?.writeText(path);
+        }
+        break;
+      }
       case 'copy-branch-name':
         if (this.contextMenuTarget()?.branch?.name) {
           void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
@@ -1158,6 +1242,17 @@ export class App implements OnDestroy {
             if (this.selectedBranch() === name) this.selectedBranch.set('');
             this.refresh();
           },
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
+      }
+      return;
+    }
+
+    if (state.title === 'Drop stash?') {
+      const index = this.contextMenuTarget()?.stash?.index;
+      if (index !== undefined) {
+        this.git.stashDrop(index).subscribe({
+          next: () => this.refresh(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });
       }

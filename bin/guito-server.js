@@ -385,11 +385,13 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     const effectiveSettings = async () => {
         const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
         const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
+        const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
         return {
             azureDevOpsUrl: azure.url,
             source: azure.source,
             autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
             diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
+            showGraph: fileShowGraph ?? true,
         };
     };
     const configuredIdentity = async () => {
@@ -685,6 +687,49 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
+    // ==================== Worktrees ====================
+    app.get('/api/worktrees', async (_req, resp) => {
+        try {
+            const raw = await git.raw(['worktree', 'list', '--porcelain']);
+            // Path comparison is case-insensitive on Windows so the served worktree
+            // is detected regardless of drive-letter casing.
+            const samePath = (a, b) => process.platform === 'win32'
+                ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
+                : resolve(a) === resolve(b);
+            const worktrees = raw
+                .split(/\n\s*\n/)
+                .map((block) => block.trim())
+                .filter(Boolean)
+                .map((block) => {
+                const entry = {
+                    path: '',
+                    head: '',
+                    branch: '',
+                    bare: false,
+                    detached: false,
+                    current: false,
+                };
+                for (const line of block.split('\n').map((l) => l.trim())) {
+                    if (line.startsWith('worktree '))
+                        entry.path = line.slice('worktree '.length);
+                    else if (line.startsWith('HEAD '))
+                        entry.head = line.slice('HEAD '.length);
+                    else if (line.startsWith('branch '))
+                        entry.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+                    else if (line === 'bare')
+                        entry.bare = true;
+                    else if (line === 'detached')
+                        entry.detached = true;
+                }
+                entry.current = !!entry.path && samePath(entry.path, repositoryPath);
+                return entry;
+            });
+            return resp.type('application/json').send(worktrees);
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
     app.post('/api/checkout', async (req, resp) => {
         try {
             const { ref } = req.body;
@@ -870,9 +915,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         }
     });
     // ==================== Remote Operations ====================
-    app.get('/api/fetch', async (_req, resp) => {
+    app.get('/api/fetch', async (req, resp) => {
         try {
-            await git.fetch();
+            const prune = ['1', 'true', 'yes'].includes(String(req.query?.prune ?? '').toLowerCase());
+            await git.fetch(prune ? { '--prune': null } : {});
             return resp.type('application/json').send({ success: true });
         }
         catch (err) {
@@ -931,15 +977,21 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     });
     app.post('/api/settings', async (req, resp) => {
         try {
-            const url = String(req.body?.azureDevOpsUrl ?? '').trim();
-            if (url && !/^https?:\/\//i.test(url)) {
-                return resp
-                    .status(400)
-                    .type('application/json')
-                    .send({ error: 'The Azure DevOps URL must start with http:// or https://.' });
-            }
+            const body = req.body ?? {};
             const settings = await readSettings();
-            settings.azureDevOpsUrl = url;
+            if ('azureDevOpsUrl' in body) {
+                const url = String(body.azureDevOpsUrl ?? '').trim();
+                if (url && !/^https?:\/\//i.test(url)) {
+                    return resp
+                        .status(400)
+                        .type('application/json')
+                        .send({ error: 'The Azure DevOps URL must start with http:// or https://.' });
+                }
+                settings.azureDevOpsUrl = url;
+            }
+            if (typeof body.showGraph === 'boolean') {
+                settings.showGraph = body.showGraph;
+            }
             await writeSettings(settings);
             const effective = await effectiveSettings();
             return resp.type('application/json').send(effective);

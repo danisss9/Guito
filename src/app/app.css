@@ -5,44 +5,16 @@
   overflow: hidden;
 }
 
-.titlebar {
+.content-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: none;
-  height: 38px;
-  padding: 0 14px;
-  background: var(--bg-alt);
-  border-bottom: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
 }
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.logo {
-  width: 18px;
-  height: 18px;
-}
-
-.title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-bright);
-  letter-spacing: 0.2px;
-}
-
-.repo {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
 
 .content {
   display: flex;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 

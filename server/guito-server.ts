@@ -810,6 +810,46 @@ export async function startGuitoServer({
     }
   });
 
+  // ==================== Worktrees ====================
+  app.get('/api/worktrees', async (_req, resp) => {
+    try {
+      const raw = await git.raw(['worktree', 'list', '--porcelain']);
+      // Path comparison is case-insensitive on Windows so the served worktree
+      // is detected regardless of drive-letter casing.
+      const samePath = (a: string, b: string) =>
+        process.platform === 'win32'
+          ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
+          : resolve(a) === resolve(b);
+      const worktrees = raw
+        .split(/\n\s*\n/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .map((block) => {
+          const entry = {
+            path: '',
+            head: '',
+            branch: '',
+            bare: false,
+            detached: false,
+            current: false,
+          };
+          for (const line of block.split('\n').map((l) => l.trim())) {
+            if (line.startsWith('worktree ')) entry.path = line.slice('worktree '.length);
+            else if (line.startsWith('HEAD ')) entry.head = line.slice('HEAD '.length);
+            else if (line.startsWith('branch '))
+              entry.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+            else if (line === 'bare') entry.bare = true;
+            else if (line === 'detached') entry.detached = true;
+          }
+          entry.current = !!entry.path && samePath(entry.path, repositoryPath);
+          return entry;
+        });
+      return resp.type('application/json').send(worktrees);
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
   app.post('/api/checkout', async (req: any, resp) => {
     try {
       const { ref } = req.body;
@@ -991,9 +1031,10 @@ export async function startGuitoServer({
   });
 
   // ==================== Remote Operations ====================
-  app.get('/api/fetch', async (_req, resp) => {
+  app.get('/api/fetch', async (req: any, resp) => {
     try {
-      await git.fetch();
+      const prune = ['1', 'true', 'yes'].includes(String(req.query?.prune ?? '').toLowerCase());
+      await git.fetch(prune ? { '--prune': null } : {});
       return resp.type('application/json').send({ success: true });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });

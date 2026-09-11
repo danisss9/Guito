@@ -40,6 +40,8 @@ async function setup(page, count = 700) {
     refreshDelay: 0,
     historyRequests: 0,
     historyRanges: [],
+    fetchRequests: [],
+    worktreeRequests: 0,
     bodyMatchIndex: 600,
     stageRequests: [],
     commitRequests: [],
@@ -101,8 +103,29 @@ async function setup(page, count = 700) {
       case '/api/branches/all':
         return send([
           { name: 'main', commit: commits[0].hash, current: true, remote: false },
+          { name: 'feature', commit: commits[10].hash, current: false, remote: false },
           { name: 'origin/main', commit: commits[0].hash, current: false, remote: true },
         ]);
+      case '/api/stash/list':
+        return send({
+          total: 1,
+          all: [{ hash: 'f'.padEnd(40, '0'), message: 'WIP on main: fixture stash' }],
+        });
+      case '/api/worktrees':
+        state.worktreeRequests++;
+        return send([
+          {
+            path: '/fixture',
+            head: commits[0].hash,
+            branch: 'main',
+            bare: false,
+            detached: false,
+            current: true,
+          },
+        ]);
+      case '/api/fetch':
+        state.fetchRequests.push({ prune: parsed.searchParams.get('prune') });
+        return send({ success: true });
       case '/api/commits': {
         state.historyRequests++;
         const skip = Number(parsed.searchParams.get('skip') || 0);
@@ -656,4 +679,50 @@ test('dismissing a status error preserves guards and a failed refresh shows it a
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeEnabled();
   await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('Keep this draft');
+});
+
+test('repository panel shows branches, stashes and worktrees and filters on selection', async ({
+  page,
+}) => {
+  const { state, errors } = await setup(page);
+  await expect(page.locator('.side-panel')).toHaveCount(0);
+
+  // The hamburger button opens the panel; stashes and worktrees load lazily.
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTitle('main', { exact: true })).toBeVisible();
+  const feature = panel.getByTitle('feature', { exact: true });
+  await expect(feature).toBeVisible();
+  await expect(panel.locator('.row').filter({ hasText: 'stash@{0}' })).toContainText(
+    'fixture stash',
+  );
+  await expect(panel.locator('.tree').filter({ hasText: 'Worktrees' })).toContainText('fixture');
+  expect(state.worktreeRequests).toBeGreaterThan(0);
+
+  // Selecting a branch filters the commit table to that branch's history;
+  // the feature branch head (Commit 10) becomes the newest visible commit.
+  const rows = page.locator('.list-viewport .row');
+  await expect(rows.first()).toContainText('Commit 0');
+  await feature.click();
+  await expect(feature).toHaveClass(/selected/);
+  await expect(rows.first()).toContainText('Commit 10');
+  // Clicking the selected branch again clears the filter.
+  await feature.click();
+  await expect(rows.first()).toContainText('Commit 0');
+
+  // The remote toggle hides remote branches from the panel.
+  await page.getByLabel('Show Remote Branches').uncheck();
+  await expect(panel.getByTitle('origin/main', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  await expect(panel).toHaveCount(0);
+
+  // The fetch button offers plain and pruning fetches.
+  await page.locator('.toolbar .icon-btn[title="Fetch"]').click();
+  await page.getByRole('menuitem', { name: 'Fetch (prune)' }).click();
+  await expect
+    .poll(() => state.fetchRequests.some((request) => request.prune === '1'))
+    .toBe(true);
+  await expect(page.locator('.table-loading')).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

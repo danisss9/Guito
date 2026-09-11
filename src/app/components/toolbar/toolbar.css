@@ -17,58 +17,6 @@
   min-width: 0;
 }
 
-.label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-bright);
-  -webkit-user-select: none;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.select {
-  appearance: none;
-  height: 26px;
-  padding: 0 26px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: #2d2d2d
-    url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23cccccc' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-    no-repeat right 8px center;
-  color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-  outline: none;
-  max-width: 260px;
-  text-overflow: ellipsis;
-}
-
-.select:hover {
-  border-color: #555;
-}
-
-.select:focus {
-  border-color: var(--accent);
-}
-
-.checkbox {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-bright);
-  -webkit-user-select: none;
-  user-select: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.checkbox input {
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -137,6 +85,11 @@
 .icon-btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.icon-btn[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text-bright);
 }
 
 .icon-btn svg {

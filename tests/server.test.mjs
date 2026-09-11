@@ -303,6 +303,69 @@ test('renames and deletes branches through the API', async (context) => {
   assert.ok((await missing.json()).error);
 });
 
+test('lists worktrees and stashes, and prunes deleted remote branches on fetch', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  const originPath = await mkdtemp(join(tmpdir(), 'guito-origin-'));
+  context.after(() => rm(originPath, { recursive: true, force: true }));
+  const git = (...args) =>
+    execFileSync('git', args, { cwd: repositoryPath, stdio: 'pipe' }).toString().trim();
+  const branch = git('branch', '--show-current');
+
+  // A bare remote with one pushed branch plus a later-deleted stale branch.
+  execFileSync('git', ['init', '--bare', originPath], { stdio: 'ignore' });
+  git('remote', 'add', 'origin', originPath);
+  git('push', 'origin', branch);
+  git('push', 'origin', `${branch}:stale-remote`);
+
+  const linked = join(repositoryPath, 'linked');
+  git('worktree', 'add', '-b', 'linked-branch', linked);
+  await writeFile(join(repositoryPath, 'stashed.txt'), 'change\n');
+  git('add', '.');
+  git('stash', 'push', '-m', 'wip stash');
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  // The worktree list marks the served directory and describes the linked one.
+  const worktrees = await (await fetch(`${server.address}/api/worktrees`)).json();
+  assert.equal(worktrees.length, 2);
+  const main = worktrees.find((entry) => entry.current);
+  assert.ok(main, 'the served worktree is marked current');
+  assert.equal(resolve(main.path), resolve(repositoryPath));
+  assert.equal(main.branch, branch);
+  const other = worktrees.find((entry) => !entry.current);
+  assert.equal(other.branch, 'linked-branch');
+  assert.equal(resolve(other.path), resolve(linked));
+
+  // The stash list feeds the panel with hash + message entries.
+  const stashList = await (await fetch(`${server.address}/api/stash/list`)).json();
+  assert.equal(stashList.total, 1);
+  assert.ok(stashList.all[0].message.includes('wip stash'));
+
+  // A plain fetch keeps the stale remote-tracking branch; prune removes it.
+  assert.ok(
+    (await (await fetch(`${server.address}/api/branches/all`)).json()).some(
+      (entry) => entry.name === 'origin/stale-remote',
+    ),
+  );
+  // Deleting on the remote itself leaves the local remote-tracking ref stale.
+  execFileSync('git', ['branch', '-d', 'stale-remote'], { cwd: originPath, stdio: 'ignore' });
+  const pruned = await fetch(`${server.address}/api/fetch?prune=1`);
+  assert.equal(pruned.status, 200);
+  const branchesAfter = await (await fetch(`${server.address}/api/branches/all`)).json();
+  assert.ok(
+    !branchesAfter.some((entry) => entry.name === 'origin/stale-remote'),
+    'fetch with prune drops the deleted remote branch',
+  );
+  assert.ok(branchesAfter.some((entry) => entry.name === `origin/${branch}`));
+});
+
 test('resets the current branch with the requested mode', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
@@ -713,6 +776,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     source: 'file',
     autoReload: true,
     diffViewer: 'guito',
+    showGraph: true,
   });
 
   const loaded = await fetch(`${server.address}/api/settings`);
@@ -722,6 +786,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     source: 'file',
     autoReload: true,
     diffViewer: 'guito',
+    showGraph: true,
   });
 
   // The settings file lives in the repository's git directory.
@@ -751,7 +816,28 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     source: '',
     autoReload: true,
     diffViewer: 'guito',
+    showGraph: true,
   });
+
+  // Hiding the graph persists it, and a post without the URL keeps the
+  // cleared URL instead of resetting it.
+  const hidden = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ showGraph: false }),
+  });
+  assert.equal(hidden.status, 200);
+  assert.deepEqual(await hidden.json(), {
+    azureDevOpsUrl: '',
+    source: '',
+    autoReload: true,
+    diffViewer: 'guito',
+    showGraph: false,
+  });
+  const fileAfterHide = JSON.parse(
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
+  );
+  assert.equal(fileAfterHide.showGraph, false);
 
   // A VS Code-provided URL wins over the file and is reported as such.
   const extension = await startGuitoServer({
@@ -770,6 +856,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     source: 'vscode',
     autoReload: false,
     diffViewer: 'vscode',
+    showGraph: false,
   });
 
   // Auto-reload falls back to the settings file when the extension does not
@@ -785,6 +872,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     source: 'file',
     autoReload: false,
     diffViewer: 'guito',
+    showGraph: true,
   });
   const reloaded = await startGuitoServer({
     repositoryPath,
@@ -800,6 +888,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     source: 'file',
     autoReload: true,
     diffViewer: 'guito',
+    showGraph: true,
   });
 });
 

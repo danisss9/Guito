@@ -1,0 +1,178 @@
+<aside class="side-panel" aria-label="Repository panel">
+  <section class="tree">
+    <button
+      type="button"
+      class="tree-head"
+      [attr.aria-expanded]="branchesOpen()"
+      (click)="branchesOpen.set(!branchesOpen())"
+    >
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+        @if (branchesOpen()) {
+          <polyline points="6 9 12 15 18 9" />
+        } @else {
+          <polyline points="9 6 15 12 9 18" />
+        }
+      </svg>
+      <span class="tree-title">Branches</span>
+      <span class="tree-count">{{ branches().length }}</span>
+    </button>
+    @if (branchesOpen()) {
+      <div class="tree-body">
+        <button
+          type="button"
+          class="row"
+          [class.selected]="selectedBranch() === ''"
+          title="Show commits from all branches"
+          (click)="selectBranch('')"
+        >
+          <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <circle cx="3.5" cy="6" r="1.5" />
+            <circle cx="3.5" cy="12" r="1.5" />
+            <circle cx="3.5" cy="18" r="1.5" />
+          </svg>
+          <span class="row-label">All Branches</span>
+        </button>
+        <div class="group-label">Local</div>
+        @for (branch of localBranches(); track branch.name) {
+          <button
+            type="button"
+            class="row"
+            [class.selected]="selectedBranch() === branch.name"
+            [title]="branch.name"
+            (click)="selectBranch(branch.name)"
+            (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(branch) })"
+          >
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <line x1="6" y1="3" x2="6" y2="15" />
+              <circle cx="18" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <path d="M18 9a9 9 0 0 1-9 9" />
+            </svg>
+            <span class="row-label">{{ branch.name }}</span>
+            @if (branch.current) {
+              <span class="row-tag" title="Current branch">current</span>
+            }
+          </button>
+        }
+        @if (showRemote()) {
+          <div class="group-label">Remote</div>
+          @for (branch of remoteBranches(); track branch.name) {
+            <button
+              type="button"
+              class="row"
+              [class.selected]="selectedBranch() === branch.name"
+              [title]="branch.name"
+              (click)="selectBranch(branch.name)"
+              (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(branch) })"
+            >
+              <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="6" y1="3" x2="6" y2="15" />
+                <circle cx="18" cy="6" r="3" />
+                <circle cx="6" cy="18" r="3" />
+                <path d="M18 9a9 9 0 0 1-9 9" />
+              </svg>
+              <span class="row-label">{{ branch.name }}</span>
+            </button>
+          }
+        }
+        <label class="checkbox" title="Show or hide remote branches in this list">
+          <input
+            type="checkbox"
+            [checked]="showRemote()"
+            (change)="onRemoteToggle($event)"
+          />
+          <span>Show Remote Branches</span>
+        </label>
+      </div>
+    }
+  </section>
+
+  <section class="tree">
+    <button
+      type="button"
+      class="tree-head"
+      [attr.aria-expanded]="stashesOpen()"
+      (click)="stashesOpen.set(!stashesOpen())"
+    >
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+        @if (stashesOpen()) {
+          <polyline points="6 9 12 15 18 9" />
+        } @else {
+          <polyline points="9 6 15 12 9 18" />
+        }
+      </svg>
+      <span class="tree-title">Stashes</span>
+      <span class="tree-count">{{ stashes().length }}</span>
+    </button>
+    @if (stashesOpen()) {
+      <div class="tree-body">
+        @for (stash of stashes(); track stash.index) {
+          <button
+            type="button"
+            class="row"
+            [title]="stash.message"
+            (contextmenu)="onContextMenu($event, { kind: 'stash', stash })"
+          >
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 8v13H3V8M1 3h22v5H1z" />
+              <line x1="10" y1="12" x2="14" y2="12" />
+            </svg>
+            <span class="row-label">{{ stashLabel(stash) }}</span>
+            <span class="row-tag stash-message">{{ stash.message }}</span>
+          </button>
+        } @empty {
+          <div class="empty">No stashes</div>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="tree">
+    <button
+      type="button"
+      class="tree-head"
+      [attr.aria-expanded]="worktreesOpen()"
+      (click)="worktreesOpen.set(!worktreesOpen())"
+    >
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+        @if (worktreesOpen()) {
+          <polyline points="6 9 12 15 18 9" />
+        } @else {
+          <polyline points="9 6 15 12 9 18" />
+        }
+      </svg>
+      <span class="tree-title">Worktrees</span>
+      <span class="tree-count">{{ worktrees().length }}</span>
+    </button>
+    @if (worktreesOpen()) {
+      <div class="tree-body">
+        @for (worktree of worktrees(); track worktree.path) {
+          <button
+            type="button"
+            class="row"
+            [class.selected]="worktree.current"
+            [title]="worktree.path"
+            (contextmenu)="onContextMenu($event, { kind: 'worktree', worktree })"
+          >
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            <span class="row-label">{{ worktreeLabel(worktree) }}</span>
+            @if (worktree.branch) {
+              <span class="row-tag">{{ worktree.branch }}</span>
+            }
+          </button>
+        } @empty {
+          <div class="empty">No worktrees</div>
+        }
+      </div>
+    }
+  </section>
+
+  @if (loading()) {
+    <div class="panel-loading" role="status">Loading...</div>
+  }
+</aside>

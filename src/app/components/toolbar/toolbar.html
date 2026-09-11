@@ -1,38 +1,52 @@
 <div class="toolbar">
   <div class="group">
-    <label class="label" for="branch-select">Branches:</label>
-    <select
-      id="branch-select"
-      class="select"
-      [value]="selectedBranch()"
-      (change)="onBranchChange($event)"
+    <button
+      type="button"
+      class="icon-btn"
+      title="Toggle Branches, Stashes and Worktrees panel"
+      aria-label="Toggle repository panel"
+      [attr.aria-expanded]="panelOpen()"
+      (click)="menuToggle.emit()"
     >
-      <option value="">Show All</option>
-      @for (branch of visibleBranches(); track branch.name) {
-        <option [value]="branch.name">{{ branch.name }}</option>
-      }
-    </select>
-    <label class="checkbox">
-      <input
-        type="checkbox"
-        [checked]="showRemote()"
-        (change)="onRemoteToggle($event)"
-      />
-      <span>Show Remote Branches</span>
-    </label>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <line x1="3" y1="12" x2="21" y2="12" />
+        <line x1="3" y1="18" x2="21" y2="18" />
+      </svg>
+    </button>
   </div>
 
   <div class="group">
-    <button
-      class="icon-btn"
-      title="Fetch"
-      [disabled]="busy()"
-      (click)="remoteAction.emit('fetch')"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-      </svg>
-    </button>
+    <app-search-box
+      [matchIndex]="matchIndex()"
+      [matchCount]="matchCount()"
+      [filterMode]="filterMode()"
+      (filterModeChange)="filterModeChange.emit($event)"
+      (searchChange)="searchChange.emit($event)"
+      (searchNavigate)="searchNavigate.emit($event)"
+    />
+
+    <div class="action-menu">
+      <button
+        class="icon-btn"
+        title="Fetch"
+        [disabled]="busy()"
+        [attr.aria-expanded]="openMenu() === 'fetch'"
+        (click)="toggleMenu('fetch', $event)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+        </svg>
+      </button>
+      @if (openMenu() === 'fetch') {
+        <div class="remote-menu" role="menu">
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('fetch')">Fetch</button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('fetch-prune')">
+            Fetch (prune)
+          </button>
+        </div>
+      }
+    </div>
 
     <div class="action-menu">
       <button
@@ -104,13 +118,30 @@
       </svg>
     </button>
 
-    <button class="icon-btn" title="Settings" (click)="settingsClick.emit()">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="3" />
-        <path
-          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-        />
-      </svg>
-    </button>
+    <div class="action-menu">
+      <button
+        class="icon-btn"
+        title="Settings"
+        [attr.aria-expanded]="openMenu() === 'settings'"
+        (click)="toggleMenu('settings', $event)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+          />
+        </svg>
+      </button>
+      @if (openMenu() === 'settings') {
+        <div class="remote-menu" role="menu">
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('azure-url')">
+            Azure DevOps URL...
+          </button>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
+            {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
+          </button>
+        </div>
+      }
+    </div>
   </div>
 </div>

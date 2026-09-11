@@ -10,11 +10,16 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Changed
 
+- Remove the Guito title bar; the app icon and name remain in the browser or VS Code tab, and the commit search moved into the toolbar, right before the Fetch button.
+- Replace the branches dropdown and its "Show Remote Branches" checkbox with a hamburger button on the left of the toolbar that opens a repository side panel.
 - Restyle error banners across the app with softer colors, rounded borders, an error icon, improved text wrapping, and accessible close buttons. Keep retry actions available and preserve staging and commit safeguards when status errors are dismissed.
 - Speed up navigation to unloaded search results by calculating their history indexes and loading all missing pages through the selected result in one request.
 
 ### Added
 
+- Turn the Fetch button into a menu with "Fetch" and "Fetch (prune)" entries; pruning runs `git fetch --prune`, which also deletes remote-tracking branches that no longer exist on the remote.
+- Add a repository side panel with collapsible tree views for branches, stashes, and worktrees. Branches are grouped into local and remote sections (with the "Show Remote Branches" toggle inside the panel), clicking a branch filters the history like the old dropdown, and right-clicking keeps the branch context menu. Stashes offer apply, pop, drop, and copy-name actions from their context menu, and worktrees are listed with their branch and the served worktree marked as current; stashes and worktrees load when the panel opens and refresh together with the repository.
+- Add a Settings menu behind the toolbar gear icon with a "Hide Git Graph" toggle. The choice is persisted per repository in the server-side settings file (like the Azure DevOps URL) and survives reloads; hiding the graph also skips its layout computation.
 - Toggle commit search between navigating matches in history and filtering to matching commits, with the Git graph hidden in filtering mode.
 - Open file diffs in the native VS Code diff tab. The new `guito.diffViewer` setting chooses between Guito's own diff dialog (the default) and a VS Code diff tab, which shows the file at both refs (commit, HEAD, index, or working tree) with VS Code's own diff editor. The setting takes effect immediately in open Guito panels; binary files and the standalone browser app keep using Guito's dialog.
 

@@ -2,59 +2,61 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
-  computed,
   input,
   output,
   signal,
 } from '@angular/core';
-import { BranchInfo } from '../../models/git.models';
+import { SearchBox } from '../search-box/search-box';
+
+/** Remote actions offered by the toolbar menus. */
+export type RemoteAction =
+  | 'fetch'
+  | 'fetch-prune'
+  | 'pull'
+  | 'pull-rebase'
+  | 'rebase-from'
+  | 'push'
+  | 'push-force'
+  | 'sync'
+  | 'create-pr';
 
 @Component({
   selector: 'app-toolbar',
+  imports: [SearchBox],
   templateUrl: './toolbar.html',
   styleUrl: './toolbar.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Toolbar {
-  readonly branches = input.required<BranchInfo[]>();
-  readonly selectedBranch = input.required<string>();
-  readonly showRemote = input.required<boolean>();
   readonly busy = input.required<boolean>();
   /** Azure DevOps URL is configured; enables the Create Pull Request menu item. */
   readonly prEnabled = input(false);
   /** Whether the commit graph column is shown; toggled from the settings menu. */
   readonly showGraph = input(true);
+  /** Whether the left repository panel is open; reflected on the toggle button. */
+  readonly panelOpen = input(false);
 
-  readonly branchChange = output<string>();
-  readonly remoteToggle = output<boolean>();
+  readonly matchIndex = input(-1);
+  readonly matchCount = input(0);
+  readonly filterMode = input(false);
+
+  readonly menuToggle = output<void>();
   readonly refresh = output<void>();
-  readonly remoteAction = output<
-    'fetch' | 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync' | 'create-pr'
-  >();
+  readonly remoteAction = output<RemoteAction>();
   readonly settingsClick = output<void>();
   readonly graphToggle = output<boolean>();
-  protected readonly openMenu = signal<'pull' | 'push' | 'settings' | null>(null);
+  readonly filterModeChange = output<boolean>();
+  readonly searchChange = output<string>();
+  readonly searchNavigate = output<'next' | 'prev'>();
 
-  protected readonly visibleBranches = computed(() => {
-    return this.branches();
-  });
+  protected readonly openMenu = signal<'fetch' | 'pull' | 'push' | 'settings' | null>(null);
 
-  protected onBranchChange(event: Event): void {
-    this.branchChange.emit((event.target as HTMLSelectElement).value);
-  }
-
-  protected onRemoteToggle(event: Event): void {
-    this.remoteToggle.emit((event.target as HTMLInputElement).checked);
-  }
-
-  protected toggleMenu(menu: 'pull' | 'push' | 'settings', event: MouseEvent): void {
+  protected toggleMenu(menu: 'fetch' | 'pull' | 'push' | 'settings', event: MouseEvent): void {
     event.stopPropagation();
     this.openMenu.update((current) => (current === menu ? null : menu));
   }
 
-  protected chooseRemoteAction(
-    action: 'pull' | 'pull-rebase' | 'rebase-from' | 'push' | 'push-force' | 'sync' | 'create-pr',
-  ): void {
+  protected chooseRemoteAction(action: RemoteAction): void {
     this.openMenu.set(null);
     this.remoteAction.emit(action);
   }

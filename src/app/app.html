@@ -1,38 +1,20 @@
 <div class="app">
-  <header class="titlebar">
-    <div class="brand" aria-label="Repository logo">
-      <svg class="logo" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M4.5 2.5v11" stroke="#3794ff" stroke-width="1.6" fill="none" />
-        <path d="M4.5 11.5c4.5 0 4.5-7 7.5-7" stroke="#4ec9b0" stroke-width="1.6" fill="none" />
-        <circle cx="4.5" cy="3.5" r="1.7" fill="#3794ff" />
-        <circle cx="4.5" cy="8" r="1.7" fill="#3794ff" />
-        <circle cx="4.5" cy="12.5" r="1.7" fill="#3794ff" />
-        <circle cx="12" cy="4.5" r="1.7" fill="#4ec9b0" />
-      </svg>
-      <span class="title">Guito</span>
-    </div>
-
-    <app-search-box
-      [matchIndex]="searchIndex()"
-      [matchCount]="searchMatches().length"
-      [filterMode]="filterSearch()"
-      (filterModeChange)="filterSearch.set($event)"
-      (searchChange)="search.set($event)"
-      (searchNavigate)="navigateSearch($event)"
-    />
-  </header>
-
   <app-toolbar
-    [branches]="branches()"
-    [selectedBranch]="selectedBranch()"
-    [showRemote]="showRemote()"
     [busy]="busy() || mutationBusy() || statusLoading()"
     [prEnabled]="hasAzureUrl()"
-    (branchChange)="selectedBranch.set($event)"
-    (remoteToggle)="onRemoteToggle($event)"
+    [showGraph]="showGraph()"
+    [panelOpen]="panelOpen()"
+    [matchIndex]="searchIndex()"
+    [matchCount]="searchMatches().length"
+    [filterMode]="filterSearch()"
+    (menuToggle)="toggleSidePanel()"
     (refresh)="refresh()"
     (remoteAction)="runRemoteAction($event)"
     (settingsClick)="openAzureSettings()"
+    (graphToggle)="onGraphToggle($event)"
+    (filterModeChange)="filterSearch.set($event)"
+    (searchChange)="search.set($event)"
+    (searchNavigate)="navigateSearch($event)"
   />
 
   @if (error()) {
@@ -42,38 +24,53 @@
     <app-error-banner [message]="statusError()" retryLabel="Retry status" [busy]="statusLoading()" (retry)="refreshWorking()" />
   }
 
-  <main class="content">
-    <app-commit-table [identity]="identity()"
-      [commits]="displayedCommits()"
-      [loadingLabel]="tableLoading()"
-      [selectedHash]="selectedCommit()?.hash ?? ''"
-      [search]="search()"
-      [showGraph]="!filterSearch()"
-      [selectedBranch]="selectedBranch()"
-      [showRemote]="showRemote()"
-      [workingChanges]="workingChanges()"
-      [unloaded]="unloadedCommits()"
-      [historyLoading]="historyLoading()"
-      [scrollToHash]="scrollRequest()"
-      (commitClick)="selectedCommit.set($event)"
-      (contextMenu)="onContextMenu($event)"
-      (loadMoreRequested)="loadMoreCommits()"
-      (loadAllRequested)="loadAllCommits()"
-    />
-    @if (selectedCommit(); as commit) {
-      @if (commit.hash === workingHash) {
-        <app-working-panel [changes]="workingChanges()" [busy]="busy() || mutationBusy() || statusLoading()"
-          [statusLoading]="statusLoading()" [statusError]="statusError()"
-          [subject]="commitSubject()" [description]="commitDescription()"
-          (subjectChange)="commitSubject.set($event)" (descriptionChange)="commitDescription.set($event)"
-          (stageChange)="changeStage($event)" (stashChange)="stashChanges($event)"
-          (discardRequest)="discardUnstaged($event)" (commitRequested)="commitChanges()"
-          (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
-      } @else {
-        <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
-      }
+  <div class="content-row">
+    @if (panelOpen()) {
+      <app-side-panel
+        [branches]="branches()"
+        [selectedBranch]="selectedBranch()"
+        [showRemote]="showRemote()"
+        [stashes]="stashes()"
+        [worktrees]="worktrees()"
+        [loading]="panelLoading()"
+        (branchChange)="selectedBranch.set($event)"
+        (remoteToggle)="onRemoteToggle($event)"
+        (contextMenu)="onContextMenu($event)"
+      />
     }
-  </main>
+    <main class="content">
+      <app-commit-table [identity]="identity()"
+        [commits]="displayedCommits()"
+        [loadingLabel]="tableLoading()"
+        [selectedHash]="selectedCommit()?.hash ?? ''"
+        [search]="search()"
+        [showGraph]="showGraph() && !filterSearch()"
+        [selectedBranch]="selectedBranch()"
+        [showRemote]="showRemote()"
+        [workingChanges]="workingChanges()"
+        [unloaded]="unloadedCommits()"
+        [historyLoading]="historyLoading()"
+        [scrollToHash]="scrollRequest()"
+        (commitClick)="selectedCommit.set($event)"
+        (contextMenu)="onContextMenu($event)"
+        (loadMoreRequested)="loadMoreCommits()"
+        (loadAllRequested)="loadAllCommits()"
+      />
+      @if (selectedCommit(); as commit) {
+        @if (commit.hash === workingHash) {
+          <app-working-panel [changes]="workingChanges()" [busy]="busy() || mutationBusy() || statusLoading()"
+            [statusLoading]="statusLoading()" [statusError]="statusError()"
+            [subject]="commitSubject()" [description]="commitDescription()"
+            (subjectChange)="commitSubject.set($event)" (descriptionChange)="commitDescription.set($event)"
+            (stageChange)="changeStage($event)" (stashChange)="stashChanges($event)"
+            (discardRequest)="discardUnstaged($event)" (commitRequested)="commitChanges()"
+            (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
+        } @else {
+          <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
+        }
+      }
+    </main>
+  </div>
 
   <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
   <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="onPromptCancel()" />

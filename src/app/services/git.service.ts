@@ -17,8 +17,10 @@ import {
   PrWorkItemSuggestion,
   RepoInfo,
   RepositoryState,
+  StashEntry,
   StashScope,
   WorkingChanges,
+  WorktreeInfo,
 } from '../models/git.models';
 
 @Injectable({ providedIn: 'root' })
@@ -85,8 +87,10 @@ export class GitService {
     return this.http.post<FileContent>(`${this.base}/file-content`, { path, ref });
   }
 
-  fetch(): Observable<unknown> {
-    return this.mutate(() => this.http.get(`${this.base}/fetch`));
+  /** Fetches the remote; with prune it also deletes stale remote-tracking branches. */
+  fetch(prune = false): Observable<unknown> {
+    const params = prune ? new HttpParams().set('prune', '1') : undefined;
+    return this.mutate(() => this.http.get(`${this.base}/fetch`, { params }));
   }
 
   pull(rebase = false): Observable<unknown> {
@@ -149,6 +153,38 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/stash/save`, { message, scope }));
   }
 
+  /** Stash stack, newest first; index is the position used by stash@{index}. */
+  getStashes(): Observable<StashEntry[]> {
+    return this.http
+      .get<{ all?: { hash: string; message: string }[] }>(`${this.base}/stash/list`)
+      .pipe(
+        map((result) =>
+          (result.all ?? []).map((stash, index) => ({
+            index,
+            hash: stash.hash,
+            message: stash.message,
+          })),
+        ),
+      );
+  }
+
+  stashApply(index: number): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/stash/apply`, { index }));
+  }
+
+  stashPop(index: number): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/stash/pop`, { index }));
+  }
+
+  stashDrop(index: number): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/stash/drop`, { index }));
+  }
+
+  /** Worktrees linked to the repository, main worktree first. */
+  getWorktrees(): Observable<WorktreeInfo[]> {
+    return this.http.get<WorktreeInfo[]>(`${this.base}/worktrees`);
+  }
+
   createBranch(name: string, startPoint?: string): Observable<unknown> {
     return this.mutate(() => this.http.post(`${this.base}/branch/create`, { name, startPoint }));
   }
@@ -192,7 +228,10 @@ export class GitService {
   }
 
   /** Persists the given settings keys server-side; omitted keys keep their value. */
-  saveSettings(settings: { azureDevOpsUrl?: string; showGraph?: boolean }): Observable<AzureSettings> {
+  saveSettings(settings: {
+    azureDevOpsUrl?: string;
+    showGraph?: boolean;
+  }): Observable<AzureSettings> {
     return this.http.post<AzureSettings>(`${this.base}/settings`, settings);
   }
 
