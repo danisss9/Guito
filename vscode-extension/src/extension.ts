@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { basename, normalize, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { basename, join, normalize, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import { startGuitoServer, type RunningGuitoServer } from '../../server/guito-server.js';
@@ -17,6 +18,16 @@ interface RepositoryChoice {
 interface RepositorySession {
   panel: vscode.WebviewPanel;
   server: RunningGuitoServer;
+}
+
+/** The app in the webview iframe asks the extension host to open a file diff. */
+interface OpenDiffMessage {
+  type: 'guito/openDiff';
+  path: string;
+  oldPath?: string;
+  status: string;
+  originalRef: string;
+  modifiedRef: string;
 }
 
 const sessions = new Map<string, RepositorySession>();
@@ -58,6 +69,16 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar,
     openCommand,
     vscode.workspace.onDidChangeWorkspaceFolders(updateStatusBar),
+    vscode.workspace.registerTextDocumentContentProvider('guito-diff', {
+      provideTextDocumentContent: (uri: vscode.Uri) => provideDiffContent(uri),
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('guito.diffViewer')) return;
+      const diffViewer = readDiffViewerSetting();
+      for (const session of sessions.values()) {
+        void session.panel.webview.postMessage({ type: 'guito/config', diffViewer });
+      }
+    }),
     { dispose: () => void closeAllSessions() },
   );
 }
@@ -147,6 +168,7 @@ async function openRepository(
     apiToken: token,
     azureDevOpsUrl: azureDevOpsUrl || undefined,
     autoReload,
+    diffViewer: readDiffViewerSetting(),
   });
 
   try {
@@ -164,7 +186,17 @@ async function openRepository(
         localResourceRoots: [],
       },
     );
-    panel.webview.html = webviewHtml(externalUri);
+    panel.webview.html = webviewHtml(externalUri, randomBytes(16).toString('hex'));
+    panel.webview.onDidReceiveMessage((message: OpenDiffMessage) => {
+      if (message?.type !== 'guito/openDiff' || typeof message.path !== 'string') {
+        return;
+      }
+      openDiffInVsCode(repository.root, message).catch((error) => {
+        void vscode.window.showErrorMessage(
+          `Guito could not open the diff: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    });
 
     sessions.set(repository.key, { panel, server });
     panel.onDidDispose(() => {
@@ -180,7 +212,7 @@ async function openRepository(
   }
 }
 
-function webviewHtml(externalUri: vscode.Uri): string {
+function webviewHtml(externalUri: vscode.Uri, nonce: string): string {
   const frameSource = `${externalUri.scheme}://${externalUri.authority}`;
   // VS Code's default URI serialization escapes query delimiters such as `=`, which
   // would turn `?guitoToken=value` into a single, incorrectly named query parameter.
@@ -189,7 +221,7 @@ function webviewHtml(externalUri: vscode.Uri): string {
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${escapeHtml(frameSource)}; style-src 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${escapeHtml(frameSource)}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guito</title>
     <style>html, body, iframe { width: 100%; height: 100%; margin: 0; padding: 0; border: 0; overflow: hidden; }</style>
@@ -200,6 +232,25 @@ function webviewHtml(externalUri: vscode.Uri): string {
       src="${escapeHtml(externalUrl)}"
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
     ></iframe>
+    <script nonce="${nonce}">
+      (function () {
+        var vscode = acquireVsCodeApi();
+        var frame = document.querySelector('iframe');
+        window.addEventListener('message', function (event) {
+          var data = event.data;
+          if (!data || typeof data !== 'object' || typeof data.type !== 'string' || data.type.indexOf('guito/') !== 0) {
+            return;
+          }
+          if (event.source === frame.contentWindow) {
+            // The app asks the extension host to act (e.g. open a diff in a tab).
+            vscode.postMessage(data);
+          } else if (data.type === 'guito/config') {
+            // The extension host pushed updated settings; relay them into the app.
+            frame.contentWindow.postMessage(data, '*');
+          }
+        });
+      })();
+    </script>
   </body>
 </html>`;
 }
@@ -213,6 +264,77 @@ async function closeAllSessions(): Promise<void> {
 function repositoryKey(root: string): string {
   const normalized = normalize(root);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function readDiffViewerSetting(): 'guito' | 'vscode' {
+  return vscode.workspace.getConfiguration('guito').get<'guito' | 'vscode'>('diffViewer', 'guito');
+}
+
+/**
+ * Serves the content of a file at a Git ref to the VS Code diff tab. Refs use
+ * the same names as the Guito server: a commit hash (with an optional `^`
+ * suffix for the parent), `HEAD`, `INDEX`, `WORKING`, and `EMPTY`.
+ */
+async function provideDiffContent(uri: vscode.Uri): Promise<string> {
+  const segments = uri.path.split('/').filter(Boolean);
+  const root = decodeURIComponent(segments[0] ?? '');
+  const ref = decodeURIComponent(segments[1] ?? '');
+  const path = segments.slice(2).map(decodeURIComponent).join('/');
+  if (!root || !ref || !path) {
+    return '';
+  }
+
+  if (ref === 'EMPTY') {
+    return '';
+  }
+
+  if (ref === 'WORKING') {
+    try {
+      const buffer = await readFile(join(root, ...path.split('/')));
+      return buffer.includes(0) ? '' : buffer.toString('utf8');
+    } catch {
+      // File no longer exists on disk (deleted).
+      return '';
+    }
+  }
+
+  try {
+    const spec = ref === 'INDEX' ? `:${path}` : `${ref}:${path}`;
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'show', spec],
+      // Diffs of minified or generated files can be far larger than the 1 MB default.
+      { windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+    );
+    return stdout.includes('\u0000') ? '' : stdout;
+  } catch {
+    // Path did not exist at that revision (added file).
+    return '';
+  }
+}
+
+/** Builds a content URI such as `guito-diff:/C%3A%5Crepo/HEAD/src/app.ts`. */
+function diffUri(root: string, ref: string, path: string): vscode.Uri {
+  const encoded = [root, ref, ...path.split('/')].map(encodeURIComponent).join('/');
+  return vscode.Uri.from({ scheme: 'guito-diff', path: `/${encoded}` });
+}
+
+function refLabel(ref: string): string {
+  if (ref === 'WORKING') return 'Working tree';
+  if (ref === 'INDEX') return 'Index';
+  if (ref === 'EMPTY') return 'Empty';
+  if (ref === 'HEAD') return 'HEAD';
+  // Commit hashes: keep the short form, preserving the parent suffix (`abc1234^`).
+  return ref.endsWith('^') ? `${ref.slice(0, -1).slice(0, 7)}^` : ref.slice(0, 7);
+}
+
+async function openDiffInVsCode(root: string, message: OpenDiffMessage): Promise<void> {
+  // Mirrors the diff dialog: an added file without a previous path diffs from nothing.
+  const originalRef = message.status === 'added' && !message.oldPath ? 'EMPTY' : message.originalRef;
+  const left = diffUri(root, originalRef, message.oldPath || message.path);
+  const right = diffUri(root, message.modifiedRef, message.path);
+  const title = `${basename(message.path)} (${refLabel(originalRef)} ↔ ${refLabel(message.modifiedRef)})`;
+  await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
 }
 
 function escapeHtml(value: string): string {

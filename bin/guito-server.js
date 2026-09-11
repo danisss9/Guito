@@ -180,7 +180,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, autoReload, azureRequestImpl, avatarFetchImpl, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, autoReload, diffViewer, azureRequestImpl, avatarFetchImpl, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -389,6 +389,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             azureDevOpsUrl: azure.url,
             source: azure.source,
             autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
+            diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
         };
     };
     const configuredIdentity = async () => {

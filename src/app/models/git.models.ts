@@ -153,6 +153,8 @@ export interface AzureSettings {
   source: 'vscode' | 'file' | '';
   /** Whether Guito polls the repository and refreshes automatically; defaults to true. */
   autoReload?: boolean;
+  /** Where file diffs open; 'vscode' only inside the VS Code extension. */
+  diffViewer?: 'guito' | 'vscode';
 }
 
 export interface CreatePrRequest {

@@ -32,7 +32,7 @@
                 <span class="file-path" [title]="file.oldPath && file.oldPath !== file.path ? file.oldPath + ' → ' + file.path : file.path">{{ file.path }}</span>
                 <span class="counts"><span class="additions">+{{ file.additions }}</span> <span class="deletions">−{{ file.deletions }}</span></span>
               </div>
-              <button type="button" class="file-action" [attr.aria-label]="'View ' + group + ' diff for ' + file.path" [disabled]="busy()" (click)="dialog.set({ file, group })">Diff</button>
+              <button type="button" class="file-action" [attr.aria-label]="'View ' + group + ' diff for ' + file.path" [disabled]="busy()" (click)="openDiff(group, file)">Diff</button>
             </div>
           } @empty { <p class="empty">{{ group === 'staged' ? 'No staged changes.' : 'No unstaged changes.' }}</p> }
         </div>

@@ -3,11 +3,13 @@ import {
   Component,
   computed,
   effect,
+  inject,
   input,
   output,
   signal,
 } from '@angular/core';
 import { FileDiff, StashScope, WorkingChanges } from '../../models/git.models';
+import { VscodeService } from '../../services/vscode.service';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 type Group = 'staged' | 'unstaged';
@@ -20,6 +22,8 @@ type Group = 'staged' | 'unstaged';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkingPanel {
+  private readonly vscode = inject(VscodeService);
+
   readonly changes = input<WorkingChanges | null>(null);
   readonly busy = input(false);
   readonly statusLoading = input(false);
@@ -75,6 +79,16 @@ export class WorkingPanel {
 
   protected files(group: Group): FileDiff[] {
     return (group === 'staged' ? this.changes()?.stagedFiles : this.changes()?.unstagedFiles) ?? [];
+  }
+
+  /** Opens the file's diff in VS Code when configured, otherwise in the dialog. */
+  protected openDiff(group: Group, file: FileDiff): void {
+    const originalRef = group === 'staged' ? 'HEAD' : 'INDEX';
+    const modifiedRef = group === 'staged' ? 'INDEX' : 'WORKING';
+    if (this.vscode.openDiff(file, originalRef, modifiedRef)) {
+      return;
+    }
+    this.dialog.set({ file, group });
   }
 
   protected select(group: Group, path: string, event: MouseEvent | KeyboardEvent): void {

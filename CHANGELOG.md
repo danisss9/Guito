@@ -2,6 +2,12 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Open file diffs in the native VS Code diff tab. The new `guito.diffViewer` setting chooses between Guito's own diff dialog (the default) and a VS Code diff tab, which shows the file at both refs (commit, HEAD, index, or working tree) with VS Code's own diff editor. The setting takes effect immediately in open Guito panels; binary files and the standalone browser app keep using Guito's dialog.
+
 ## [0.6.2] - 2026-09-09
 
 ### Added

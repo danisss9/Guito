@@ -14,6 +14,7 @@ import {
 import { Subscription } from 'rxjs';
 import { CommitDiff, FileDiff, GitCommit, WORKING_HASH } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
+import { VscodeService } from '../../services/vscode.service';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 @Component({
@@ -25,6 +26,7 @@ import { DiffDialog } from '../diff-dialog/diff-dialog';
 })
 export class CommitDetail implements OnDestroy {
   private readonly git = inject(GitService);
+  private readonly vscode = inject(VscodeService);
 
   readonly commit = input.required<GitCommit>();
   readonly closed = output<void>();
@@ -65,6 +67,9 @@ export class CommitDetail implements OnDestroy {
   }
 
   protected openFile(file: FileDiff): void {
+    if (this.vscode.openDiff(file, this.originalRef(), this.modifiedRef())) {
+      return;
+    }
     this.dialogFile.set(file);
   }
 

@@ -67,6 +67,20 @@
           "default": true,
           "scope": "window",
           "description": "Automatically reload commits and the working tree when the repository changes outside Guito (for example from a terminal)."
+        },
+        "guito.diffViewer": {
+          "type": "string",
+          "enum": [
+            "guito",
+            "vscode"
+          ],
+          "enumDescriptions": [
+            "Open file diffs in Guito's own dialog inside the Guito panel.",
+            "Open file diffs in the native VS Code diff tab."
+          ],
+          "default": "guito",
+          "scope": "window",
+          "description": "Where file diffs open when you click a file in Guito."
         }
       }
     }

@@ -702,6 +702,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: true,
+    diffViewer: 'guito',
   });
 
   const loaded = await fetch(`${server.address}/api/settings`);
@@ -710,6 +711,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: true,
+    diffViewer: 'guito',
   });
 
   // The settings file lives in the repository's git directory.
@@ -734,7 +736,12 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({ azureDevOpsUrl: '' }),
   });
   assert.equal(cleared.status, 200);
-  assert.deepEqual(await cleared.json(), { azureDevOpsUrl: '', source: '', autoReload: true });
+  assert.deepEqual(await cleared.json(), {
+    azureDevOpsUrl: '',
+    source: '',
+    autoReload: true,
+    diffViewer: 'guito',
+  });
 
   // A VS Code-provided URL wins over the file and is reported as such.
   const extension = await startGuitoServer({
@@ -744,6 +751,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     port: 0,
     azureDevOpsUrl: 'https://vscode/Collection',
     autoReload: false,
+    diffViewer: 'vscode',
   });
   context.after(() => extension.close());
   const fromExtension = await fetch(`${extension.address}/api/settings`);
@@ -751,6 +759,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://vscode/Collection',
     source: 'vscode',
     autoReload: false,
+    diffViewer: 'vscode',
   });
 
   // Auto-reload falls back to the settings file when the extension does not
@@ -765,6 +774,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: false,
+    diffViewer: 'guito',
   });
   const reloaded = await startGuitoServer({
     repositoryPath,
@@ -779,6 +789,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: true,
+    diffViewer: 'guito',
   });
 });
 

@@ -42,6 +42,8 @@ export interface GuitoServerOptions {
   azureDevOpsUrl?: string;
   /** Whether Guito reloads automatically when the repository changes (wins over the settings file). */
   autoReload?: boolean;
+  /** Where file diffs open; 'vscode' is only meaningful inside the VS Code extension. */
+  diffViewer?: 'guito' | 'vscode';
   /** Injectable Azure DevOps HTTP runner; defaults to curl.exe with Windows integrated auth. */
   azureRequestImpl?: AzureRequestImpl;
   avatarFetchImpl?: typeof fetch;
@@ -249,6 +251,7 @@ export async function startGuitoServer({
   apiToken,
   azureDevOpsUrl,
   autoReload,
+  diffViewer,
   azureRequestImpl,
   avatarFetchImpl,
 }: GuitoServerOptions): Promise<RunningGuitoServer> {
@@ -479,6 +482,7 @@ export async function startGuitoServer({
     azureDevOpsUrl: string;
     source: 'vscode' | 'file' | '';
     autoReload: boolean;
+    diffViewer: 'guito' | 'vscode';
   }> => {
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
@@ -486,6 +490,7 @@ export async function startGuitoServer({
       azureDevOpsUrl: azure.url,
       source: azure.source,
       autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
+      diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
     };
   };
 
