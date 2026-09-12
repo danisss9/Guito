@@ -1,0 +1,4 @@
+:host { display: contents; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.hl { padding: 0; color: inherit; background: rgba(234, 194, 44, .35); }

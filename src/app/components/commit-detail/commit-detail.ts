@@ -1,5 +1,6 @@
 import { ErrorBanner } from '../error-banner/error-banner';
 import { AuthorAvatar } from '../author-avatar/author-avatar';
+import { IssueText } from '../issue-text/issue-text';
 import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -13,7 +14,7 @@ import {
   signal,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { CommitDiff, FileDiff, GitCommit, WORKING_HASH } from '../../models/git.models';
+import { CommitDiff, FileDiff, GitCommit, IssueLinkingSettings, WORKING_HASH } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 import { VscodeService } from '../../services/vscode.service';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
@@ -21,7 +22,7 @@ import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 @Component({
   selector: 'app-commit-detail',
-  imports: [ErrorBanner, AuthorAvatar, DatePipe, DiffDialog],
+  imports: [ErrorBanner, AuthorAvatar, DatePipe, DiffDialog, IssueText],
   templateUrl: './commit-detail.html',
   styleUrl: './commit-detail.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -31,6 +32,7 @@ export class CommitDetail implements OnDestroy {
   private readonly vscode = inject(VscodeService);
 
   readonly commit = input.required<GitCommit>();
+  readonly issueLinking = input<IssueLinkingSettings | null>(null);
   /** How the changed-file list is rendered: a flat list or a collapsible directory tree. */
   readonly fileListView = input<'flat' | 'tree'>('flat');
   readonly closed = output<void>();

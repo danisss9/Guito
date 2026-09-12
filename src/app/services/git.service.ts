@@ -12,6 +12,9 @@ import {
   CreatePrResult,
   FileContent,
   GitCommit,
+  GitIdentity,
+  GitRemote,
+  IssueLinkingSettings,
   PrReviewerSuggestion,
   PrTagSuggestion,
   PrWorkItemSuggestion,
@@ -235,11 +238,37 @@ export class GitService {
   /** Persists the given settings keys server-side; omitted keys keep their value. */
   saveSettings(settings: {
     azureDevOpsUrl?: string;
+    prBranchNameTemplate?: string;
+    autoReload?: boolean;
     showGraph?: boolean;
     showStashes?: boolean;
+    showTags?: boolean;
+    showRemoteBranches?: boolean;
     fileListView?: 'flat' | 'tree';
+    issueLinking?: IssueLinkingSettings | null;
+    issueLinkingGlobal?: boolean;
   }): Observable<AzureSettings> {
     return this.http.post<AzureSettings>(`${this.base}/settings`, settings);
+  }
+
+  getRemotes(): Observable<GitRemote[]> {
+    return this.http.get<GitRemote[]>(`${this.base}/remotes`);
+  }
+
+  saveIdentity(identity: GitIdentity): Observable<GitIdentity> {
+    return this.http.post<GitIdentity>(`${this.base}/identity`, identity);
+  }
+
+  removeIdentity(): Observable<GitIdentity> {
+    return this.http.delete<GitIdentity>(`${this.base}/identity`);
+  }
+
+  saveRemote(remote: GitRemote & { originalName?: string }): Observable<GitRemote[]> {
+    return this.http.post<GitRemote[]>(`${this.base}/remotes`, remote);
+  }
+
+  removeRemote(name: string): Observable<GitRemote[]> {
+    return this.http.delete<GitRemote[]>(`${this.base}/remotes/${encodeURIComponent(name)}`);
   }
 
   /** Creates an Azure DevOps pull request; may push the source branch first. */

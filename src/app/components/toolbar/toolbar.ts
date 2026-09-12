@@ -31,12 +31,6 @@ export class Toolbar {
   readonly busy = input.required<boolean>();
   /** Azure DevOps URL is configured; enables the Create Pull Request menu item. */
   readonly prEnabled = input(false);
-  /** Whether the commit graph column is shown; toggled from the settings menu. */
-  readonly showGraph = input(true);
-  /** Whether stash rows are shown in the commit table; toggled from the settings menu. */
-  readonly showStashes = input(true);
-  /** How changed-file lists are rendered; toggled from the settings menu. */
-  readonly fileListView = input<'flat' | 'tree'>('flat');
   /** Whether the left repository panel is open; reflected on the toggle button. */
   readonly panelOpen = input(false);
 
@@ -48,19 +42,16 @@ export class Toolbar {
   readonly refresh = output<void>();
   readonly remoteAction = output<RemoteAction>();
   readonly settingsClick = output<void>();
-  readonly graphToggle = output<boolean>();
-  readonly stashToggle = output<boolean>();
-  readonly fileViewToggle = output<void>();
   readonly filterModeChange = output<boolean>();
   readonly searchChange = output<string>();
   readonly searchNavigate = output<'next' | 'prev'>();
 
-  protected readonly openMenu = signal<'fetch' | 'pull' | 'push' | 'settings' | 'overflow' | null>(
+  protected readonly openMenu = signal<'fetch' | 'pull' | 'push' | 'overflow' | null>(
     null,
   );
 
   protected toggleMenu(
-    menu: 'fetch' | 'pull' | 'push' | 'settings' | 'overflow',
+    menu: 'fetch' | 'pull' | 'push' | 'overflow',
     event: MouseEvent,
   ): void {
     event.stopPropagation();
@@ -77,19 +68,9 @@ export class Toolbar {
     this.refresh.emit();
   }
 
-  protected chooseSettingsAction(
-    action: 'azure-url' | 'toggle-graph' | 'toggle-stashes' | 'toggle-file-view',
-  ): void {
+  protected chooseSettings(): void {
     this.openMenu.set(null);
-    if (action === 'azure-url') {
-      this.settingsClick.emit();
-    } else if (action === 'toggle-graph') {
-      this.graphToggle.emit(!this.showGraph());
-    } else if (action === 'toggle-stashes') {
-      this.stashToggle.emit(!this.showStashes());
-    } else {
-      this.fileViewToggle.emit();
-    }
+    this.settingsClick.emit();
   }
 
   @HostListener('document:click')

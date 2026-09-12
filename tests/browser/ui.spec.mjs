@@ -23,6 +23,8 @@ function history(count) {
 
 async function setup(page, count = 700, overrides = {}) {
   const commits = history(count);
+  if (overrides.firstMessage) commits[0].message = overrides.firstMessage;
+  if (overrides.firstRefs) commits[0].refs = overrides.firstRefs;
   const state = {
     staged: ['partial.txt'],
     unstaged: ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'partial.txt'],
@@ -49,7 +51,13 @@ async function setup(page, count = 700, overrides = {}) {
     contentRequests: [],
     conflicts: [],
     diffFiles: [],
-    settings: { azureDevOpsUrl: 'https://azure.example/collection', source: 'file' },
+    identity: { name: 'Configured User', email: 'test@example.test' },
+    settings: {
+      azureDevOpsUrl: 'https://azure.example/collection',
+      prBranchNameTemplate: 'pr/${randomstring}',
+      source: 'file',
+    },
+    remotes: [{ name: 'origin', fetchUrl: 'https://example.test/repo.git', pushUrl: 'https://example.test/repo.git' }],
     ...overrides,
   };
   const snapshot = () => ({
@@ -68,6 +76,11 @@ async function setup(page, count = 700, overrides = {}) {
     const body = request.method() === 'POST' ? request.postDataJSON() : {};
     const send = (json, status = 200) => route.fulfill({ status, json });
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    if (request.method() === 'DELETE' && parsed.pathname.startsWith('/api/remotes/')) {
+      const name = decodeURIComponent(parsed.pathname.split('/').pop());
+      state.remotes = state.remotes.filter((remote) => remote.name !== name);
+      return send(state.remotes);
+    }
     switch (parsed.pathname) {
       case '/api/repository-state':
         return send({ history: state.revision, working: state.workingRevision });
@@ -87,6 +100,19 @@ async function setup(page, count = 700, overrides = {}) {
           state.settings = { ...state.settings, ...body };
         }
         return send(state.settings);
+      case '/api/remotes':
+        if (request.method() === 'POST') {
+          const original = body.originalName || body.name;
+          state.remotes = state.remotes.filter((remote) => remote.name !== original);
+          state.remotes.push({ name: body.name, fetchUrl: body.fetchUrl, pushUrl: body.pushUrl || body.fetchUrl });
+        } else if (request.method() === 'DELETE') {
+          const name = decodeURIComponent(parsed.pathname.split('/').pop());
+          state.remotes = state.remotes.filter((remote) => remote.name !== name);
+        }
+        return send(state.remotes);
+      case '/api/identity':
+        state.identity = request.method() === 'DELETE' ? { name: '', email: '' } : body;
+        return send(state.identity);
       case '/api/azure-devops/tags':
         return send({ tags: ['release', 'ui'] });
       case '/api/azure-devops/reviewers': {
@@ -105,7 +131,7 @@ async function setup(page, count = 700, overrides = {}) {
         return send({
           name: 'Fixture',
           root: '/fixture',
-          identity: { name: 'Configured User', email: 'test@example.test' },
+          identity: state.identity,
         });
       case '/api/branches/all':
         return send([
@@ -447,7 +473,7 @@ test('modifier selection, separate diffs, bulk actions and drafts', async ({ pag
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeEnabled();
 });
 
-test('file lists render as a tree or flat list from the settings menu', async ({ page }) => {
+test('file lists render as a tree or flat list from the settings dialog', async ({ page }) => {
   const { state } = await setup(page, 700, {
     staged: ['src/app/app.ts', 'src/app/components/toolbar/toolbar.ts', 'README.md'],
     unstaged: ['docs/guide/intro.md', 'docs/guide/advanced.md', 'package.json'],
@@ -465,9 +491,11 @@ test('file lists render as a tree or flat list from the settings menu', async ({
   await expect(staged.getByRole('option', { name: 'src/app/app.ts', exact: true })).toBeVisible();
   await expect(staged.locator('.dir-row')).toHaveCount(0);
 
-  // The settings menu switches both groups to the tree view and persists it.
+  // The full settings dialog switches both groups to the tree view and persists it.
   await page.getByTitle('Settings').click();
-  await page.getByRole('menuitem', { name: 'View Files as Tree' }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await page.getByLabel('Directory tree').check();
+  await page.getByRole('button', { name: 'Save settings' }).click();
   await expect.poll(() => state.settings.fileListView).toBe('tree');
 
   const stagedTree = page.getByRole('tree', { name: 'staged files', exact: true });
@@ -511,12 +539,81 @@ test('file lists render as a tree or flat list from the settings menu', async ({
   await expect(detailFiles.locator('.file-row:not(.dir-row)')).toHaveCount(3);
   await expect(detailFiles.getByText('main.ts', { exact: true })).toBeVisible();
 
-  // The menu offers the way back to flat lists.
+  // The dialog offers the way back to flat lists.
   await page.getByTitle('Settings').click();
-  await page.getByRole('menuitem', { name: 'View Files as Flat List' }).click();
+  await page.getByLabel('Flat list').check();
+  await page.getByRole('button', { name: 'Save settings' }).click();
   await expect.poll(() => state.settings.fileListView).toBe('flat');
   await expect(detailFiles.locator('.dir-row')).toHaveCount(0);
   await expect(detailFiles.locator('.file-row')).toHaveCount(3);
+});
+
+test('full settings dialog saves repository and Azure DevOps preferences together', async ({ page }) => {
+  const { state, errors } = await setup(page);
+
+  await page.getByTitle('Settings').click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(dialog).toContainText('Repository preferences and Git configuration.');
+  await page.getByLabel('Automatically refresh').uncheck();
+  await page.getByLabel('Show Git graph').uncheck();
+  await page.getByLabel('Server URL').fill('https://devops.example/DefaultCollection');
+  await page
+    .getByLabel('Automatic PR branch name')
+    .fill('users/${username}/${randomstring}');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => state.settings.autoReload).toBe(false);
+  expect(state.settings).toMatchObject({
+    azureDevOpsUrl: 'https://devops.example/DefaultCollection',
+    prBranchNameTemplate: 'users/${username}/${randomstring}',
+    autoReload: false,
+    showGraph: false,
+    showStashes: true,
+    fileListView: 'flat',
+  });
+  expect(errors).toEqual([]);
+});
+
+test('settings manage identity, remotes, tags, remote branches, and issue links', async ({ page }) => {
+  const { state, errors } = await setup(page, 30, {
+    firstMessage: 'Fix #123 login',
+    firstRefs: 'HEAD -> main, origin/main, tag: v1.0.0',
+  });
+  await expect(page.locator('.badge-tag')).toContainText('v1.0.0');
+  await expect(page.locator('.badge-remote')).toContainText('origin/main');
+  await page.getByTitle('Settings').click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+
+  await expect(dialog.getByText('Configured User')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Edit', exact: true }).first().click();
+  await page.getByLabel('User name').fill('New User');
+  await page.getByLabel('User email').fill('new@example.test');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog.getByText('New User')).toBeVisible();
+
+  await dialog.getByRole('button', { name: '+ Add Remote' }).click();
+  await page.getByLabel('Remote name').fill('upstream');
+  await page.getByLabel('Fetch URL').fill('https://example.test/upstream.git');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog.getByText('upstream', { exact: true })).toBeVisible();
+
+  await dialog.getByRole('button', { name: '+ Add Issue Linking' }).click();
+  await page.getByLabel('Issue URL').fill('https://example.test/issues/$1');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog.getByText('https://example.test/issues/$1')).toBeVisible();
+  await page.getByLabel('Show tags').uncheck();
+  await page.getByLabel('Show remote branches').uncheck();
+  await page.getByRole('button', { name: 'Save settings' }).click();
+
+  expect(state.identity).toEqual({ name: 'New User', email: 'new@example.test' });
+  expect(state.remotes.some((remote) => remote.name === 'upstream')).toBe(true);
+  expect(state.settings).toMatchObject({ showTags: false, showRemoteBranches: false });
+  await expect(page.locator('.badge-tag')).toHaveCount(0);
+  await expect(page.locator('.badge-remote')).toHaveCount(0);
+  const issueLink = page.getByRole('link', { name: '#123' });
+  await expect(issueLink).toHaveAttribute('href', 'https://example.test/issues/123');
+  expect(errors).toEqual([]);
 });
 
 test('failed status and commits preserve data; duplicate commits are prevented', async ({
@@ -819,7 +916,7 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   expect(errors).toEqual([]);
 });
 
-test('stash rows show above the history with a pill, actions, and a settings toggle', async ({
+test('stash rows show above the history with a pill, actions, and a settings dialog toggle', async ({
   page,
 }) => {
   const { state, errors } = await setup(page);
@@ -847,15 +944,17 @@ test('stash rows show above the history with a pill, actions, and a settings tog
     index: 0,
   });
 
-  // The settings menu hides the rows and persists the choice.
+  // The settings dialog hides the rows and persists the choice.
   await page.getByTitle('Settings').click();
-  await page.getByRole('menuitem', { name: 'Hide Stashes' }).click();
+  await page.getByLabel('Show stashes').uncheck();
+  await page.getByRole('button', { name: 'Save settings' }).click();
   await expect.poll(() => state.settings.showStashes).toBe(false);
   await expect(stashRow).toHaveCount(0);
 
-  // The settings menu offers the way back.
+  // The settings dialog offers the way back.
   await page.getByTitle('Settings').click();
-  await page.getByRole('menuitem', { name: 'Show Stashes' }).click();
+  await page.getByLabel('Show stashes').check();
+  await page.getByRole('button', { name: 'Save settings' }).click();
   await expect.poll(() => state.settings.showStashes).toBe(true);
   await expect(stashRow).toHaveCount(1);
   expect(errors).toEqual([]);

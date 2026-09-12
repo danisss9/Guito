@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
+import { userInfo } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -18,6 +19,21 @@ const execFileAsync = promisify(execFile);
 export interface RunningGuitoServer {
   address: string;
   close(): Promise<void>;
+  updateSettings(settings: GuitoHostSettings): void;
+}
+
+export interface GuitoHostSettings {
+  azureDevOpsUrl?: string;
+  prBranchNameTemplate?: string;
+  autoReload?: boolean;
+  diffViewer?: 'guito' | 'vscode';
+  showGraph?: boolean;
+  showStashes?: boolean;
+  showTags?: boolean;
+  showRemoteBranches?: boolean;
+  issueRegex?: string;
+  issueUrl?: string;
+  fileListView?: 'flat' | 'tree';
 }
 
 export interface AzureRequestResult {
@@ -40,10 +56,20 @@ export interface GuitoServerOptions {
   apiToken?: string;
   /** Azure DevOps Server base URL from the VS Code setting (wins over the settings file). */
   azureDevOpsUrl?: string;
+  /** Template used for remote-only branches created during pull request creation. */
+  prBranchNameTemplate?: string;
   /** Whether Guito reloads automatically when the repository changes (wins over the settings file). */
   autoReload?: boolean;
   /** Where file diffs open; 'vscode' is only meaningful inside the VS Code extension. */
   diffViewer?: 'guito' | 'vscode';
+  /** VS Code overrides for repository display preferences. */
+  showGraph?: boolean;
+  showStashes?: boolean;
+  showTags?: boolean;
+  showRemoteBranches?: boolean;
+  issueRegex?: string;
+  issueUrl?: string;
+  fileListView?: 'flat' | 'tree';
   /** Injectable Azure DevOps HTTP runner; defaults to curl.exe with Windows integrated auth. */
   azureRequestImpl?: AzureRequestImpl;
   avatarFetchImpl?: typeof fetch;
@@ -52,6 +78,18 @@ export interface GuitoServerOptions {
 }
 
 const AZURE_API_VERSION = '5.0';
+export const DEFAULT_PR_BRANCH_NAME_TEMPLATE = 'pr/${randomstring}';
+const PR_BRANCH_TEMPLATE_VARIABLES = [
+  'username',
+  'randomstring',
+  'branch',
+  'targetbranch',
+  'title',
+  'repository',
+  'date',
+  'time',
+  'timestamp',
+] as const;
 
 export interface AzureRemoteInfo {
   /** Collection/project path, e.g. "DefaultCollection/My Project". */
@@ -236,6 +274,33 @@ const randomBranchSuffix = (): string => {
   return suffix;
 };
 
+type PrBranchTemplateVariable = (typeof PR_BRANCH_TEMPLATE_VARIABLES)[number];
+type PrBranchTemplateValues = Record<PrBranchTemplateVariable, string>;
+
+const safeBranchTemplateValue = (value: string): string =>
+  value
+    .trim()
+    .replace(/[\x00-\x20\x7f~^:?*\[\\]+/g, '-')
+    .replace(/\.{2,}/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[./-]+|[./-]+$/g, '') || 'unknown';
+
+/** Expands a configured automatic PR branch name and rejects unknown variables. */
+export const formatPrBranchName = (
+  template: string,
+  values: PrBranchTemplateValues,
+): string => {
+  const source = template.trim() || DEFAULT_PR_BRANCH_NAME_TEMPLATE;
+  return source.replace(/\$\{([^}]+)\}/g, (_match, variable: string) => {
+    if (!PR_BRANCH_TEMPLATE_VARIABLES.includes(variable as PrBranchTemplateVariable)) {
+      throw new Error(
+        `Unknown pull request branch variable \${${variable}}. Supported variables: ${PR_BRANCH_TEMPLATE_VARIABLES.map((name) => `\${${name}}`).join(', ')}.`,
+      );
+    }
+    return safeBranchTemplateValue(values[variable as PrBranchTemplateVariable]);
+  });
+};
+
 /** Extracts Azure DevOps' human-readable error message from a REST response. */
 const azureErrorMessage = (result: AzureRequestResult): string => {
   try {
@@ -252,8 +317,16 @@ export async function startGuitoServer({
   port = 8080,
   apiToken,
   azureDevOpsUrl,
+  prBranchNameTemplate,
   autoReload,
   diffViewer,
+  showGraph,
+  showStashes,
+  showTags,
+  showRemoteBranches,
+  issueRegex,
+  issueUrl,
+  fileListView,
   azureRequestImpl,
   avatarFetchImpl,
   onLog,
@@ -265,7 +338,7 @@ export async function startGuitoServer({
 
   if (onLog) {
     // Report error responses to the host (e.g. the VS Code output channel).
-    app.addHook('onSend', (request, reply, payload) => {
+    app.addHook('onSend', async (request, reply, payload) => {
       if (reply.statusCode >= 400) {
         const body = typeof payload === 'string' ? payload.slice(0, 500) : '';
         onLog(`${request.method} ${request.url} -> ${reply.statusCode}${body ? ` ${body}` : ''}`);
@@ -456,12 +529,11 @@ export async function startGuitoServer({
   };
 
   const azureRequest: AzureRequestImpl = azureRequestImpl ?? defaultAzureRequest;
-  const configuredAzureUrl = azureDevOpsUrl?.trim() ?? '';
-
   const effectiveAzureUrl = async (): Promise<{
     url: string;
     source: 'vscode' | 'file' | '';
   }> => {
+    const configuredAzureUrl = azureDevOpsUrl?.trim() ?? '';
     if (configuredAzureUrl) {
       return { url: configuredAzureUrl, source: 'vscode' };
     }
@@ -494,27 +566,63 @@ export async function startGuitoServer({
   /** Merges the VS Code settings with the server-side settings file. */
   const effectiveSettings = async (): Promise<{
     azureDevOpsUrl: string;
+    prBranchNameTemplate: string;
     source: 'vscode' | 'file' | '';
     autoReload: boolean;
     diffViewer: 'guito' | 'vscode';
     showGraph: boolean;
     showStashes: boolean;
+    showTags: boolean;
+    showRemoteBranches: boolean;
     fileListView: 'flat' | 'tree';
+    issueLinking: { regex: string; url: string; useGlobally: boolean } | null;
   }> => {
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
     const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
     const fileShowStashes = typeof file.showStashes === 'boolean' ? file.showStashes : undefined;
-    const fileListView =
+    const fileShowTags = typeof file.showTags === 'boolean' ? file.showTags : undefined;
+    const fileShowRemoteBranches =
+      typeof file.showRemoteBranches === 'boolean' ? file.showRemoteBranches : undefined;
+    const fileFileListView =
       file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
+    const filePrBranchNameTemplate =
+      typeof file.prBranchNameTemplate === 'string' && file.prBranchNameTemplate.trim()
+        ? file.prBranchNameTemplate.trim()
+        : undefined;
+    const localIssue = file.issueLinking as { regex?: unknown; url?: unknown } | undefined;
+    let issueLinking: { regex: string; url: string; useGlobally: boolean } | null = null;
+    if (issueRegex?.trim() && issueUrl?.trim()) {
+      issueLinking = { regex: issueRegex.trim(), url: issueUrl.trim(), useGlobally: true };
+    } else if (typeof localIssue?.regex === 'string' && typeof localIssue.url === 'string') {
+      issueLinking = { regex: localIssue.regex, url: localIssue.url, useGlobally: false };
+    } else {
+      const [regex, url] = await Promise.all([
+        git.raw(['config', '--global', '--get', 'guito.issueRegex']).catch(() => ''),
+        git.raw(['config', '--global', '--get', 'guito.issueUrl']).catch(() => ''),
+      ]);
+      if (regex.trim() && url.trim()) {
+        issueLinking = { regex: regex.trim(), url: url.trim(), useGlobally: true };
+      }
+    }
     return {
       azureDevOpsUrl: azure.url,
+      prBranchNameTemplate:
+        prBranchNameTemplate?.trim() ||
+        filePrBranchNameTemplate ||
+        DEFAULT_PR_BRANCH_NAME_TEMPLATE,
       source: azure.source,
       autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
       diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
-      showGraph: fileShowGraph ?? true,
-      showStashes: fileShowStashes ?? true,
-      fileListView: fileListView ?? 'flat',
+      showGraph: typeof showGraph === 'boolean' ? showGraph : (fileShowGraph ?? true),
+      showStashes: typeof showStashes === 'boolean' ? showStashes : (fileShowStashes ?? true),
+      showTags: typeof showTags === 'boolean' ? showTags : (fileShowTags ?? true),
+      showRemoteBranches:
+        typeof showRemoteBranches === 'boolean'
+          ? showRemoteBranches
+          : (fileShowRemoteBranches ?? true),
+      fileListView: fileListView ?? fileFileListView ?? 'flat',
+      issueLinking,
     };
   };
 
@@ -1120,6 +1228,90 @@ export async function startGuitoServer({
     }
   });
 
+  const listRemotes = async () => {
+    const names = (await git.raw(['remote']))
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    return Promise.all(
+      names.map(async (name) => {
+        const fetchUrl = (await git.raw(['remote', 'get-url', name])).trim();
+        const pushUrl = (
+          await git.raw(['remote', 'get-url', '--push', name]).catch(() => fetchUrl)
+        ).trim();
+        return { name, fetchUrl, pushUrl };
+      }),
+    );
+  };
+
+  app.get('/api/remotes', async (_req, resp) => {
+    try {
+      return resp.type('application/json').send(await listRemotes());
+    } catch (err: any) {
+      return resp.status(400).send({ error: err.message });
+    }
+  });
+
+  app.post('/api/remotes', async (req: any, resp) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      const originalName = String(req.body?.originalName ?? '').trim();
+      const fetchUrl = String(req.body?.fetchUrl ?? '').trim();
+      const pushUrl = String(req.body?.pushUrl ?? '').trim() || fetchUrl;
+      if (!/^[A-Za-z0-9._-]+$/.test(name) || !fetchUrl) {
+        return resp.status(400).send({ error: 'A valid remote name and fetch URL are required.' });
+      }
+      if (!originalName) {
+        await git.raw(['remote', 'add', name, fetchUrl]);
+      } else {
+        if (originalName !== name) await git.raw(['remote', 'rename', originalName, name]);
+        await git.raw(['remote', 'set-url', name, fetchUrl]);
+      }
+      await git.raw(['remote', 'set-url', '--push', name, pushUrl]);
+      return resp.send(await listRemotes());
+    } catch (err: any) {
+      return resp.status(400).send({ error: err.message });
+    }
+  });
+
+  app.delete('/api/remotes/:name', async (req: any, resp) => {
+    try {
+      const name = String(req.params?.name ?? '').trim();
+      if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+        return resp.status(400).send({ error: 'Invalid remote name.' });
+      }
+      await git.raw(['remote', 'remove', name]);
+      return resp.send(await listRemotes());
+    } catch (err: any) {
+      return resp.status(400).send({ error: err.message });
+    }
+  });
+
+  app.post('/api/identity', async (req: any, resp) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      const email = String(req.body?.email ?? '').trim();
+      if (!name || !email) {
+        return resp.status(400).send({ error: 'User name and email are required.' });
+      }
+      await git.raw(['config', '--local', 'user.name', name]);
+      await git.raw(['config', '--local', 'user.email', email]);
+      return resp.send(await configuredIdentity());
+    } catch (err: any) {
+      return resp.status(400).send({ error: err.message });
+    }
+  });
+
+  app.delete('/api/identity', async (_req, resp) => {
+    try {
+      await git.raw(['config', '--local', '--unset-all', 'user.name']).catch(() => '');
+      await git.raw(['config', '--local', '--unset-all', 'user.email']).catch(() => '');
+      return resp.send(await configuredIdentity());
+    } catch (err: any) {
+      return resp.status(400).send({ error: err.message });
+    }
+  });
+
   // ==================== Settings ====================
   app.get('/api/settings', async (_req, resp) => {
     try {
@@ -1144,14 +1336,78 @@ export async function startGuitoServer({
         }
         settings.azureDevOpsUrl = url;
       }
+      if ('prBranchNameTemplate' in body) {
+        const template = String(body.prBranchNameTemplate ?? '').trim();
+        if (template.length > 200) {
+          return resp
+            .status(400)
+            .send({ error: 'The pull request branch template must be 200 characters or fewer.' });
+        }
+        try {
+          formatPrBranchName(template, {
+            username: 'username',
+            randomstring: 'randomstring',
+            branch: 'branch',
+            targetbranch: 'targetbranch',
+            title: 'title',
+            repository: 'repository',
+            date: '2026-09-12',
+            time: '120000',
+            timestamp: '1789214400000',
+          });
+        } catch (error: any) {
+          return resp.status(400).send({ error: error.message });
+        }
+        settings.prBranchNameTemplate = template || DEFAULT_PR_BRANCH_NAME_TEMPLATE;
+      }
       if (typeof body.showGraph === 'boolean') {
         settings.showGraph = body.showGraph;
+      }
+      if (typeof body.autoReload === 'boolean') {
+        settings.autoReload = body.autoReload;
       }
       if (typeof body.showStashes === 'boolean') {
         settings.showStashes = body.showStashes;
       }
+      if (typeof body.showTags === 'boolean') {
+        settings.showTags = body.showTags;
+      }
+      if (typeof body.showRemoteBranches === 'boolean') {
+        settings.showRemoteBranches = body.showRemoteBranches;
+      }
       if (body.fileListView === 'tree' || body.fileListView === 'flat') {
         settings.fileListView = body.fileListView;
+      }
+      if ('issueLinking' in body) {
+        if (body.issueLinking === null) {
+          if (body.issueLinkingGlobal) {
+            await git.raw(['config', '--global', '--unset-all', 'guito.issueRegex']).catch(() => '');
+            await git.raw(['config', '--global', '--unset-all', 'guito.issueUrl']).catch(() => '');
+          } else {
+            delete settings.issueLinking;
+          }
+        } else {
+          const regex = String(body.issueLinking?.regex ?? '').trim();
+          const url = String(body.issueLinking?.url ?? '').trim();
+          if (!regex || !url) {
+            return resp.status(400).send({ error: 'Issue regex and URL are required.' });
+          }
+          try {
+            new RegExp(regex);
+          } catch {
+            return resp.status(400).send({ error: 'Issue regex is not a valid regular expression.' });
+          }
+          if (!/^https?:\/\//i.test(url)) {
+            return resp.status(400).send({ error: 'Issue URL must start with http:// or https://.' });
+          }
+          if (body.issueLinking.useGlobally) {
+            await git.raw(['config', '--global', 'guito.issueRegex', regex]);
+            await git.raw(['config', '--global', 'guito.issueUrl', url]);
+            delete settings.issueLinking;
+          } else {
+            settings.issueLinking = { regex, url };
+          }
+        }
       }
       await writeSettings(settings);
       const effective = await effectiveSettings();
@@ -1183,7 +1439,42 @@ export async function startGuitoServer({
       if (newBranch) {
         // Create a remote-only branch from the current HEAD; the local
         // repository and the checked-out branch stay untouched.
-        const name = `pr/${randomBranchSuffix()}`;
+        const now = new Date();
+        const currentSettings = await effectiveSettings();
+        let computerUsername = process.env.USERNAME || process.env.USER || '';
+        try {
+          computerUsername = userInfo().username || computerUsername;
+        } catch {
+          // Environment variables are a sufficient fallback in restricted hosts.
+        }
+        const name = formatPrBranchName(currentSettings.prBranchNameTemplate, {
+          username: computerUsername,
+          randomstring: randomBranchSuffix(),
+          branch: (await git.revparse(['--abbrev-ref', 'HEAD'])).trim(),
+          targetbranch: String(targetBranch)
+            .replace(/^refs\/heads\//, '')
+            .replace(/^origin\//, ''),
+          title: String(title ?? '').trim() || 'pull-request',
+          repository: basename(await repoRoot()),
+          date: now.toISOString().slice(0, 10),
+          time: now.toISOString().slice(11, 19).replace(/:/g, ''),
+          timestamp: String(now.getTime()),
+        });
+        try {
+          await git.raw(['check-ref-format', '--branch', name]);
+        } catch {
+          return resp.status(400).send({
+            error: `The pull request branch template produced an invalid Git branch name: ${name}`,
+          });
+        }
+        const existingBranch = await git
+          .raw(['ls-remote', '--heads', 'origin', `refs/heads/${name}`])
+          .catch(() => '');
+        if (existingBranch.trim()) {
+          return resp.status(400).send({
+            error: `The pull request branch already exists on origin: ${name}`,
+          });
+        }
         await git.push(['origin', `HEAD:refs/heads/${name}`]);
         source = name;
       } else {
@@ -1640,5 +1931,18 @@ export async function startGuitoServer({
   return {
     address,
     close: () => app.close(),
+    updateSettings: (settings) => {
+      azureDevOpsUrl = settings.azureDevOpsUrl;
+      prBranchNameTemplate = settings.prBranchNameTemplate;
+      autoReload = settings.autoReload;
+      diffViewer = settings.diffViewer;
+      showGraph = settings.showGraph;
+      showStashes = settings.showStashes;
+      fileListView = settings.fileListView;
+      showTags = settings.showTags;
+      showRemoteBranches = settings.showRemoteBranches;
+      issueRegex = settings.issueRegex;
+      issueUrl = settings.issueUrl;
+    },
   };
 }

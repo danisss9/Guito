@@ -107,6 +107,18 @@ export interface GitIdentity {
   email: string;
 }
 
+export interface GitRemote {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+}
+
+export interface IssueLinkingSettings {
+  regex: string;
+  url: string;
+  useGlobally: boolean;
+}
+
 export interface RepositoryState {
   history: string;
   working: string;
@@ -175,6 +187,8 @@ export interface PromptState {
 /** Azure DevOps integration settings served by the Guito server. */
 export interface AzureSettings {
   azureDevOpsUrl: string;
+  /** Template used for remote-only branches created for pull requests. */
+  prBranchNameTemplate?: string;
   /** Where the effective URL comes from: the VS Code setting or the server-side file. */
   source: 'vscode' | 'file' | '';
   /** Whether Guito polls the repository and refreshes automatically; defaults to true. */
@@ -185,8 +199,14 @@ export interface AzureSettings {
   showGraph?: boolean;
   /** Whether the commit table shows stash rows; defaults to true. */
   showStashes?: boolean;
+  /** Whether tag badges are shown in commit history. */
+  showTags?: boolean;
+  /** Whether remote branches are shown in the repository panel and history filter. */
+  showRemoteBranches?: boolean;
   /** How changed-file lists (staged, unstaged, commit) are shown; defaults to flat. */
   fileListView?: 'flat' | 'tree';
+  /** Optional conversion of issue references in commit messages to links. */
+  issueLinking?: IssueLinkingSettings | null;
 }
 
 export interface CreatePrRequest {
@@ -194,7 +214,7 @@ export interface CreatePrRequest {
   targetBranch: string;
   title?: string;
   description?: string;
-  /** Creates a remote-only branch (pr/xxxxxx) from HEAD as the PR source. */
+  /** Creates a remote-only branch from HEAD as the PR source. */
   newBranch?: boolean;
   isDraft?: boolean;
   /** Reviewers to add: identity id from the picker + whether required. */

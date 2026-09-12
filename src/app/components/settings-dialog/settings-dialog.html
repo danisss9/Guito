@@ -1,0 +1,70 @@
+<div class="backdrop" (click)="!saving() && !busy() && closed.emit()"></div>
+<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+  <header class="dialog-header">
+    <div><h2 id="settings-title">{{ mode() === 'main' ? 'Settings' : mode() === 'identity' ? 'Edit User Details' : mode() === 'remote' ? (originalRemoteName() ? 'Edit Remote' : 'Add Remote') : 'Issue Linking' }}</h2>@if (mode() === 'main') { <p>Repository preferences and Git configuration.</p> }</div>
+    <button class="close-btn" type="button" aria-label="Close settings" [disabled]="saving() || busy()" (click)="closed.emit()">&times;</button>
+  </header>
+  @if (error()) { <div class="dialog-error" role="alert">{{ error() }}</div> }
+
+  @if (mode() === 'main') {
+    <div class="settings-body">
+      <fieldset><legend>Repository</legend>
+        <label class="setting-row"><span><strong>Automatically refresh</strong><small>Reload changes made outside Guito.</small></span><input type="checkbox" [checked]="autoReload()" (change)="setChecked($event.target, 'autoReload')" /></label>
+        <label class="setting-row"><span><strong>Show Git graph</strong><small>Display branch lines beside commit history.</small></span><input type="checkbox" [checked]="showGraph()" (change)="setChecked($event.target, 'showGraph')" /></label>
+        <label class="setting-row"><span><strong>Show stashes</strong><small>Pin stash entries above commit history.</small></span><input type="checkbox" [checked]="showStashes()" (change)="setChecked($event.target, 'showStashes')" /></label>
+        <label class="setting-row"><span><strong>Show tags</strong><small>Show tag badges attached to commits.</small></span><input type="checkbox" [checked]="showTags()" (change)="setChecked($event.target, 'showTags')" /></label>
+        <label class="setting-row"><span><strong>Show remote branches</strong><small>Include remote branches in the repository panel.</small></span><input type="checkbox" [checked]="showRemoteBranches()" (change)="setChecked($event.target, 'showRemoteBranches')" /></label>
+      </fieldset>
+
+      <fieldset><legend>User details</legend>
+        <div class="detail-grid"><span>User name</span><strong>{{ identity().name || 'Not configured' }}</strong><span>User email</span><strong>{{ identity().email || 'Not configured' }}</strong></div>
+        <div class="inline-actions"><button type="button" (click)="editIdentity()">Edit</button><button type="button" class="danger-link" [disabled]="busy()" (click)="removeIdentity()">Remove</button></div>
+      </fieldset>
+
+      <fieldset><legend>Remote configuration</legend>
+        <div class="remote-table" role="table" aria-label="Git remotes">
+          <div class="remote-head" role="row"><strong>Remote</strong><strong>URL</strong><strong>Type</strong><strong>Action</strong></div>
+          @for (remote of remotes(); track remote.name) {
+            <div class="remote-row" role="row"><strong class="remote-name">{{ remote.name }}</strong><span class="remote-url">{{ remote.fetchUrl }}</span><span>Fetch</span><span class="row-actions"><button type="button" title="Edit remote" (click)="editRemote(remote)">Edit</button><button type="button" title="Remove remote" class="danger-link" (click)="removeRemote(remote.name)">Remove</button></span></div>
+            <div class="remote-row push-row" role="row"><span></span><span class="remote-url">{{ remote.pushUrl }}</span><span>Push</span><span></span></div>
+          } @empty { <p class="empty">No remotes configured.</p> }
+        </div>
+        <div class="inline-actions"><button type="button" (click)="editRemote()">+ Add Remote</button></div>
+      </fieldset>
+
+      <fieldset><legend>Issue linking</legend><p class="section-help">Convert issue numbers in commit messages into links to your issue tracking system.</p>
+        @if (settings().issueLinking; as issue) {
+          <div class="detail-grid"><span>Issue regex</span><code>{{ issue.regex }}</code><span>Issue URL</span><code>{{ issue.url }}</code><span>Scope</span><strong>{{ issue.useGlobally ? 'Global' : 'This repository' }}</strong></div>
+          <div class="inline-actions"><button type="button" (click)="editIssueLinking()">Edit</button><button type="button" class="danger-link" (click)="removeIssueLinking()">Remove</button></div>
+        } @else { <div class="inline-actions"><button type="button" (click)="editIssueLinking()">+ Add Issue Linking</button></div> }
+      </fieldset>
+
+      <fieldset><legend>Changed files</legend>
+        <label class="choice"><input type="radio" name="file-view" [checked]="fileListView() === 'flat'" (change)="fileListView.set('flat')" /><span><strong>Flat list</strong><small>Show each file with its full path.</small></span></label>
+        <label class="choice"><input type="radio" name="file-view" [checked]="fileListView() === 'tree'" (change)="fileListView.set('tree')" /><span><strong>Directory tree</strong><small>Group files into collapsible folders.</small></span></label>
+      </fieldset>
+      <fieldset><legend>Azure DevOps</legend>
+        <label class="text-setting" for="azure-devops-url"><span><strong>Server URL</strong><small>Enables pull request creation for an on-prem Azure DevOps Server.</small></span><input id="azure-devops-url" type="url" placeholder="https://server/DefaultCollection" [value]="azureDevOpsUrl()" (input)="azureDevOpsUrl.set($any($event.target).value)" /></label>
+        <label class="text-setting" for="pr-branch-name-template"><span><strong>Automatic PR branch name</strong><small>Used when creating a new branch for a pull request. Variables: username, randomstring, branch, targetbranch, title, repository, date, time, and timestamp (wrapped as dollar-brace placeholders).</small></span><input id="pr-branch-name-template" type="text" maxlength="200" [value]="prBranchNameTemplate()" (input)="prBranchNameTemplate.set($any($event.target).value)" /></label>
+      </fieldset>
+    </div>
+    <footer><button class="btn" type="button" [disabled]="saving()" (click)="closed.emit()">Cancel</button><button class="btn primary" type="button" [disabled]="saving() || busy()" (click)="save()">{{ saving() ? 'Saving...' : 'Save settings' }}</button></footer>
+  } @else {
+    <div class="editor-body">
+      @if (mode() === 'identity') {
+        <label class="text-setting"><span><strong>User name</strong></span><input aria-label="User name" [value]="userName()" (input)="userName.set($any($event.target).value)" /></label>
+        <label class="text-setting"><span><strong>User email</strong></span><input aria-label="User email" type="email" [value]="userEmail()" (input)="userEmail.set($any($event.target).value)" /></label>
+      } @else if (mode() === 'remote') {
+        <label class="text-setting"><span><strong>Remote name</strong></span><input aria-label="Remote name" placeholder="origin" [value]="remoteName()" (input)="remoteName.set($any($event.target).value)" /></label>
+        <label class="text-setting"><span><strong>Fetch URL</strong></span><input aria-label="Fetch URL" [value]="fetchUrl()" (input)="fetchUrl.set($any($event.target).value)" /></label>
+        <label class="text-setting"><span><strong>Push URL</strong><small>Leave blank to use the fetch URL.</small></span><input aria-label="Push URL" [value]="pushUrl()" (input)="pushUrl.set($any($event.target).value)" /></label>
+      } @else {
+        <p class="section-help">For example, regex <code>#(\d+)</code> and URL <code>https://github.com/owner/repo/issues/$1</code> turn #123 into a link.</p>
+        <label class="text-setting"><span><strong>Issue regex</strong></span><input aria-label="Issue regex" [value]="issueRegex()" (input)="issueRegex.set($any($event.target).value)" /></label>
+        <label class="text-setting"><span><strong>Issue URL</strong></span><input aria-label="Issue URL" type="url" [value]="issueUrl()" (input)="issueUrl.set($any($event.target).value)" /></label>
+        <label class="choice"><input type="checkbox" [checked]="issueGlobal()" (change)="issueGlobal.set($any($event.target).checked)" /><span><strong>Use globally</strong><small>Apply this rule to repositories without their own rule.</small></span></label>
+      }
+    </div>
+    <footer><button class="btn" type="button" [disabled]="busy()" (click)="mode.set('main')">Cancel</button><button class="btn primary" type="button" [disabled]="busy()" (click)="mode() === 'identity' ? saveIdentity() : mode() === 'remote' ? saveRemote() : saveIssueLinking()">{{ busy() ? 'Saving...' : 'Save' }}</button></footer>
+  }
+</section>

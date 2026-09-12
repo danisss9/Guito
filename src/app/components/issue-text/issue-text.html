@@ -1,0 +1,5 @@
+@for (segment of segments(); track $index) {
+  @if (segment.href) {
+    <a [href]="segment.href" target="_blank" rel="noopener noreferrer" (click)="$event.stopPropagation()">@if (segment.match) { <mark class="hl">{{ segment.text }}</mark> } @else { {{ segment.text }} }</a>
+  } @else if (segment.match) { <mark class="hl">{{ segment.text }}</mark> } @else { {{ segment.text }} }
+}

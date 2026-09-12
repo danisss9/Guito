@@ -2,9 +2,6 @@
   <app-toolbar
     [busy]="busy() || mutationBusy() || statusLoading()"
     [prEnabled]="hasAzureUrl()"
-    [showGraph]="showGraph()"
-    [showStashes]="showStashes()"
-    [fileListView]="fileListView()"
     [panelOpen]="panelOpen()"
     [matchIndex]="searchIndex()"
     [matchCount]="searchMatches().length"
@@ -12,10 +9,7 @@
     (menuToggle)="toggleSidePanel()"
     (refresh)="refresh()"
     (remoteAction)="runRemoteAction($event)"
-    (settingsClick)="openAzureSettings()"
-    (graphToggle)="onGraphToggle($event)"
-    (stashToggle)="onStashToggle($event)"
-    (fileViewToggle)="onFileViewToggle()"
+    (settingsClick)="openSettings()"
     (filterModeChange)="filterSearch.set($event)"
     (searchChange)="search.set($event)"
     (searchNavigate)="navigateSearch($event)"
@@ -54,6 +48,8 @@
         [workingChanges]="workingChanges()"
         [stashes]="stashes()"
         [showStashes]="showStashes()"
+        [showTags]="showTags()"
+        [issueLinking]="issueLinking()"
         [unloaded]="unloadedCommits()"
         [historyLoading]="historyLoading()"
         [scrollToHash]="scrollRequest()"
@@ -73,7 +69,7 @@
             (discardRequest)="discardUnstaged($event)" (commitRequested)="commitChanges()"
             (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
         } @else {
-          <app-commit-detail [commit]="commit" [fileListView]="fileListView()" (closed)="selectedCommit.set(null)" />
+          <app-commit-detail [commit]="commit" [fileListView]="fileListView()" [issueLinking]="issueLinking()" (closed)="selectedCommit.set(null)" />
         }
       }
     </main>
@@ -86,6 +82,18 @@
       [branches]="branches()"
       (closed)="prDialogOpen.set(false)"
       (created)="onPrCreated()"
+    />
+  }
+  @if (settingsDialogOpen() && azureSettings(); as settings) {
+    <app-settings-dialog
+      [settings]="settings"
+      [identity]="identity()"
+      [saving]="settingsSaving()"
+      (saved)="saveSettings($event)"
+      (settingsUpdated)="azureSettings.set($event); showRemote.set($event.showRemoteBranches !== false)"
+      (identityChanged)="identity.set($event)"
+      (repositoryChanged)="refresh()"
+      (closed)="settingsDialogOpen.set(false)"
     />
   }
 

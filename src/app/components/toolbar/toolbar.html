@@ -119,13 +119,7 @@
       </svg>
     </button>
 
-    <div class="action-menu">
-      <button
-        class="icon-btn"
-        title="Settings"
-        [attr.aria-expanded]="openMenu() === 'settings'"
-        (click)="toggleMenu('settings', $event)"
-      >
+    <button class="icon-btn" title="Settings" aria-label="Settings" (click)="settingsClick.emit()">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="12" cy="12" r="3" />
           <path
@@ -133,23 +127,6 @@
           />
         </svg>
       </button>
-      @if (openMenu() === 'settings') {
-        <div class="remote-menu" role="menu">
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('azure-url')">
-            Azure DevOps URL...
-          </button>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
-            {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
-          </button>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-stashes')">
-            {{ showStashes() ? 'Hide Stashes' : 'Show Stashes' }}
-          </button>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-file-view')">
-            {{ fileListView() === 'tree' ? 'View Files as Flat List' : 'View Files as Tree' }}
-          </button>
-        </div>
-      }
-    </div>
 
     <div class="overflow-anchor">
       <button
@@ -204,18 +181,7 @@
           <div class="menu-sep"></div>
           <button type="button" role="menuitem" (click)="chooseRefresh()">Refresh</button>
           <div class="menu-sep"></div>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('azure-url')">
-            Azure DevOps URL...
-          </button>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
-            {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
-          </button>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-stashes')">
-            {{ showStashes() ? 'Hide Stashes' : 'Show Stashes' }}
-          </button>
-          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-file-view')">
-            {{ fileListView() === 'tree' ? 'View Files as Flat List' : 'View Files as Tree' }}
-          </button>
+          <button type="button" role="menuitem" (click)="chooseSettings()">Settings...</button>
         </div>
       }
     </div>

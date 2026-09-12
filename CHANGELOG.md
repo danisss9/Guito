@@ -10,6 +10,7 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Changed
 
+- Replace the toolbar settings dropdown with a full repository settings dialog in standalone Guito. Inside the VS Code extension, the same gear opens VS Code's Settings editor filtered to Guito, including graph, stash, and changed-file layout settings that update open panels immediately.
 - Remove the Guito title bar; a compact "Guito" title remains in the toolbar next to the repository panel toggle, the app icon and name stay in the browser or VS Code tab, and the commit search moved into the toolbar, right before the Fetch button.
 - Replace the branches dropdown and its "Show Remote Branches" checkbox with a hamburger button on the left of the toolbar that opens a repository side panel.
 - Restyle error banners across the app with softer colors, rounded borders, an error icon, improved text wrapping, and accessible close buttons. Keep retry actions available and preserve staging and commit safeguards when status errors are dismissed.
@@ -18,6 +19,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Added
 
+- Expand standalone repository settings with Show Tags and Show Remote Branches controls, editable/removable Git user details, add/edit/remove remote configuration with separate fetch and push URLs, and local or global issue-linking rules that turn matching issue references in commit subjects and bodies into hyperlinks. The VS Code extension also contributes tag, remote-branch, and issue-linking preferences to its native Settings page.
+- Configure the automatic branch name used when creating a pull request from a new remote-only branch. The template supports computer user name, random text, current branch, repository, UTC date/time, and timestamp variables, and defaults to `pr/${randomstring}`.
 - View stashes in the commit table. Each stash appears as a pinned row above the history, newest first, with a `stash@{n}` pill (styled like the tag pills), the stash message, date, author, and short hash; clicking a row opens its diff in the details pane, and right-clicking keeps the Apply, Pop, Drop, and Copy Name actions. The new "Hide Stashes" / "Show Stashes" toggle in the toolbar Settings menu turns the rows off and on, persisted per repository in the server-side settings file like the graph setting; stashes also load without opening the repository side panel.
 - Turn the Fetch button into a menu with "Fetch" and "Fetch (prune)" entries; pruning runs `git fetch --prune`, which also deletes remote-tracking branches that no longer exist on the remote.
 - View changed files (staged, unstaged, and commit changes) as a directory tree or a flat list. The new "View Files as Tree" / "View Files as Flat List" toggle in the toolbar Settings menu switches both the uncommitted-changes panel and commit details; folders can be collapsed (hiding the files inside), nest by depth, sort before files, and show the additions and deletions summed below them. The choice is persisted per repository in the server-side settings file, and collapsed folders stay collapsed while the working tree refreshes.

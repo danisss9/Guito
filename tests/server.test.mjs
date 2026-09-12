@@ -6,9 +6,39 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
   buildAzurePullRequestUrl,
+  formatPrBranchName,
   parseAzureRemoteUrl,
   startGuitoServer,
 } from '../bin/guito-server.js';
+
+test('formats automatic pull request branch names with safe template variables', () => {
+  assert.equal(
+    formatPrBranchName('users/${username}/${repository}/${branch}/${targetbranch}/${title}/${date}/${time}/${timestamp}/${randomstring}', {
+      username: 'Dani Smith',
+      repository: 'Guito App',
+      branch: 'feature/new UI',
+      targetbranch: 'release/next',
+      title: 'Add settings UI',
+      date: '2026-09-12',
+      time: '214530',
+      timestamp: '1789250000000',
+      randomstring: 'a1b2c3',
+    }),
+    'users/Dani-Smith/Guito-App/feature/new-UI/release/next/Add-settings-UI/2026-09-12/214530/1789250000000/a1b2c3',
+  );
+  assert.throws(
+    () => formatPrBranchName('${unknown}', {
+      username: 'dani', repository: 'Guito', branch: 'main', targetbranch: 'main',
+      title: 'PR', date: '2026-09-12',
+      time: '214530', timestamp: '1789250000000', randomstring: 'a1b2c3',
+    }),
+    /Unknown pull request branch variable \$\{unknown\}/,
+  );
+});
+
+function assertSettings(actual, expected) {
+  for (const [key, value] of Object.entries(expected)) assert.deepEqual(actual[key], value, key);
+}
 
 async function createRepository() {
   const directory = await mkdtemp(join(tmpdir(), 'guito-test-'));
@@ -73,6 +103,31 @@ test('protects extension API requests and archive downloads with a token', async
   );
   assert.equal(archive.status, 200);
   assert.equal(archive.headers.get('content-type'), 'application/zip');
+});
+
+test('settles extension responses when error logging is enabled', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  const logs = [];
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+    apiToken: 'test-session-token',
+    onLog: (line) => logs.push(line),
+  });
+  context.after(() => server.close());
+
+  const page = await fetch(server.address, { signal: AbortSignal.timeout(2_000) });
+  assert.equal(page.status, 200);
+
+  const unauthorized = await fetch(`${server.address}/api/repo`, {
+    signal: AbortSignal.timeout(2_000),
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.deepEqual(logs, ['GET /api/repo -> 401 {"error":"unauthorized"}']);
 });
 
 test('returns commits in pages with a total count', async (context) => {
@@ -776,6 +831,59 @@ test('surfaces Azure DevOps errors and requires configuration', async (context) 
   assert.match((await missing.json()).error, /not configured/i);
 });
 
+test('edits repository identity and remote configuration', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  const server = await startGuitoServer({ repositoryPath, uiRoot: resolve('bin/ui'), host: '127.0.0.1', port: 0 });
+  context.after(() => server.close());
+
+  const identity = await fetch(`${server.address}/api/identity`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Settings User', email: 'settings@example.test' }) });
+  assert.equal(identity.status, 200);
+  assert.deepEqual(await identity.json(), { name: 'Settings User', email: 'settings@example.test' });
+
+  const added = await fetch(`${server.address}/api/remotes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'upstream', fetchUrl: 'https://example.test/fetch.git', pushUrl: 'https://example.test/push.git' }) });
+  assert.equal(added.status, 200);
+  assert.deepEqual(await added.json(), [{ name: 'upstream', fetchUrl: 'https://example.test/fetch.git', pushUrl: 'https://example.test/push.git' }]);
+  const renamed = await fetch(`${server.address}/api/remotes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ originalName: 'upstream', name: 'origin', fetchUrl: 'https://example.test/repo.git' }) });
+  assert.equal(renamed.status, 200);
+  assert.deepEqual(await renamed.json(), [{ name: 'origin', fetchUrl: 'https://example.test/repo.git', pushUrl: 'https://example.test/repo.git' }]);
+  const removed = await fetch(`${server.address}/api/remotes/origin`, { method: 'DELETE' });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), []);
+});
+
+test('creates a pull request branch from the configured name template', async (context) => {
+  const { repositoryPath, remotePath } = await createAzureRepository(context);
+  const calls = [];
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
+    prBranchNameTemplate: 'users/${username}/${randomstring}',
+    azureRequestImpl: async (_method, _url, body) => {
+      calls.push(JSON.parse(body));
+      return {
+        status: 201,
+        body: JSON.stringify({ pullRequestId: 8, _links: { web: { href: 'x' } } }),
+      };
+    },
+  });
+  context.after(() => server.close());
+
+  const response = await fetch(`${server.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceBranch: '', targetBranch: 'main', newBranch: true }),
+  });
+  assert.equal(response.status, 200);
+  const created = await response.json();
+  assert.match(created.branch, /^users\/[^/]+\/[a-z0-9]{6}$/);
+  assert.ok(remoteBranches(remotePath).includes(`refs/heads/${created.branch}`));
+  assert.equal(calls[0].sourceRefName, `refs/heads/${created.branch}`);
+});
+
 test('stores the Azure DevOps URL in server-side settings', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
 
@@ -793,7 +901,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({ azureDevOpsUrl: 'https://server/DefaultCollection' }),
   });
   assert.equal(saved.status, 200);
-  assert.deepEqual(await saved.json(), {
+  assertSettings(await saved.json(), {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: true,
@@ -805,7 +913,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
 
   const loaded = await fetch(`${server.address}/api/settings`);
   assert.equal(loaded.status, 200);
-  assert.deepEqual(await loaded.json(), {
+  assertSettings(await loaded.json(), {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: true,
@@ -822,6 +930,40 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   const settings = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
   assert.equal(settings.azureDevOpsUrl, 'https://server/DefaultCollection');
 
+  const namedBranch = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prBranchNameTemplate: 'users/${username}/${randomstring}' }),
+  });
+  assert.equal(namedBranch.status, 200);
+  assert.equal(
+    (await namedBranch.json()).prBranchNameTemplate,
+    'users/${username}/${randomstring}',
+  );
+  const fileAfterBranchTemplate = JSON.parse(
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
+  );
+  assert.equal(
+    fileAfterBranchTemplate.prBranchNameTemplate,
+    'users/${username}/${randomstring}',
+  );
+
+  const unknownVariable = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prBranchNameTemplate: 'pr/${missing}' }),
+  });
+  assert.equal(unknownVariable.status, 400);
+  assert.match((await unknownVariable.json()).error, /\$\{missing\}/);
+
+  const resetBranchTemplate = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prBranchNameTemplate: '' }),
+  });
+  assert.equal(resetBranchTemplate.status, 200);
+  assert.equal((await resetBranchTemplate.json()).prBranchNameTemplate, 'pr/${randomstring}');
+
   // Non-http URLs are rejected.
   const invalid = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
@@ -837,7 +979,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({ azureDevOpsUrl: '' }),
   });
   assert.equal(cleared.status, 200);
-  assert.deepEqual(await cleared.json(), {
+  assertSettings(await cleared.json(), {
     azureDevOpsUrl: '',
     source: '',
     autoReload: true,
@@ -852,13 +994,13 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   const hidden = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ showGraph: false }),
+    body: JSON.stringify({ showGraph: false, autoReload: false }),
   });
   assert.equal(hidden.status, 200);
-  assert.deepEqual(await hidden.json(), {
+  assertSettings(await hidden.json(), {
     azureDevOpsUrl: '',
     source: '',
-    autoReload: true,
+    autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
     showStashes: true,
@@ -868,6 +1010,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
   );
   assert.equal(fileAfterHide.showGraph, false);
+  assert.equal(fileAfterHide.autoReload, false);
 
   // Hiding the commit-table stash rows persists the same way.
   const stashesHidden = await fetch(`${server.address}/api/settings`, {
@@ -876,10 +1019,10 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({ showStashes: false }),
   });
   assert.equal(stashesHidden.status, 200);
-  assert.deepEqual(await stashesHidden.json(), {
+  assertSettings(await stashesHidden.json(), {
     azureDevOpsUrl: '',
     source: '',
-    autoReload: true,
+    autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
     showStashes: false,
@@ -894,10 +1037,10 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({ fileListView: 'tree' }),
   });
   assert.equal(treed.status, 200);
-  assert.deepEqual(await treed.json(), {
+  assertSettings(await treed.json(), {
     azureDevOpsUrl: '',
     source: '',
-    autoReload: true,
+    autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
     showStashes: false,
@@ -916,6 +1059,30 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   assert.equal(invalidView.status, 200);
   assert.equal((await invalidView.json()).fileListView, 'tree');
 
+  const linked = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      showTags: false,
+      showRemoteBranches: false,
+      issueLinking: {
+        regex: '#(\\d+)',
+        url: 'https://example.test/issues/$1',
+        useGlobally: false,
+      },
+    }),
+  });
+  assert.equal(linked.status, 200);
+  assertSettings(await linked.json(), {
+    showTags: false,
+    showRemoteBranches: false,
+    issueLinking: {
+      regex: '#(\\d+)',
+      url: 'https://example.test/issues/$1',
+      useGlobally: false,
+    },
+  });
+
   // A VS Code-provided URL wins over the file and is reported as such.
   const extension = await startGuitoServer({
     repositoryPath,
@@ -928,7 +1095,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   context.after(() => extension.close());
   const fromExtension = await fetch(`${extension.address}/api/settings`);
-  assert.deepEqual(await fromExtension.json(), {
+  assertSettings(await fromExtension.json(), {
     azureDevOpsUrl: 'https://vscode/Collection',
     source: 'vscode',
     autoReload: false,
@@ -936,6 +1103,26 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: false,
     showStashes: false,
     fileListView: 'tree',
+  });
+
+  // Changes from VS Code become effective in an already-running session.
+  extension.updateSettings({
+    azureDevOpsUrl: undefined,
+    autoReload: true,
+    diffViewer: 'guito',
+    showGraph: true,
+    showStashes: true,
+    fileListView: 'flat',
+  });
+  const updatedFromExtension = await fetch(`${extension.address}/api/settings`);
+  assertSettings(await updatedFromExtension.json(), {
+    azureDevOpsUrl: '',
+    source: '',
+    autoReload: true,
+    diffViewer: 'guito',
+    showGraph: true,
+    showStashes: true,
+    fileListView: 'flat',
   });
 
   // Auto-reload falls back to the settings file when the extension does not
@@ -946,7 +1133,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     'utf8',
   );
   const fromFile = await fetch(`${server.address}/api/settings`);
-  assert.deepEqual(await fromFile.json(), {
+  assertSettings(await fromFile.json(), {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: false,
@@ -964,7 +1151,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   context.after(() => reloaded.close());
   const fromReloaded = await fetch(`${reloaded.address}/api/settings`);
-  assert.deepEqual(await fromReloaded.json(), {
+  assertSettings(await fromReloaded.json(), {
     azureDevOpsUrl: 'https://server/DefaultCollection',
     source: 'file',
     autoReload: true,

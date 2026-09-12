@@ -17,6 +17,10 @@ import { CommitDetail } from './components/commit-detail/commit-detail';
 import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
 import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
+import {
+  GuitoSettingsUpdate,
+  SettingsDialog,
+} from './components/settings-dialog/settings-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
 import { SidePanel } from './components/side-panel/side-panel';
 import { WorkingPanel } from './components/working-panel/working-panel';
@@ -38,6 +42,7 @@ import {
   WorktreeInfo,
 } from './models/git.models';
 import { GitService } from './services/git.service';
+import { VscodeService } from './services/vscode.service';
 import { authenticatedApiUrl } from './utils/session';
 import { loadJson, saveJson } from './utils/storage';
 
@@ -72,6 +77,7 @@ function loadCommitDraft(): CommitDraft {
     PromptDialog,
     WorkingPanel,
     CreatePrDialog,
+    SettingsDialog,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -79,6 +85,7 @@ function loadCommitDraft(): CommitDraft {
 })
 export class App implements OnDestroy {
   private readonly git = inject(GitService);
+  private readonly vscode = inject(VscodeService);
 
   protected readonly workingHash = WORKING_HASH;
   protected readonly mutationBusy = this.git.mutating;
@@ -132,12 +139,17 @@ export class App implements OnDestroy {
   protected readonly showGraph = computed(() => this.azureSettings()?.showGraph !== false);
   /** Stash rows in the commit table can be hidden from the settings menu. */
   protected readonly showStashes = computed(() => this.azureSettings()?.showStashes !== false);
+  protected readonly showTags = computed(() => this.azureSettings()?.showTags !== false);
+  protected readonly issueLinking = computed(() => this.azureSettings()?.issueLinking ?? null);
   /** Whether changed-file lists render as a directory tree instead of a flat list. */
   protected readonly fileListView = computed(() =>
     this.azureSettings()?.fileListView === 'tree' ? 'tree' : 'flat',
   );
   /** Whether the Create Pull Request dialog is open. */
   protected readonly prDialogOpen = signal(false);
+  /** Full standalone settings dialog; VS Code uses its native Settings editor instead. */
+  protected readonly settingsDialogOpen = signal(false);
+  protected readonly settingsSaving = signal(false);
   /** Files awaiting confirmation for the unstaged-discard dialog. */
   private readonly pendingDiscard = signal<string[] | null>(null);
 
@@ -317,6 +329,21 @@ export class App implements OnDestroy {
         description: this.commitDescription(),
       });
     });
+
+    // VS Code settings are owned by the extension host. Refresh the effective
+    // values after its webview bridge reports that they changed.
+    effect(() => {
+      if (this.vscode.settingsVersion() === 0) return;
+      untracked(() => {
+        this.git.getSettings().subscribe({
+          next: (settings) => {
+            this.azureSettings.set(settings);
+            this.showRemote.set(settings.showRemoteBranches !== false);
+          },
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
+      });
+    });
   }
 
   ngOnDestroy(): void {
@@ -441,6 +468,7 @@ export class App implements OnDestroy {
         }
         if (settings) {
           this.azureSettings.set(settings);
+          this.showRemote.set(settings.showRemoteBranches !== false);
         }
         if (working) {
           this.workingChanges.set(working);
@@ -633,6 +661,10 @@ export class App implements OnDestroy {
 
   protected onRemoteToggle(show: boolean): void {
     this.showRemote.set(show);
+    this.git.saveSettings({ showRemoteBranches: show }).subscribe({
+      next: (settings) => this.azureSettings.set(settings),
+      error: (err) => this.error.set(this.errorMessage(err)),
+    });
   }
 
   protected runRemoteAction(action: RemoteAction): void {
@@ -702,20 +734,26 @@ export class App implements OnDestroy {
     });
   }
 
-  /** Opens the Azure DevOps URL editor behind the toolbar's gear icon. */
-  protected openAzureSettings(): void {
-    const settings = this.azureSettings();
-    const label =
-      settings?.source === 'vscode'
-        ? 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Currently provided by the VS Code setting guito.azureDevOpsUrl; a value saved here applies only while that setting is empty.'
-        : 'Base URL of your Azure DevOps Server, e.g. https://server/DefaultCollection. Leave empty to disable pull request creation.';
-    this.promptState.set({
-      title: 'Azure DevOps URL',
-      label,
-      value: settings?.azureDevOpsUrl ?? '',
-      placeholder: 'https://server/DefaultCollection',
-      allowEmpty: true,
-      okLabel: 'Save',
+  /** Opens native extension settings in VS Code, or Guito's full dialog standalone. */
+  protected openSettings(): void {
+    if (!this.vscode.openSettings()) {
+      this.settingsDialogOpen.set(true);
+    }
+  }
+
+  protected saveSettings(update: GuitoSettingsUpdate): void {
+    this.settingsSaving.set(true);
+    this.git.saveSettings(update).subscribe({
+      next: (settings) => {
+        this.azureSettings.set(settings);
+        this.showRemote.set(settings.showRemoteBranches !== false);
+        this.settingsSaving.set(false);
+        this.settingsDialogOpen.set(false);
+      },
+      error: (err) => {
+        this.settingsSaving.set(false);
+        this.error.set(this.errorMessage(err));
+      },
     });
   }
 
@@ -1279,38 +1317,6 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Azure DevOps URL') {
-      this.git.saveSettings({ azureDevOpsUrl: value.trim() }).subscribe({
-        next: (settings) => this.azureSettings.set(settings),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
-      return;
-    }
-  }
-
-  /** Persists the graph visibility; the response carries the effective settings. */
-  protected onGraphToggle(show: boolean): void {
-    this.git.saveSettings({ showGraph: show }).subscribe({
-      next: (settings) => this.azureSettings.set(settings),
-      error: (err) => this.error.set(this.errorMessage(err)),
-    });
-  }
-
-  /** Persists the commit-table stash rows visibility. */
-  protected onStashToggle(show: boolean): void {
-    this.git.saveSettings({ showStashes: show }).subscribe({
-      next: (settings) => this.azureSettings.set(settings),
-      error: (err) => this.error.set(this.errorMessage(err)),
-    });
-  }
-
-  /** Persists the flat/tree choice for changed-file lists (staged, unstaged, commits). */
-  protected onFileViewToggle(): void {
-    const fileListView = this.fileListView() === 'tree' ? 'flat' : 'tree';
-    this.git.saveSettings({ fileListView }).subscribe({
-      next: (settings) => this.azureSettings.set(settings),
-      error: (err) => this.error.set(this.errorMessage(err)),
-    });
   }
 
   private ancestorsOf(head: string): Set<string> {

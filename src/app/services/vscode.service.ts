@@ -15,6 +15,8 @@ export class VscodeService {
 
   /** Mirrors the guito.diffViewer VS Code setting; relayed live on changes. */
   private readonly diffViewer = signal<'guito' | 'vscode'>('guito');
+  /** Increments when the extension host reports a VS Code setting change. */
+  readonly settingsVersion = signal(0);
 
   constructor() {
     if (!this.inVsCode) {
@@ -27,6 +29,7 @@ export class VscodeService {
         (data.diffViewer === 'guito' || data.diffViewer === 'vscode')
       ) {
         this.diffViewer.set(data.diffViewer);
+        this.settingsVersion.update((version) => version + 1);
       }
     });
     this.git.getSettings().subscribe({
@@ -37,6 +40,15 @@ export class VscodeService {
       },
       error: () => {},
     });
+  }
+
+  /** Opens Guito's contributed settings in VS Code; standalone callers return false. */
+  openSettings(): boolean {
+    if (!this.inVsCode) {
+      return false;
+    }
+    window.parent.postMessage({ type: 'guito/openSettings' }, '*');
+    return true;
   }
 
   /**

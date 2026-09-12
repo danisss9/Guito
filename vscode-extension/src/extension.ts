@@ -4,7 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { basename, join, normalize, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
-import { startGuitoServer, type RunningGuitoServer } from '../../server/guito-server.js';
+import {
+  startGuitoServer,
+  type GuitoHostSettings,
+  type RunningGuitoServer,
+} from '../../server/guito-server.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,6 +32,10 @@ interface OpenDiffMessage {
   status: string;
   originalRef: string;
   modifiedRef: string;
+}
+
+interface OpenSettingsMessage {
+  type: 'guito/openSettings';
 }
 
 const sessions = new Map<string, RepositorySession>();
@@ -77,10 +85,14 @@ export function activate(context: vscode.ExtensionContext): void {
       provideTextDocumentContent: (uri: vscode.Uri) => provideDiffContent(uri),
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration('guito.diffViewer')) return;
-      const diffViewer = readDiffViewerSetting();
+      if (!event.affectsConfiguration('guito')) return;
+      const settings = readHostSettings();
       for (const session of sessions.values()) {
-        void session.panel.webview.postMessage({ type: 'guito/config', diffViewer });
+        session.server.updateSettings(settings);
+        void session.panel.webview.postMessage({
+          type: 'guito/config',
+          diffViewer: settings.diffViewer,
+        });
       }
     }),
     { dispose: () => void closeAllSessions() },
@@ -161,18 +173,14 @@ async function openRepository(
   }
 
   const token = randomBytes(32).toString('hex');
-  const configuration = vscode.workspace.getConfiguration('guito');
-  const azureDevOpsUrl = configuration.get<string>('azureDevOpsUrl')?.trim();
-  const autoReload = configuration.get<boolean>('autoReload', true);
+  const hostSettings = readHostSettings();
   const server = await startGuitoServer({
     repositoryPath: repository.root,
     uiRoot: vscode.Uri.joinPath(context.extensionUri, 'dist', 'ui').fsPath,
     host: '127.0.0.1',
     port: 0,
     apiToken: token,
-    azureDevOpsUrl: azureDevOpsUrl || undefined,
-    autoReload,
-    diffViewer: readDiffViewerSetting(),
+    ...hostSettings,
     onLog: (line) => outputChannel?.appendLine(`[${repository.label}] ${line}`),
   });
 
@@ -194,7 +202,11 @@ async function openRepository(
     // Shows the extension logo on the webview's editor tab.
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
     panel.webview.html = webviewHtml(externalUri, randomBytes(16).toString('hex'));
-    panel.webview.onDidReceiveMessage((message: OpenDiffMessage) => {
+    panel.webview.onDidReceiveMessage((message: OpenDiffMessage | OpenSettingsMessage) => {
+      if (message?.type === 'guito/openSettings') {
+        void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:danisss9.guito');
+        return;
+      }
       if (message?.type !== 'guito/openDiff' || typeof message.path !== 'string') {
         return;
       }
@@ -275,6 +287,25 @@ function repositoryKey(root: string): string {
 
 function readDiffViewerSetting(): 'guito' | 'vscode' {
   return vscode.workspace.getConfiguration('guito').get<'guito' | 'vscode'>('diffViewer', 'guito');
+}
+
+function readHostSettings(): GuitoHostSettings {
+  const configuration = vscode.workspace.getConfiguration('guito');
+  return {
+    azureDevOpsUrl: configuration.get<string>('azureDevOpsUrl')?.trim() || undefined,
+    prBranchNameTemplate: configuration
+      .get<string>('prBranchNameTemplate', 'pr/${randomstring}')
+      .trim(),
+    autoReload: configuration.get<boolean>('autoReload', true),
+    diffViewer: readDiffViewerSetting(),
+    showGraph: configuration.get<boolean>('showGraph', true),
+    showStashes: configuration.get<boolean>('showStashes', true),
+    showTags: configuration.get<boolean>('showTags', true),
+    showRemoteBranches: configuration.get<boolean>('showRemoteBranches', true),
+    fileListView: configuration.get<'flat' | 'tree'>('fileListView', 'flat'),
+    issueRegex: configuration.get<string>('issueRegex')?.trim() || undefined,
+    issueUrl: configuration.get<string>('issueUrl')?.trim() || undefined,
+  };
 }
 
 /**

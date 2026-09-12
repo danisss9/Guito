@@ -74,9 +74,12 @@ try {
   git('commit', '--allow-empty', '-m', 'External extension commit');
   await app.locator('.list-viewport .row').filter({ hasText: 'External extension commit' }).waitFor({ timeout: 15000 });
   assert.match(await app.locator('.list-viewport .row').first().textContent(), /external-checkout/);
+  await app.getByTitle('Settings').click();
+  await page.locator('.settings-editor').waitFor({ timeout: 15000 });
+  await page.getByText('Guito: Show Graph', { exact: false }).waitFor({ timeout: 15000 });
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/vscode-smoke.png' });
-  console.log('VS Code smoke passed: authenticated nested iframe, history, stage, commit, and automatic refresh after external checkout/commit.');
+  console.log('VS Code smoke passed: authenticated nested iframe, Git workflow, external refresh, and native extension settings.');
 } catch (error) {
   await mkdir('test-results', { recursive: true });
   await workbench?.screenshot({ path: 'test-results/vscode-smoke-failure.png' }).catch(() => {});

@@ -193,13 +193,7 @@
                 </span>
               }
               <span class="message" [class.head]="isHead(entry.commit)">
-                @for (segment of highlight(entry.commit.message); track $index) {
-                  @if (segment.match) {
-                    <mark class="hl">{{ segment.text }}</mark>
-                  } @else {
-                    {{ segment.text }}
-                  }
-                }
+                <app-issue-text [text]="entry.commit.message" [search]="search()" [linking]="issueLinking()" />
               </span>
             </div>
             <div class="cell cell-date" [style.width.px]="columnWidths().date">

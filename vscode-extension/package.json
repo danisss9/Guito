@@ -62,6 +62,13 @@
           "scope": "window",
           "description": "Base URL of your on-prem Azure DevOps Server (e.g. https://server/DefaultCollection). Enables the Create Pull Request action in the push menu. Requests authenticate with Windows integrated auth (your current Windows session)."
         },
+        "guito.prBranchNameTemplate": {
+          "type": "string",
+          "default": "pr/${randomstring}",
+          "scope": "window",
+          "maxLength": 200,
+          "description": "Branch name template used when Guito creates a new branch for a pull request. Variables: ${username} (computer user), ${randomstring}, ${branch}, ${targetbranch}, ${title}, ${repository}, ${date} (UTC YYYY-MM-DD), ${time} (UTC HHmmss), and ${timestamp}."
+        },
         "guito.autoReload": {
           "type": "boolean",
           "default": true,
@@ -81,6 +88,53 @@
           "default": "guito",
           "scope": "window",
           "description": "Where file diffs open when you click a file in Guito."
+        },
+        "guito.showGraph": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Show the Git graph beside the commit history."
+        },
+        "guito.showStashes": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Show stash entries above the commit history."
+        },
+        "guito.showTags": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Show tag badges attached to commits."
+        },
+        "guito.showRemoteBranches": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Show remote branches in the repository panel and history decorations."
+        },
+        "guito.fileListView": {
+          "type": "string",
+          "enum": ["flat", "tree"],
+          "enumDescriptions": [
+            "Show changed files as a flat list with full paths.",
+            "Group changed files into a collapsible directory tree."
+          ],
+          "default": "flat",
+          "scope": "window",
+          "description": "How changed-file lists are displayed."
+        },
+        "guito.issueRegex": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Regular expression used to recognize issue references in commit messages, for example #(\\d+)."
+        },
+        "guito.issueUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Issue URL template. Capture groups from the issue regex can be inserted with $1, $2, and so on."
         }
       }
     }

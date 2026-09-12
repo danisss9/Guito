@@ -1,4 +1,5 @@
 import { AuthorAvatar } from '../author-avatar/author-avatar';
+import { IssueText } from '../issue-text/issue-text';
 import { DatePipe } from '@angular/common';
 import {
   CdkFixedSizeVirtualScroll,
@@ -25,6 +26,7 @@ import {
   ContextMenuEvent,
   GitCommit,
   GitIdentity,
+  IssueLinkingSettings,
   RefBadge,
   StashEntry,
   WORKING_HASH,
@@ -111,6 +113,7 @@ function loadColumnWidths(): Record<ResizableColumn, number> {
     CdkFixedSizeVirtualScroll,
     CdkVirtualForOf,
     CdkVirtualScrollViewport,
+    IssueText,
   ],
   templateUrl: './commit-table.html',
   styleUrl: './commit-table.css',
@@ -129,6 +132,8 @@ export class CommitTable implements OnDestroy {
   readonly stashes = input<StashEntry[]>([]);
   /** Whether stash rows are shown; toggled from the settings menu. */
   readonly showStashes = input(true);
+  readonly showTags = input(true);
+  readonly issueLinking = input<IssueLinkingSettings | null>(null);
   readonly unloaded = input(0);
   readonly historyLoading = input(false);
   readonly loadingLabel = input('');
@@ -610,6 +615,9 @@ export class CommitTable implements OnDestroy {
     const showRemote = this.showRemote();
 
     return parseRefs(commit.refs).filter((badge) => {
+      if (badge.type === 'tag' && !this.showTags()) {
+        return false;
+      }
       if (badge.type === 'remote' && !showRemote) {
         return false;
       }
