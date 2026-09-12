@@ -1,4 +1,96 @@
 <aside class="side-panel" aria-label="Repository panel">
+  @if (azureEnabled()) {
+    <section class="tree">
+      <div class="tree-head-row">
+        <button
+          type="button"
+          class="tree-head"
+          [attr.aria-expanded]="prsOpen()"
+          (click)="prsOpen.set(!prsOpen())"
+        >
+          <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+            @if (prsOpen()) {
+              <polyline points="6 9 12 15 18 9" />
+            } @else {
+              <polyline points="9 6 15 12 9 18" />
+            }
+          </svg>
+          <span class="tree-title">Pull Requests</span>
+          <span class="tree-count">{{ (pullRequests() ?? []).length }}</span>
+        </button>
+        <button
+          type="button"
+          class="head-action"
+          title="Refresh pull requests"
+          aria-label="Refresh pull requests"
+          (click)="prRefresh.emit()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+      </div>
+      @if (prsOpen()) {
+        <div class="tree-body">
+          @if (prError()) {
+            <div class="pr-error" role="alert">{{ prError() }}</div>
+          } @else if (pullRequests() === null) {
+            <div class="empty">Loading pull requests...</div>
+          } @else {
+            @for (pr of pullRequests()!; track pr.id) {
+              <button
+                type="button"
+                class="row pr-row"
+                [title]="prTooltip(pr)"
+                (click)="prSelect.emit(pr.id)"
+              >
+                <svg class="row-icon vote-icon" [class]="voteClass(pr)" viewBox="0 0 24 24" aria-hidden="true">
+                  @switch (pr.myVote) {
+                    @case (10) {
+                      <polyline points="20 6 9 17 4 12" />
+                    }
+                    @case (5) {
+                      <polyline points="20 6 9 17 4 12" />
+                      <line x1="20" y1="18" x2="20" y2="12" />
+                    }
+                    @case (-5) {
+                      <circle cx="12" cy="12" r="9" />
+                      <polyline points="12 7 12 12 15 14" />
+                    }
+                    @case (-10) {
+                      <line x1="5" y1="5" x2="19" y2="19" />
+                      <line x1="19" y1="5" x2="5" y2="19" />
+                    }
+                    @default {
+                      <circle cx="12" cy="12" r="8" />
+                    }
+                  }
+                </svg>
+                <span class="pr-main">
+                  <span class="pr-line">
+                    <span class="pr-title">{{ pr.title }}</span>
+                    @if (pr.isDraft) {
+                      <span class="pr-badge draft">Draft</span>
+                    }
+                    @if (pr.requiresMe) {
+                      <span class="pr-badge required">Required</span>
+                    }
+                  </span>
+                  <span class="pr-line pr-meta">
+                    {{ pr.author.name }} · {{ pr.sourceBranch }} → {{ pr.targetBranch }}
+                  </span>
+                </span>
+              </button>
+            } @empty {
+              <div class="empty">No active pull requests</div>
+            }
+          }
+        </div>
+      }
+    </section>
+  }
+
   <section class="tree">
     <button
       type="button"
@@ -77,6 +169,49 @@
               <span class="row-label">{{ branch.name }}</span>
             </button>
           }
+        }
+      </div>
+    }
+  </section>
+
+  <section class="tree">
+    <button
+      type="button"
+      class="tree-head"
+      [attr.aria-expanded]="tagsOpen()"
+      (click)="tagsOpen.set(!tagsOpen())"
+    >
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+        @if (tagsOpen()) {
+          <polyline points="6 9 12 15 18 9" />
+        } @else {
+          <polyline points="9 6 15 12 9 18" />
+        }
+      </svg>
+      <span class="tree-title">Tags</span>
+      <span class="tree-count">{{ tags().length }}</span>
+    </button>
+    @if (tagsOpen()) {
+      <div class="tree-body">
+        @for (tag of tags(); track tag.name) {
+          <button
+            type="button"
+            class="row"
+            [class.selected]="selectedCommitHash() === tag.hash"
+            [title]="tag.name"
+            (click)="selectTag(tag)"
+            (contextmenu)="onContextMenu($event, { kind: 'tag', branch: { type: 'tag', name: tag.name } })"
+          >
+            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"
+              />
+              <line x1="7" y1="7" x2="7.01" y2="7" />
+            </svg>
+            <span class="row-label">{{ tag.name }}</span>
+          </button>
+        } @empty {
+          <div class="empty">No tags</div>
         }
       </div>
     }

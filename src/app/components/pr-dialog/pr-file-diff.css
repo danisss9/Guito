@@ -1,0 +1,319 @@
+.file-diff {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-alt);
+}
+
+.diff-status {
+  padding: 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.diff-status.error {
+  color: var(--red);
+}
+
+.diff-table {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 18px;
+  padding-bottom: 24px;
+}
+
+.hunk-row {
+  background: rgba(55, 148, 255, 0.08);
+  color: var(--text-dim);
+  padding: 2px 8px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.diff-line {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre;
+}
+
+.diff-line.add {
+  background: rgba(137, 209, 133, 0.12);
+}
+
+.diff-line.del {
+  background: rgba(244, 135, 113, 0.12);
+}
+
+.diff-line .num {
+  flex: none;
+  width: 46px;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--text-dim);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.diff-line .marker {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.diff-line.add .marker {
+  color: #89d185;
+}
+
+.diff-line.del .marker {
+  color: #f48771;
+}
+
+.diff-line .text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: normal;
+}
+
+.diff-line .line-comment-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  margin-right: 8px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.diff-line:hover .line-comment-btn {
+  visibility: visible;
+}
+
+.line-comment-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.line-comment-btn svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- threads and composer (font switches back to the UI face) ---- */
+
+.thread,
+.composer {
+  font-family: initial;
+  margin: 2px 12px 2px 54px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.thread-head:hover {
+  background: var(--bg-hover);
+}
+
+.thread-status {
+  flex: none;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  text-transform: uppercase;
+}
+
+.thread-status.status-active {
+  background: rgba(55, 148, 255, 0.18);
+  color: var(--accent);
+}
+
+.thread-status.status-fixed {
+  background: rgba(137, 209, 133, 0.18);
+  color: #89d185;
+}
+
+.thread-status.status-wontFix,
+.thread-status.status-closed,
+.thread-status.status-byDesign,
+.thread-status.status-pending {
+  background: rgba(220, 182, 122, 0.18);
+  color: #dcb67a;
+}
+
+.thread-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.thread-count {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.chevron {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.thread-body {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment {
+  display: flex;
+  gap: 8px;
+}
+
+.comment-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.comment-meta {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.comment-author {
+  color: var(--text-bright);
+  font-weight: 600;
+}
+
+.reply-row {
+  display: flex;
+  gap: 6px;
+}
+
+.reply-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.reply-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.thread-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.status-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.status-label select {
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.btn.small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.composer {
+  border-color: var(--accent);
+}
+
+.composer-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.composer-text {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-alt);
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--mono);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.composer-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+}

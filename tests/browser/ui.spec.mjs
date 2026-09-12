@@ -47,6 +47,7 @@ async function setup(page, count = 700, overrides = {}) {
     bodyMatchIndex: 600,
     stageRequests: [],
     stashRequests: [],
+    tagRequests: [],
     commitRequests: [],
     contentRequests: [],
     conflicts: [],
@@ -171,6 +172,15 @@ async function setup(page, count = 700, overrides = {}) {
         ]);
       case '/api/fetch':
         state.fetchRequests.push({ prune: parsed.searchParams.get('prune') });
+        return send({ success: true });
+      case '/api/tags':
+        return send([
+          { name: 'v0.5.0', hash: commits[10].hash },
+          { name: 'v1.0.0', hash: commits[2].hash },
+        ]);
+      case '/api/tag/delete':
+      case '/api/tag/push':
+        state.tagRequests.push({ path: parsed.pathname, ...body });
         return send({ success: true });
       case '/api/commits': {
         state.historyRequests++;
@@ -888,6 +898,27 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   );
   await expect(panel.locator('.tree').filter({ hasText: 'Worktrees' })).toContainText('fixture');
   expect(state.worktreeRequests).toBeGreaterThan(0);
+
+  // Tags are listed below the branches with a count.
+  const tagsSection = panel.locator('.tree').filter({ hasText: 'Tags' });
+  await expect(tagsSection.locator('.row')).toHaveCount(2);
+
+  // Clicking a tag opens the commit it points to.
+  await tagsSection.locator('.row').filter({ hasText: 'v1.0.0' }).click();
+  const tagDetail = page.locator('app-commit-detail');
+  await expect(tagDetail).toBeVisible();
+  await expect(tagDetail.locator('.subject')).toContainText('Commit 2');
+
+  // Right-clicking a tag offers the tag actions; deleting posts the name.
+  await tagsSection.locator('.row').filter({ hasText: 'v0.5.0' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete Tag...' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect.poll(() => state.tagRequests.at(-1)).toEqual({
+    path: '/api/tag/delete',
+    name: 'v0.5.0',
+  });
+  await expect(page.locator('.table-loading')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 
   // Selecting a branch filters the commit table to that branch's history;
   // the feature branch head (Commit 10) becomes the newest visible commit.

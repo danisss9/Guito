@@ -22,6 +22,7 @@ import {
   SettingsDialog,
 } from './components/settings-dialog/settings-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
+import { PrDialog } from './components/pr-dialog/pr-dialog';
 import { SidePanel } from './components/side-panel/side-panel';
 import { WorkingPanel } from './components/working-panel/working-panel';
 import { Toolbar, RemoteAction } from './components/toolbar/toolbar';
@@ -35,8 +36,10 @@ import {
   RepositoryState,
   MenuItem,
   PromptState,
+  PrSummary,
   StashEntry,
   StashScope,
+  TagInfo,
   WORKING_HASH,
   WorkingChanges,
   WorktreeInfo,
@@ -78,6 +81,7 @@ function loadCommitDraft(): CommitDraft {
     WorkingPanel,
     CreatePrDialog,
     SettingsDialog,
+    PrDialog,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -153,11 +157,18 @@ export class App implements OnDestroy {
   /** Files awaiting confirmation for the unstaged-discard dialog. */
   private readonly pendingDiscard = signal<string[] | null>(null);
 
-  /** Whether the left repository panel (branches, stashes, worktrees) is open. */
+  /** Whether the left repository panel (branches, tags, stashes, worktrees) is open. */
   protected readonly panelOpen = signal(false);
   protected readonly panelLoading = signal(false);
   protected readonly stashes = signal<StashEntry[]>([]);
   protected readonly worktrees = signal<WorktreeInfo[]>([]);
+  protected readonly tags = signal<TagInfo[]>([]);
+
+  /** The signed-in user's Azure DevOps pull requests; null until first load. */
+  protected readonly pullRequests = signal<PrSummary[] | null>(null);
+  protected readonly pullRequestsError = signal('');
+  /** Id of the pull request open in the PR detail dialog; null = closed. */
+  protected readonly prDetailId = signal<number | null>(null);
 
   /** Hash of the focused search match; '' = none focused. */
   protected readonly searchFocusHash = signal('');
@@ -181,6 +192,7 @@ export class App implements OnDestroy {
   private workingSub: Subscription | null = null;
   private searchSub: Subscription | null = null;
   private panelSub: Subscription | null = null;
+  private prListSub: Subscription | null = null;
 
   /** Commits known to exist in the repository but not yet fetched. */
   protected readonly unloadedCommits = computed(() =>
@@ -354,6 +366,7 @@ export class App implements OnDestroy {
     this.workingSub?.unsubscribe();
     this.searchSub?.unsubscribe();
     this.panelSub?.unsubscribe();
+    this.prListSub?.unsubscribe();
   }
 
   @HostListener('window:focus')
@@ -398,17 +411,19 @@ export class App implements OnDestroy {
     if (this.panelOpen()) this.loadSidePanelData();
   }
 
-  /** Loads stashes and worktrees shown in the left repository panel. */
+  /** Loads stashes, worktrees and tags shown in the left repository panel. */
   private loadSidePanelData(): void {
     this.panelSub?.unsubscribe();
     this.panelLoading.set(true);
     this.panelSub = forkJoin({
       stashes: this.git.getStashes(),
       worktrees: this.git.getWorktrees(),
+      tags: this.git.getTags().pipe(catchError(() => of([] as TagInfo[]))),
     }).subscribe({
-      next: ({ stashes, worktrees }) => {
+      next: ({ stashes, worktrees, tags }) => {
         this.stashes.set(stashes);
         this.worktrees.set(worktrees);
+        this.tags.set(tags);
         this.panelLoading.set(false);
       },
       error: (err) => {
@@ -416,6 +431,43 @@ export class App implements OnDestroy {
         this.error.set(this.errorMessage(err));
       },
     });
+    this.loadPullRequests();
+  }
+
+  /**
+   * Loads the signed-in user's pull requests for the side panel list. No-op
+   * without the Azure DevOps URL; failures only mark the section, never the app.
+   */
+  protected loadPullRequests(): void {
+    if (!this.hasAzureUrl()) {
+      this.pullRequests.set(null);
+      this.pullRequestsError.set('');
+      return;
+    }
+    this.prListSub?.unsubscribe();
+    this.prListSub = this.git.getMyPullRequests().subscribe({
+      next: (pullRequests) => {
+        this.pullRequests.set(pullRequests);
+        this.pullRequestsError.set('');
+      },
+      error: (err) => {
+        if (this.pullRequests() === null) {
+          this.pullRequests.set([]);
+        }
+        this.pullRequestsError.set(this.errorMessage(err));
+      },
+    });
+  }
+
+  /** Opens the pull request detail dialog for a side panel row. */
+  protected openPrDetail(id: number): void {
+    this.prDetailId.set(id);
+  }
+
+  /** Closes the PR dialog and refreshes the list (votes/status may have changed). */
+  protected closePrDetail(): void {
+    this.prDetailId.set(null);
+    this.loadPullRequests();
   }
 
   protected refresh(automatic = false): void {
@@ -755,6 +807,13 @@ export class App implements OnDestroy {
   }
 
   protected onContextMenu(event: { x: number; y: number; target: any }): void {
+    // Sidebar tag rows only know the tag name; attach the tagged commit when
+    // it is loaded so the shared menu behaves like commit-table tag badges.
+    if (event.target.kind === 'tag' && !event.target.commit) {
+      const commit = this.taggedCommit(event.target.branch?.name ?? '');
+      if (commit) event.target = { ...event.target, commit };
+    }
+
     const items: MenuItem[] = [];
 
     if (event.target.kind === 'commit') {
@@ -829,6 +888,18 @@ export class App implements OnDestroy {
 
     this.contextMenuTarget.set(event.target);
     this.contextMenuState.set({ x: event.x, y: event.y, items });
+  }
+
+  /** Commit a tag points to, looked up in the loaded history. */
+  private taggedCommit(name: string): GitCommit | undefined {
+    if (!name) return undefined;
+    const tag = this.tags().find((candidate) => candidate.name === name);
+    return tag ? this.commitIndex().get(tag.hash) : undefined;
+  }
+
+  /** Jumps to the commit a tag points to; pages load until it appears. */
+  protected selectTag(tag: TagInfo): void {
+    this.pendingSearchHash.set(tag.hash);
   }
 
   protected onContextAction(action: string): void {

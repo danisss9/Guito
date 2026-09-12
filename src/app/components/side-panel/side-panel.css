@@ -156,3 +156,143 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* ---- Pull Requests section ---- */
+
+.tree-head-row {
+  display: flex;
+  align-items: center;
+}
+
+.tree-head-row .tree-head {
+  flex: 1;
+  min-width: 0;
+}
+
+.head-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: none;
+}
+
+.head-action:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+}
+
+.head-action svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pr-row {
+  height: auto;
+  min-height: 40px;
+  align-items: flex-start;
+  padding: 5px 6px 5px 8px;
+}
+
+.vote-icon {
+  margin-top: 2px;
+  opacity: 1;
+}
+
+.vote-icon.vote-approve,
+.vote-icon.vote-suggestions {
+  stroke: #89d185;
+}
+
+.vote-icon.vote-suggestions line {
+  stroke-width: 2.5;
+}
+
+.vote-icon.vote-waiting {
+  stroke: #dcb67a;
+}
+
+.vote-icon.vote-reject {
+  stroke: #f48771;
+}
+
+.vote-icon.vote-none {
+  stroke: var(--text-dim);
+}
+
+.pr-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pr-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pr-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.pr-row:hover .pr-title {
+  color: var(--text-bright);
+}
+
+.pr-badge {
+  flex: none;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 1px 4px;
+  text-transform: uppercase;
+}
+
+.pr-badge.draft {
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.pr-badge.required {
+  background: rgba(220, 182, 122, 0.18);
+  border: 1px solid rgba(220, 182, 122, 0.5);
+  color: #dcb67a;
+}
+
+.pr-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.pr-error {
+  margin: 2px 6px 4px 10px;
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-word;
+}

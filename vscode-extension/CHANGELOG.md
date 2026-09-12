@@ -2,8 +2,9 @@
 
 ## Unreleased
 
+- List all repository tags in a collapsible section of the side panel below the branches; clicking a tag opens the commit it points to in the history, and right-clicking keeps the view details, delete, push, archive, and copy name actions.
 - Add Show Tags, Show Remote Branches, and issue-linking regex/URL preferences to Guito's native VS Code settings.
-- Add the `guito.prBranchNameTemplate` setting for remote-only pull request branch names, with variables for the computer user, random text, current branch, repository, UTC date/time, and timestamp.
+- Add the `guito.prBranchNameTemplate` setting for remote-only pull request branch names, with variables for the computer user, random text, current and target branches, pull request title, repository, UTC date/time, and timestamp.
 - Add the guito.diffViewer setting that chooses where file diffs open: Guito's own dialog (the default) or the native VS Code diff tab, showing both sides of the diff (commit, HEAD, index, or working tree) with VS Code's diff editor. Changing the setting applies immediately to open Guito panels; binary files keep using Guito's dialog.
 - Log failed server requests (HTTP status 400 and above) in the Guito output channel with their method, path, status, and error body, prefixed with the repository name.
 - Show the Guito logo on the webview editor tab.

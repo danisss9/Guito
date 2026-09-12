@@ -30,9 +30,17 @@
         [showRemote]="showRemote()"
         [stashes]="stashes()"
         [worktrees]="worktrees()"
+        [tags]="tags()"
+        [selectedCommitHash]="selectedCommit()?.hash ?? ''"
         [loading]="panelLoading()"
+        [azureEnabled]="hasAzureUrl()"
+        [pullRequests]="pullRequests()"
+        [prError]="pullRequestsError()"
         (branchChange)="selectedBranch.set($event)"
+        (tagSelect)="selectTag($event)"
         (contextMenu)="onContextMenu($event)"
+        (prSelect)="openPrDetail($event)"
+        (prRefresh)="loadPullRequests()"
       />
     }
     <main class="content">
@@ -82,6 +90,9 @@
       (closed)="prDialogOpen.set(false)"
       (created)="onPrCreated()"
     />
+  }
+  @if (prDetailId(); as prId) {
+    <app-pr-dialog [prId]="prId" (closed)="closePrDetail()" />
   }
   @if (settingsDialogOpen() && azureSettings(); as settings) {
     <app-settings-dialog

@@ -11,17 +11,28 @@ import {
   CreatePrRequest,
   CreatePrResult,
   FileContent,
+  FileDiff,
   GitCommit,
   GitIdentity,
   GitRemote,
   IssueLinkingSettings,
+  PrCommentRequest,
+  PrCompletionOptions,
+  PrDetail,
+  PrFileChange,
+  PrIdentity,
   PrReviewerSuggestion,
+  PrSummary,
   PrTagSuggestion,
+  PrThread,
+  PrThreadStatus,
+  PrVote,
   PrWorkItemSuggestion,
   RepoInfo,
   RepositoryState,
   StashEntry,
   StashScope,
+  TagInfo,
   WorkingChanges,
   WorktreeInfo,
 } from '../models/git.models';
@@ -193,6 +204,11 @@ export class GitService {
     return this.http.get<WorktreeInfo[]>(`${this.base}/worktrees`);
   }
 
+  /** All repository tags, sorted by name, each with the commit it points to. */
+  getTags(): Observable<TagInfo[]> {
+    return this.http.get<TagInfo[]>(`${this.base}/tags`);
+  }
+
   createBranch(name: string, startPoint?: string): Observable<unknown> {
     return this.mutate(() => this.http.post(`${this.base}/branch/create`, { name, startPoint }));
   }
@@ -301,5 +317,104 @@ export class GitService {
     return this.http
       .get<{ tags: string[] }>(`${this.base}/azure-devops/tags`)
       .pipe(map((response) => response.tags.map((name) => ({ name }))));
+  }
+
+  // ---- Azure DevOps pull request review ----
+  // These call Azure DevOps directly; they are plain HTTP so they never get
+  // blocked by (nor block) local git operations. Busy state lives in the
+  // PR dialog.
+
+  /** Identity of the authenticated Azure DevOps user. */
+  getAzureMe(): Observable<PrIdentity> {
+    return this.http.get<PrIdentity>(`${this.base}/azure-devops/me`);
+  }
+
+  /** Pull requests created by or assigned to the current user. */
+  getMyPullRequests(status = 'active'): Observable<PrSummary[]> {
+    const params = new HttpParams().set('status', status);
+    return this.http
+      .get<{ pullRequests: PrSummary[] }>(`${this.base}/azure-devops/pullrequests`, { params })
+      .pipe(map((response) => response.pullRequests));
+  }
+
+  /** Full pull request detail for the PR dialog. */
+  getPrDetail(id: number): Observable<PrDetail> {
+    return this.http.get<PrDetail>(`${this.base}/azure-devops/pullrequests/${id}`);
+  }
+
+  /** Edits the title/description or flips the draft flag. */
+  updatePr(
+    id: number,
+    changes: { title?: string; description?: string; isDraft?: boolean },
+  ): Observable<unknown> {
+    return this.http.patch(`${this.base}/azure-devops/pullrequests/${id}`, changes);
+  }
+
+  /** Records the current user's vote on a pull request. */
+  votePr(id: number, vote: PrVote): Observable<unknown> {
+    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/vote`, { vote });
+  }
+
+  /** Adds, updates (required flag), or removes a reviewer. */
+  updatePrReviewer(
+    id: number,
+    reviewer: { id: string; required?: boolean; vote?: number; remove?: boolean },
+  ): Observable<unknown> {
+    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/reviewers`, reviewer);
+  }
+
+  /** Sets or clears auto-complete, with optional completion options. */
+  setPrAutoComplete(
+    id: number,
+    enabled: boolean,
+    options?: PrCompletionOptions,
+  ): Observable<unknown> {
+    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/autocomplete`, {
+      enabled,
+      ...options,
+    });
+  }
+
+  /** Completes (merges) the pull request. */
+  completePr(id: number, options?: PrCompletionOptions): Observable<unknown> {
+    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/complete`, options ?? {});
+  }
+
+  /** Comment threads of a pull request, general and inline. */
+  getPrThreads(id: number): Observable<PrThread[]> {
+    return this.http
+      .get<{ threads: PrThread[] }>(`${this.base}/azure-devops/pullrequests/${id}/threads`)
+      .pipe(map((response) => response.threads));
+  }
+
+  /** Adds a reply, general comment, or inline line comment. */
+  addPrComment(id: number, comment: PrCommentRequest): Observable<unknown> {
+    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/threads`, comment);
+  }
+
+  /** Resolves, reactivates, or closes a thread. */
+  setPrThreadStatus(id: number, threadId: number, status: PrThreadStatus): Observable<unknown> {
+    return this.http.post(
+      `${this.base}/azure-devops/pullrequests/${id}/threads/${threadId}/status`,
+      { status },
+    );
+  }
+
+  /** Changed files of the latest pull request iteration. */
+  getPrChanges(id: number): Observable<PrFileChange[]> {
+    return this.http
+      .get<{ files: PrFileChange[] }>(`${this.base}/azure-devops/pullrequests/${id}/changes`)
+      .pipe(map((response) => response.files));
+  }
+
+  /** Unified diff of one pull request file (fetched on demand). */
+  getPrFileDiff(id: number, file: PrFileChange): Observable<FileDiff> {
+    const params = new HttpParams()
+      .set('path', file.path)
+      .set('oldPath', file.oldPath || '')
+      .set('changeType', file.changeType);
+    return this.http.get<FileDiff>(`${this.base}/azure-devops/pullrequests/${id}/file-diff`, {
+      params,
+    });
   }
 }

@@ -9,6 +9,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
 import fastifyCompress from '@fastify/compress';
 import { simpleGit } from 'simple-git';
+import { createTwoFilesPatch } from 'diff';
 import { promisify } from 'node:util';
 import { workingTree } from './working-tree.js';
 import { avatarCache } from './avatars.js';
@@ -27,6 +28,25 @@ const PR_BRANCH_TEMPLATE_VARIABLES = [
     'time',
     'timestamp',
 ];
+/** Azure DevOps comment thread statuses, by their numeric REST value. */
+const AZURE_THREAD_STATUSES = {
+    unknown: 0,
+    active: 1,
+    wontFix: 3,
+    fixed: 4,
+    closed: 5,
+    byDesign: 6,
+    pending: 7,
+};
+const azureThreadStatusName = (value) => Object.entries(AZURE_THREAD_STATUSES).find(([, numeric]) => numeric === value)?.[0] ?? 'unknown';
+/** Pull request reviewer votes, by their numeric REST value. */
+const AZURE_VOTES = {
+    reset: 0,
+    approveWithSuggestions: 5,
+    approve: 10,
+    waitForAuthor: -5,
+    reject: -10,
+};
 /**
  * Extracts {projectPath, repo} from an Azure DevOps git remote URL.
  * Supports https (with optional credentials) and ssh (scp-style and ssh://)
@@ -139,7 +159,7 @@ function defaultAzureRequest(method, url, body) {
             '-X',
             method,
         ];
-        if (method === 'POST') {
+        if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
             args.push('-H', 'Content-Type: application/json', '--data-binary', '@-');
         }
         args.push(url);
@@ -419,6 +439,92 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             throw new Error(`The origin remote does not point to an Azure DevOps project: ${remoteUrl}`);
         }
         return { prefix, remoteUrl };
+    };
+    /** Human identity of the authenticated Windows/Azure user; cached per run. */
+    let cachedAzureMe = null;
+    const azureMe = async () => {
+        if (cachedAzureMe) {
+            return cachedAzureMe;
+        }
+        const { prefix } = await azureProjectContext();
+        // The prefix is "{collection-or-org}/{project}"; connectionData is
+        // collection scoped.
+        const collection = prefix.slice(0, prefix.lastIndexOf('/'));
+        const result = await azureRequest('GET', `${collection}/_apis/connectionData?q=1&api-version=${AZURE_API_VERSION}`, '');
+        if (result.status < 200 || result.status >= 300) {
+            throw new Error(azureErrorMessage(result) ||
+                `Azure DevOps returned HTTP ${result.status} while resolving the current user.`);
+        }
+        const user = (JSON.parse(result.body) ?? {}).authenticatedUser;
+        const id = String(user?.id ?? '');
+        if (!id) {
+            throw new Error('Azure DevOps did not report an authenticated user.');
+        }
+        cachedAzureMe = {
+            id,
+            name: String(user?.providerDisplayName ?? ''),
+            email: String(user?.properties?.Mail?.$value ?? user?.properties?.Account?.$value ?? ''),
+        };
+        return cachedAzureMe;
+    };
+    /** Web UI URL of a pull request, used by the "Open in Azure DevOps" links. */
+    const azurePrWebUrl = (prefix, remoteUrl, id) => {
+        const repo = parseAzureRemoteUrl(remoteUrl)?.repo ?? '';
+        return `${prefix}/_git/${encodeURIComponent(repo)}/pullrequest/${id}`;
+    };
+    /** Maps one Azure DevOps pull request record to the shape the UI consumes. */
+    const mapAzurePullRequest = (pr, prefix, remoteUrl, me) => {
+        const reviewers = (Array.isArray(pr?.reviewers) ? pr.reviewers : []).map((entry) => ({
+            id: String(entry?.id ?? ''),
+            name: String(entry?.displayName ?? ''),
+            email: String(entry?.uniqueName ?? ''),
+            vote: Number(entry?.vote ?? 0),
+            isRequired: entry?.isRequired === true,
+        }));
+        const mine = me ? reviewers.find((reviewer) => reviewer.id === me.id) : undefined;
+        return {
+            id: Number(pr?.pullRequestId ?? 0),
+            title: String(pr?.title ?? ''),
+            isDraft: pr?.isDraft === true,
+            author: {
+                id: String(pr?.createdBy?.id ?? ''),
+                name: String(pr?.createdBy?.displayName ?? ''),
+                email: String(pr?.createdBy?.uniqueName ?? ''),
+            },
+            createdAt: String(pr?.creationDate ?? ''),
+            sourceBranch: String(pr?.sourceRefName ?? '').replace(/^refs\/heads\//, ''),
+            targetBranch: String(pr?.targetRefName ?? '').replace(/^refs\/heads\//, ''),
+            status: String(pr?.status ?? 'active'),
+            webUrl: String(pr?._links?.web?.href || '') || azurePrWebUrl(prefix, remoteUrl, Number(pr?.pullRequestId ?? 0)),
+            reviewers,
+            myVote: mine ? Number(mine.vote ?? 0) : 0,
+            requiresMe: mine?.isRequired === true,
+        };
+    };
+    /** REST base of one pull request (".../pullrequests/{id}") plus repo context. */
+    const azurePrApiBase = async (id) => {
+        if (!Number.isInteger(id) || id <= 0) {
+            throw new Error('A pull request id is required.');
+        }
+        const { prefix, remoteUrl } = await azureProjectContext();
+        const repo = parseAzureRemoteUrl(remoteUrl)?.repo;
+        if (!repo) {
+            throw new Error(`The origin remote does not point to an Azure DevOps project: ${remoteUrl}`);
+        }
+        return {
+            prefix,
+            remoteUrl,
+            repo,
+            base: `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests/${id}`,
+        };
+    };
+    /** Runs one Azure request and turns non-2xx replies into user-facing errors. */
+    const azureJson = async (method, url, body = '') => {
+        const result = await azureRequest(method, url, body);
+        if (result.status < 200 || result.status >= 300) {
+            throw new Error(azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`);
+        }
+        return (result.body ? JSON.parse(result.body) : {});
     };
     /** Merges the VS Code settings with the server-side settings file. */
     const effectiveSettings = async () => {
@@ -958,9 +1064,21 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         }
     });
     // ==================== Tags ====================
+    // All tags with the commit each points at (annotated tags are peeled, so the
+    // client can always look the tagged commit up by hash). Sorted by name.
     app.get('/api/tags', async (_req, resp) => {
         try {
-            const tags = await git.tags();
+            const raw = await git.raw([
+                'tag',
+                '--list',
+                '--sort=refname',
+                '--format=%(refname:short)%09%(*objectname)%09%(objectname)',
+            ]);
+            const tags = raw
+                .split('\n')
+                .map((line) => line.split('\t'))
+                .filter(([name]) => Boolean(name.trim()))
+                .map(([name, peeled, direct]) => ({ name, hash: peeled || direct }));
             return resp.type('application/json').send(tags);
         }
         catch (err) {
@@ -1547,6 +1665,438 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             const tags = [...names].sort((a, b) => a.localeCompare(b));
             return resp.type('application/json').send({ tags });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // ==================== Azure DevOps pull request review ====================
+    // Everything the PR sidebar list and the PR detail dialog need: identity,
+    // listing, editing, votes, reviewers, auto-complete, completion, comment
+    // threads, and per-file diffs.
+    app.get('/api/azure-devops/me', async (_req, resp) => {
+        try {
+            return resp.type('application/json').send(await azureMe());
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Pull requests the current user created or reviews ("mine"), merged and
+    // de-duplicated. Status defaults to active.
+    app.get('/api/azure-devops/pullrequests', async (req, resp) => {
+        try {
+            const status = String(req.query?.status ?? 'active').trim() || 'active';
+            const { prefix, remoteUrl } = await azureProjectContext();
+            const repo = parseAzureRemoteUrl(remoteUrl).repo;
+            const me = await azureMe();
+            const collect = async (criteria) => {
+                const found = new Map();
+                for (let skip = 0;; skip += 100) {
+                    const url = `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests` +
+                        `?searchCriteria.status=${encodeURIComponent(status)}&searchCriteria.${criteria}` +
+                        `&$top=100&$skip=${skip}&api-version=${AZURE_API_VERSION}`;
+                    const data = await azureJson('GET', url);
+                    const requests = Array.isArray(data?.value) ? data.value : [];
+                    for (const request of requests) {
+                        const id = Number(request?.pullRequestId);
+                        if (Number.isInteger(id) && id > 0 && !found.has(id)) {
+                            found.set(id, request);
+                        }
+                    }
+                    if (requests.length < 100)
+                        break;
+                }
+                return found;
+            };
+            const [created, assigned] = await Promise.all([
+                collect(`creatorId=${encodeURIComponent(me.id)}`),
+                collect(`reviewerId=${encodeURIComponent(me.id)}`),
+            ]);
+            const merged = new Map([...created, ...assigned]);
+            const pullRequests = [...merged.values()]
+                .map((request) => mapAzurePullRequest(request, prefix, remoteUrl, me))
+                .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+            return resp.type('application/json').send({ pullRequests });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.get('/api/azure-devops/pullrequests/:id', async (req, resp) => {
+        try {
+            const { base, prefix, remoteUrl } = await azurePrApiBase(Number(req.params?.id));
+            const [pr, me] = await Promise.all([
+                azureJson('GET', `${base}?api-version=${AZURE_API_VERSION}`),
+                azureMe(),
+            ]);
+            const summary = mapAzurePullRequest(pr, prefix, remoteUrl, me);
+            return resp.type('application/json').send({
+                ...summary,
+                description: String(pr?.description ?? ''),
+                autoCompleteSetBy: pr?.autoCompleteSetBy
+                    ? {
+                        id: String(pr.autoCompleteSetBy.id ?? ''),
+                        name: String(pr.autoCompleteSetBy.displayName ?? ''),
+                    }
+                    : null,
+                completionOptions: pr?.completionOptions ?? null,
+                lastMergeSourceCommit: String(pr?.lastMergeSourceCommit?.commitId ?? ''),
+                lastMergeTargetCommit: String(pr?.lastMergeTargetCommit?.commitId ?? ''),
+                labels: (Array.isArray(pr?.labels) ? pr.labels : [])
+                    .map((label) => String(label?.name ?? ''))
+                    .filter(Boolean),
+            });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Edits title/description or flips the draft flag ("publish"/"convert to draft").
+    app.patch('/api/azure-devops/pullrequests/:id', async (req, resp) => {
+        try {
+            const { title, description, isDraft } = req.body ?? {};
+            const payload = {};
+            if (title !== undefined)
+                payload.title = String(title);
+            if (description !== undefined)
+                payload.description = String(description);
+            if (isDraft !== undefined)
+                payload.isDraft = isDraft === true;
+            if (!Object.keys(payload).length) {
+                return resp.status(400).type('application/json').send({ error: 'Nothing to update.' });
+            }
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            await azureJson('PATCH', `${base}?api-version=${AZURE_API_VERSION}`, JSON.stringify(payload));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Records the current user's vote on the pull request.
+    app.post('/api/azure-devops/pullrequests/:id/vote', async (req, resp) => {
+        try {
+            const vote = String(req.body?.vote ?? '');
+            if (!(vote in AZURE_VOTES)) {
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({ error: `Unknown vote "${vote}".` });
+            }
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const me = await azureMe();
+            await azureJson('PUT', `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`, JSON.stringify({ vote: AZURE_VOTES[vote] }));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Adds or updates a reviewer (optionally required), or removes one.
+    app.post('/api/azure-devops/pullrequests/:id/reviewers', async (req, resp) => {
+        try {
+            const id = String(req.body?.id ?? '');
+            if (!id) {
+                return resp.status(400).type('application/json').send({ error: 'Reviewer id required.' });
+            }
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const reviewerUrl = `${base}/reviewers/${encodeURIComponent(id)}?api-version=${AZURE_API_VERSION}`;
+            if (req.body?.remove === true) {
+                await azureJson('DELETE', reviewerUrl);
+                return resp.type('application/json').send({ ok: true });
+            }
+            // The PUT replaces the reviewer record, so an existing vote is passed
+            // through to survive an isRequired toggle.
+            const payload = { isRequired: req.body?.required === true };
+            if (req.body?.vote !== undefined && Number.isFinite(Number(req.body.vote))) {
+                payload.vote = Number(req.body.vote);
+            }
+            await azureJson('PUT', reviewerUrl, JSON.stringify(payload));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    /** Maps dialog completion options onto the Azure DevOps payload shape. */
+    const completionOptionsOf = (body) => {
+        const strategies = ['noFastForward', 'squash', 'rebase', 'rebaseMerge'];
+        const mergeStrategy = String(body?.mergeStrategy ?? '');
+        const options = {};
+        if (strategies.includes(mergeStrategy))
+            options.mergeStrategy = mergeStrategy;
+        if (body?.deleteSourceBranch !== undefined) {
+            options.deleteSourceBranch = body.deleteSourceBranch === true;
+        }
+        const completeWorkItems = body?.completeWorkItems === true;
+        if (completeWorkItems) {
+            options.completeWorkItems = true;
+            // Transitioning requires completion of linked work items.
+            if (body?.transitionWorkItems === true)
+                options.transitionWorkItems = true;
+        }
+        return Object.keys(options).length ? options : null;
+    };
+    // Sets or clears auto-complete with optional completion options.
+    app.post('/api/azure-devops/pullrequests/:id/autocomplete', async (req, resp) => {
+        try {
+            const enabled = req.body?.enabled === true;
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const buildPayload = (identity) => {
+                const payload = { autoCompleteSetBy: identity };
+                if (enabled) {
+                    const options = completionOptionsOf(req.body);
+                    if (options)
+                        payload.completionOptions = options;
+                }
+                return JSON.stringify(payload);
+            };
+            const url = `${base}?api-version=${AZURE_API_VERSION}`;
+            const me = enabled ? await azureMe() : null;
+            // Azure DevOps clears auto-complete for an empty identity; some Server
+            // releases only accept an explicit null, so retry that shape on failure.
+            try {
+                await azureJson('PATCH', url, buildPayload(enabled && me ? { id: me.id } : { id: '' }));
+            }
+            catch (firstError) {
+                if (enabled)
+                    throw firstError;
+                await azureJson('PATCH', url, buildPayload(null));
+            }
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Completes the pull request (merge). Requires the merge source commit for
+    // optimistic concurrency, exactly like the Azure DevOps web dialog.
+    app.post('/api/azure-devops/pullrequests/:id/complete', async (req, resp) => {
+        try {
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const pr = await azureJson('GET', `${base}?api-version=${AZURE_API_VERSION}`);
+            const commitId = String(pr?.lastMergeSourceCommit?.commitId ?? '');
+            if (!commitId) {
+                throw new Error('The pull request has no merge commit to complete yet.');
+            }
+            const payload = {
+                status: 'completed',
+                lastMergeSourceCommit: { commitId },
+            };
+            const options = completionOptionsOf(req.body);
+            if (options)
+                payload.completionOptions = options;
+            await azureJson('PATCH', `${base}?api-version=${AZURE_API_VERSION}`, JSON.stringify(payload));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    app.get('/api/azure-devops/pullrequests/:id/threads', async (req, resp) => {
+        try {
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const data = await azureJson('GET', `${base}/threads?api-version=${AZURE_API_VERSION}`);
+            const threads = (Array.isArray(data?.value) ? data.value : [])
+                .filter((thread) => thread?.isDeleted !== true)
+                .map((thread) => {
+                const context = thread?.threadContext ?? {};
+                const line = context.rightFileStart?.line ?? context.leftFileStart?.line ?? null;
+                return {
+                    id: Number(thread?.id ?? 0),
+                    status: azureThreadStatusName(Number(thread?.status ?? 0)),
+                    isDeleted: false,
+                    filePath: typeof context.filePath === 'string' ? context.filePath.replace(/^\//, '') : null,
+                    line: Number.isInteger(line) ? line : null,
+                    side: context.rightFileStart ? 'right' : context.leftFileStart ? 'left' : null,
+                    comments: (Array.isArray(thread?.comments) ? thread.comments : [])
+                        .filter((comment) => comment?.isDeleted !== true)
+                        .map((comment) => ({
+                        id: Number(comment?.id ?? 0),
+                        author: {
+                            name: String(comment?.author?.displayName ?? ''),
+                            email: String(comment?.author?.uniqueName ?? ''),
+                        },
+                        content: String(comment?.content ?? ''),
+                        createdAt: String(comment?.publishedDate ?? ''),
+                        isDeleted: false,
+                    })),
+                };
+            });
+            return resp.type('application/json').send({ threads });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Adds a comment: a reply to a thread, a general PR comment, or an inline
+    // comment anchored to a file line (thread context).
+    app.post('/api/azure-devops/pullrequests/:id/threads', async (req, resp) => {
+        try {
+            const content = String(req.body?.content ?? '').trim();
+            if (!content) {
+                return resp.status(400).type('application/json').send({ error: 'Comment text required.' });
+            }
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const threadId = Number(req.body?.threadId ?? 0);
+            if (Number.isInteger(threadId) && threadId > 0) {
+                await azureJson('POST', `${base}/threads/${threadId}/comments?api-version=${AZURE_API_VERSION}`, JSON.stringify({ content }));
+                return resp.type('application/json').send({ ok: true });
+            }
+            const payload = {
+                status: AZURE_THREAD_STATUSES.active,
+                comments: [{ content, parentCommentId: 0 }],
+            };
+            const filePath = String(req.body?.filePath ?? '').trim();
+            const line = Number(req.body?.line ?? 0);
+            const left = req.body?.side === 'left';
+            if (filePath && Number.isInteger(line) && line > 0) {
+                // Azure anchors a whole-line comment from offset 1 to "end of line".
+                payload.threadContext = {
+                    filePath: `/${filePath.replace(/^\//, '')}`,
+                    [left ? 'leftFileStart' : 'rightFileStart']: { line, offset: 1 },
+                    [left ? 'leftFileEnd' : 'rightFileEnd']: { line, offset: 2147483647 },
+                };
+            }
+            await azureJson('POST', `${base}/threads?api-version=${AZURE_API_VERSION}`, JSON.stringify(payload));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Resolves, reactivates or closes a comment thread.
+    app.post('/api/azure-devops/pullrequests/:id/threads/:threadId/status', async (req, resp) => {
+        try {
+            const status = String(req.body?.status ?? '');
+            if (!(status in AZURE_THREAD_STATUSES) || status === 'unknown') {
+                return resp
+                    .status(400)
+                    .type('application/json')
+                    .send({ error: `Unknown thread status "${status}".` });
+            }
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            await azureJson('PATCH', `${base}/threads/${Number(req.params?.threadId)}?api-version=${AZURE_API_VERSION}`, JSON.stringify({ status: AZURE_THREAD_STATUSES[status] }));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Changed files of the latest PR iteration (names and change types only;
+    // content is fetched per file on demand by /file-diff).
+    app.get('/api/azure-devops/pullrequests/:id/changes', async (req, resp) => {
+        try {
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const iterations = await azureJson('GET', `${base}/iterations?api-version=${AZURE_API_VERSION}`);
+            const list = Array.isArray(iterations?.value) ? iterations.value : [];
+            const latest = list.length
+                ? list.reduce((newest, entry) => String(entry?.createdDate ?? '') > String(newest?.createdDate ?? '') ? entry : newest)
+                : null;
+            if (!latest) {
+                return resp.type('application/json').send({ files: [] });
+            }
+            const data = await azureJson('GET', `${base}/iterations/${latest.id}/changes?api-version=${AZURE_API_VERSION}`);
+            const changeStatus = {
+                add: 'added',
+                edit: 'modified',
+                rename: 'renamed',
+                delete: 'deleted',
+                undelete: 'added',
+            };
+            const files = (Array.isArray(data?.value) ? data.value : []).map((entry) => {
+                const path = String(entry?.item?.path ?? '').replace(/^\//, '');
+                const changeType = changeStatus[String(entry?.changeType ?? '')] ?? 'modified';
+                const oldPath = changeType === 'renamed'
+                    ? String(entry?.sourceServerItem ?? '').replace(/^\//, '')
+                    : '';
+                return { path, oldPath, changeType };
+            });
+            return resp.type('application/json').send({ files });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Unified diff of one PR file, computed from the Azure item contents at the
+    // PR merge commits. source/target are optional overrides; default comes from
+    // the pull request detail.
+    app.get('/api/azure-devops/pullrequests/:id/file-diff', async (req, resp) => {
+        try {
+            const path = String(req.query?.path ?? '').replace(/^\//, '');
+            if (!path) {
+                return resp.status(400).type('application/json').send({ error: 'path required' });
+            }
+            const oldPath = String(req.query?.oldPath ?? '').replace(/^\//, '');
+            const { base, prefix, repo } = await azurePrApiBase(Number(req.params?.id));
+            let source = String(req.query?.source ?? '');
+            let target = String(req.query?.target ?? '');
+            if (!source || !target) {
+                const pr = await azureJson('GET', `${base}?api-version=${AZURE_API_VERSION}`);
+                source = source || String(pr?.lastMergeSourceCommit?.commitId ?? '');
+                target = target || String(pr?.lastMergeTargetCommit?.commitId ?? '');
+            }
+            if (!source || !target) {
+                throw new Error('The pull request does not have merge commits to diff yet.');
+            }
+            const fetchContent = async (itemPath, commit) => {
+                if (!itemPath)
+                    return { content: '', binary: false };
+                const url = `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/items` +
+                    `?path=${encodeURIComponent(`/${itemPath}`)}` +
+                    `&versionDescriptor.version=${encodeURIComponent(commit)}` +
+                    `&versionDescriptor.versionType=commit&includeContent=true` +
+                    `&api-version=${AZURE_API_VERSION}`;
+                const result = await azureRequest('GET', url, '');
+                // 404/203: the file does not exist at that commit (added/deleted file).
+                if (result.status === 404 || result.status === 203) {
+                    return { content: '', binary: false };
+                }
+                if (result.status < 200 || result.status >= 300) {
+                    throw new Error(azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`);
+                }
+                const data = JSON.parse(result.body);
+                return {
+                    content: typeof data?.content === 'string' ? data.content : '',
+                    binary: data?.isBinary === true,
+                };
+            };
+            const [oldFile, newFile] = await Promise.all([
+                fetchContent(oldPath || path, target),
+                fetchContent(path, source),
+            ]);
+            if (oldFile.binary || newFile.binary) {
+                return resp.type('application/json').send({
+                    path,
+                    oldPath,
+                    status: 'binary',
+                    additions: 0,
+                    deletions: 0,
+                    lines: [],
+                });
+            }
+            const status = String(req.query?.changeType ?? '') ||
+                (!oldFile.content ? 'added' : !newFile.content ? 'deleted' : 'modified');
+            // jsdiff omits the "diff --git" header parseUnifiedDiff expects, and
+            // prefixing it lets the same parser serve both local and PR diffs.
+            const patch = createTwoFilesPatch(`a/${oldPath || path}`, `b/${path}`, oldFile.content, newFile.content);
+            const raw = `diff --git a/${oldPath || path} b/${path}\n${patch.replace(/^=+\n/, '')}`;
+            // The patch's trailing newline would surface as a phantom context row.
+            const [file] = parseUnifiedDiff(raw.replace(/\n+$/, ''));
+            const maxLines = 10000;
+            const lines = (file?.lines ?? []).slice(0, maxLines);
+            if ((file?.lines ?? []).length > maxLines) {
+                lines.push({ type: 'hunk', text: 'Diff truncated (file too large).' });
+            }
+            return resp.type('application/json').send({
+                path,
+                oldPath,
+                status,
+                additions: file?.additions ?? 0,
+                deletions: file?.deletions ?? 0,
+                lines,
+            });
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });

@@ -38,6 +38,12 @@ export interface BranchInfo {
   remote: boolean;
 }
 
+/** A repository tag; hash is the commit it points to (annotated tags are peeled). */
+export interface TagInfo {
+  name: string;
+  hash: string;
+}
+
 export type DiffLineType = 'add' | 'del' | 'context' | 'hunk';
 
 export interface DiffLine {
@@ -250,4 +256,101 @@ export interface PrWorkItemSuggestion {
 /** Existing label name from Azure DevOps pull requests. */
 export interface PrTagSuggestion {
   name: string;
+}
+
+/** Azure DevOps user identity shown across the pull request features. */
+export interface PrIdentity {
+  id: string;
+  name: string;
+  email?: string;
+}
+
+/** Reviewer on a pull request, with their vote and required flag. */
+export interface PrReviewer extends PrIdentity {
+  /** 10 approve, 5 approve with suggestions, 0 none, -5 waiting, -10 reject. */
+  vote: number;
+  isRequired: boolean;
+}
+
+/** One pull request row in the side panel list ("mine": created by or reviewing). */
+export interface PrSummary {
+  id: number;
+  title: string;
+  isDraft: boolean;
+  author: PrIdentity;
+  createdAt: string;
+  sourceBranch: string;
+  targetBranch: string;
+  status: string;
+  webUrl: string;
+  reviewers: PrReviewer[];
+  /** The current user's vote, 0 when not voting. */
+  myVote: number;
+  /** Whether the current user is a required reviewer. */
+  requiresMe: boolean;
+}
+
+export type PrVote = 'approve' | 'approveWithSuggestions' | 'waitForAuthor' | 'reject' | 'reset';
+
+/** Full pull request served to the PR detail dialog. */
+export interface PrDetail extends PrSummary {
+  description: string;
+  autoCompleteSetBy: PrIdentity | null;
+  completionOptions: { mergeStrategy?: string; deleteSourceBranch?: boolean } | null;
+  lastMergeSourceCommit: string;
+  lastMergeTargetCommit: string;
+  labels: string[];
+}
+
+export type PrMergeStrategy = 'noFastForward' | 'squash' | 'rebase' | 'rebaseMerge';
+
+/** Options for completing a pull request or enabling auto-complete. */
+export interface PrCompletionOptions {
+  mergeStrategy?: PrMergeStrategy;
+  deleteSourceBranch?: boolean;
+  completeWorkItems?: boolean;
+  transitionWorkItems?: boolean;
+}
+
+export type PrThreadStatus =
+  | 'active'
+  | 'fixed'
+  | 'wontFix'
+  | 'closed'
+  | 'byDesign'
+  | 'pending';
+
+/** One comment inside a pull request thread. */
+export interface PrComment {
+  id: number;
+  author: PrIdentity;
+  content: string;
+  createdAt: string;
+}
+
+/** A pull request comment thread; inline threads anchor to a file line. */
+export interface PrThread {
+  id: number;
+  status: string;
+  isDeleted: boolean;
+  filePath: string | null;
+  line: number | null;
+  side: 'right' | 'left' | null;
+  comments: PrComment[];
+}
+
+/** A changed file of the latest pull request iteration (names and change type). */
+export interface PrFileChange {
+  path: string;
+  oldPath: string;
+  changeType: FileStatus;
+}
+
+/** Body for adding a PR comment: a reply, a general note, or an inline note. */
+export interface PrCommentRequest {
+  content: string;
+  threadId?: number;
+  filePath?: string;
+  line?: number;
+  side?: 'left' | 'right';
 }

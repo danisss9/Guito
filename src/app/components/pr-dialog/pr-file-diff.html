@@ -1,0 +1,147 @@
+<div class="file-diff">
+  @if (loading()) {
+    <div class="diff-status" role="status">Loading diff...</div>
+  } @else if (error()) {
+    <div class="diff-status error" role="alert">{{ error() }}</div>
+  } @else if (diff(); as d) {
+    @if (d.status === 'binary') {
+      <div class="diff-status">Binary file not shown.</div>
+    } @else {
+      <div class="diff-table">
+        @for (line of d.lines; track $index) {
+          @if (line.type === 'hunk') {
+            <div class="hunk-row">{{ line.text }}</div>
+          } @else {
+            <div
+              class="diff-line"
+              [class.add]="line.type === 'add'"
+              [class.del]="line.type === 'del'"
+            >
+              <span class="num old">{{ line.oldLine ?? '' }}</span>
+              <span class="num new">{{ line.newLine ?? '' }}</span>
+              <span class="marker" aria-hidden="true">
+                {{ line.type === 'add' ? '+' : line.type === 'del' ? '−' : '' }}
+              </span>
+              <span class="text">{{ line.text }}</span>
+              <button
+                type="button"
+                class="line-comment-btn"
+                title="Comment on this line"
+                aria-label="Comment on this line"
+                (click)="openComposer(line)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+            </div>
+
+            @for (thread of threadsAt(line); track thread.id) {
+              <div class="thread" [id]="'pr-thread-' + thread.id" [class.expanded]="isExpanded(thread.id)">
+                <button type="button" class="thread-head" (click)="toggleThread(thread.id)">
+                  <span class="thread-status" [class]="'status-' + thread.status">
+                    {{ statusLabel(thread.status) }}
+                  </span>
+                  <span class="thread-preview">
+                    {{ thread.comments[0]?.author.name }}:
+                    {{ thread.comments[0]?.content }}
+                  </span>
+                  <span class="thread-count">{{ thread.comments.length }}</span>
+                  <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+                    @if (isExpanded(thread.id)) {
+                      <polyline points="6 9 12 15 18 9" />
+                    } @else {
+                      <polyline points="9 6 15 12 9 18" />
+                    }
+                  </svg>
+                </button>
+                @if (isExpanded(thread.id)) {
+                  <div class="thread-body">
+                    @for (comment of thread.comments; track comment.id) {
+                      <div class="comment">
+                        <app-author-avatar
+                          [name]="comment.author.name"
+                          [email]="comment.author.email || ''"
+                        />
+                        <div class="comment-main">
+                          <div class="comment-meta">
+                            <span class="comment-author">{{ comment.author.name }}</span>
+                            {{ formatDate(comment.createdAt) }}
+                          </div>
+                          <app-markdown-text [markdown]="comment.content" />
+                        </div>
+                      </div>
+                    }
+                    <div class="reply-row">
+                      <input
+                        type="text"
+                        class="reply-input"
+                        placeholder="Reply..."
+                        [value]="replyDraft(thread.id)"
+                        (input)="setReplyDraft(thread.id, $event)"
+                        (keydown.enter)="sendReply(thread.id)"
+                        [disabled]="posting()"
+                      />
+                      <button
+                        type="button"
+                        class="btn small"
+                        (click)="sendReply(thread.id)"
+                        [disabled]="posting() || !replyDraft(thread.id).trim()"
+                      >
+                        Reply
+                      </button>
+                    </div>
+                    <div class="thread-actions">
+                      <label class="status-label">
+                        Status
+                        <select
+                          [value]="thread.status"
+                          (change)="onStatusChange(thread, $event)"
+                          [disabled]="posting()"
+                        >
+                          @for (status of threadStatuses; track status) {
+                            <option [value]="status" [selected]="status === thread.status">
+                              {{ statusLabel(status) }}
+                            </option>
+                          }
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            @if (composerAt(line)) {
+              <div class="composer">
+                <div class="composer-title">
+                  Comment on line {{ composer()?.line }}
+                  <button type="button" class="btn small" (click)="closeComposer()">Cancel</button>
+                </div>
+                <textarea
+                  class="composer-text"
+                  rows="3"
+                  placeholder="Leave a comment (markdown supported)"
+                  [value]="composerText()"
+                  (input)="composerText.set($any($event.target).value)"
+                ></textarea>
+                <div class="composer-actions">
+                  <button
+                    type="button"
+                    class="btn primary"
+                    (click)="submitComposer()"
+                    [disabled]="posting() || !composerText().trim()"
+                  >
+                    Comment
+                  </button>
+                </div>
+              </div>
+            }
+          }
+        }
+      </div>
+    }
+  } @else {
+    <div class="diff-status">Select a file to view its changes.</div>
+  }
+</div>
