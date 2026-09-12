@@ -10,18 +10,22 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Changed
 
-- Remove the Guito title bar; the app icon and name remain in the browser or VS Code tab, and the commit search moved into the toolbar, right before the Fetch button.
+- Remove the Guito title bar; a compact "Guito" title remains in the toolbar next to the repository panel toggle, the app icon and name stay in the browser or VS Code tab, and the commit search moved into the toolbar, right before the Fetch button.
 - Replace the branches dropdown and its "Show Remote Branches" checkbox with a hamburger button on the left of the toolbar that opens a repository side panel.
 - Restyle error banners across the app with softer colors, rounded borders, an error icon, improved text wrapping, and accessible close buttons. Keep retry actions available and preserve staging and commit safeguards when status errors are dismissed.
 - Speed up navigation to unloaded search results by calculating their history indexes and loading all missing pages through the selected result in one request.
+- Keep the toolbar usable on narrow windows: below 720px the commit search shrinks, and below 640px the Fetch, Pull, Push, Refresh, and Settings buttons collapse into a three-dots "More actions" menu that keeps every entry, including the pull request and settings actions.
 
 ### Added
 
 - Turn the Fetch button into a menu with "Fetch" and "Fetch (prune)" entries; pruning runs `git fetch --prune`, which also deletes remote-tracking branches that no longer exist on the remote.
+- View changed files (staged, unstaged, and commit changes) as a directory tree or a flat list. The new "View Files as Tree" / "View Files as Flat List" toggle in the toolbar Settings menu switches both the uncommitted-changes panel and commit details; folders can be collapsed (hiding the files inside), nest by depth, sort before files, and show the additions and deletions summed below them. The choice is persisted per repository in the server-side settings file, and collapsed folders stay collapsed while the working tree refreshes.
 - Add a repository side panel with collapsible tree views for branches, stashes, and worktrees. Branches are grouped into local and remote sections (with the "Show Remote Branches" toggle inside the panel), clicking a branch filters the history like the old dropdown, and right-clicking keeps the branch context menu. Stashes offer apply, pop, drop, and copy-name actions from their context menu, and worktrees are listed with their branch and the served worktree marked as current; stashes and worktrees load when the panel opens and refresh together with the repository.
 - Add a Settings menu behind the toolbar gear icon with a "Hide Git Graph" toggle. The choice is persisted per repository in the server-side settings file (like the Azure DevOps URL) and survives reloads; hiding the graph also skips its layout computation.
 - Toggle commit search between navigating matches in history and filtering to matching commits, with the Git graph hidden in filtering mode.
 - Open file diffs in the native VS Code diff tab. The new `guito.diffViewer` setting chooses between Guito's own diff dialog (the default) and a VS Code diff tab, which shows the file at both refs (commit, HEAD, index, or working tree) with VS Code's own diff editor. The setting takes effect immediately in open Guito panels; binary files and the standalone browser app keep using Guito's dialog.
+- Show server error responses in the Guito output channel of the VS Code extension. Failed API requests (HTTP status 400 and above, including unhandled server errors) are logged with their method, path, status, and error body, prefixed with the repository name so that several open Guito panels do not mix their entries.
+- Show the Guito logo on the VS Code webview editor tab.
 
 ## [0.6.2] - 2026-09-09
 

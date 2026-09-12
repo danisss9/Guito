@@ -22,18 +22,37 @@
             <button type="button" class="danger" [disabled]="disabled() || !files(group).length" (click)="discardAll()">Discard all</button>
           }
         </div>
-        <div class="file-list" role="listbox" aria-multiselectable="true" [attr.aria-label]="group + ' files'">
-          @for (file of files(group); track file.path) {
-            <div class="file-entry">
-              <div class="file-row" role="option" tabindex="0" [attr.aria-selected]="selected()[group].has(file.path)"
-                [class.selected]="selected()[group].has(file.path)" [attr.aria-label]="file.path"
-                (click)="select(group, file.path, $event)" (keydown)="keySelect(group, file.path, $event)">
-                <span class="file-status" [title]="file.status">{{ file.status.slice(0, 1).toUpperCase() }}</span>
-                <span class="file-path" [title]="file.oldPath && file.oldPath !== file.path ? file.oldPath + ' → ' + file.path : file.path">{{ file.path }}</span>
-                <span class="counts"><span class="additions">+{{ file.additions }}</span> <span class="deletions">−{{ file.deletions }}</span></span>
+        <div class="file-list" [attr.role]="fileListView() === 'tree' ? 'tree' : 'listbox'"
+          aria-multiselectable="true" [attr.aria-label]="group + ' files'">
+          @for (row of rows(group); track row.path) {
+            @if (row.kind === 'dir') {
+              <button type="button" class="dir-row" role="treeitem" [attr.aria-expanded]="!row.collapsed"
+                [attr.aria-label]="'Directory ' + row.path" [title]="row.path"
+                [style.paddingLeft.px]="row.depth * 14 + 8" (click)="toggleDir(row.path)">
+                <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+                  @if (row.collapsed) {
+                    <polyline points="9 6 15 12 9 18" />
+                  } @else {
+                    <polyline points="6 9 12 15 18 9" />
+                  }
+                </svg>
+                <span class="dir-name">{{ row.name }}</span>
+                <span class="counts"><span class="additions">+{{ row.additions }}</span> <span class="deletions">−{{ row.deletions }}</span></span>
+              </button>
+            } @else {
+              <div class="file-entry">
+                <div class="file-row" [attr.role]="fileListView() === 'tree' ? 'treeitem' : 'option'"
+                  tabindex="0" [attr.aria-selected]="selected()[group].has(row.file.path)"
+                  [class.selected]="selected()[group].has(row.file.path)" [attr.aria-label]="row.file.path"
+                  [style.paddingLeft.px]="row.depth * 14 + 4"
+                  (click)="select(group, row.file.path, $event)" (keydown)="keySelect(group, row.file.path, $event)">
+                  <span class="file-status" [title]="row.file.status">{{ row.file.status.slice(0, 1).toUpperCase() }}</span>
+                  <span class="file-path" [title]="row.file.oldPath && row.file.oldPath !== row.file.path ? row.file.oldPath + ' → ' + row.file.path : row.file.path">{{ row.name }}</span>
+                  <span class="counts"><span class="additions">+{{ row.file.additions }}</span> <span class="deletions">−{{ row.file.deletions }}</span></span>
+                </div>
+                <button type="button" class="file-action" [attr.aria-label]="'View ' + group + ' diff for ' + row.file.path" [disabled]="busy()" (click)="openDiff(group, row.file)">Diff</button>
               </div>
-              <button type="button" class="file-action" [attr.aria-label]="'View ' + group + ' diff for ' + file.path" [disabled]="busy()" (click)="openDiff(group, file)">Diff</button>
-            </div>
+            }
           } @empty { <p class="empty">{{ group === 'staged' ? 'No staged changes.' : 'No unstaged changes.' }}</p> }
         </div>
       </section>

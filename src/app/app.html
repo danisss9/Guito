@@ -3,6 +3,7 @@
     [busy]="busy() || mutationBusy() || statusLoading()"
     [prEnabled]="hasAzureUrl()"
     [showGraph]="showGraph()"
+    [fileListView]="fileListView()"
     [panelOpen]="panelOpen()"
     [matchIndex]="searchIndex()"
     [matchCount]="searchMatches().length"
@@ -12,6 +13,7 @@
     (remoteAction)="runRemoteAction($event)"
     (settingsClick)="openAzureSettings()"
     (graphToggle)="onGraphToggle($event)"
+    (fileViewToggle)="onFileViewToggle()"
     (filterModeChange)="filterSearch.set($event)"
     (searchChange)="search.set($event)"
     (searchNavigate)="navigateSearch($event)"
@@ -61,12 +63,13 @@
           <app-working-panel [changes]="workingChanges()" [busy]="busy() || mutationBusy() || statusLoading()"
             [statusLoading]="statusLoading()" [statusError]="statusError()"
             [subject]="commitSubject()" [description]="commitDescription()"
+            [fileListView]="fileListView()"
             (subjectChange)="commitSubject.set($event)" (descriptionChange)="commitDescription.set($event)"
             (stageChange)="changeStage($event)" (stashChange)="stashChanges($event)"
             (discardRequest)="discardUnstaged($event)" (commitRequested)="commitChanges()"
             (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
         } @else {
-          <app-commit-detail [commit]="commit" (closed)="selectedCommit.set(null)" />
+          <app-commit-detail [commit]="commit" [fileListView]="fileListView()" (closed)="selectedCommit.set(null)" />
         }
       }
     </main>

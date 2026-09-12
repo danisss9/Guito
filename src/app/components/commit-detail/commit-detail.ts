@@ -16,6 +16,7 @@ import { Subscription } from 'rxjs';
 import { CommitDiff, FileDiff, GitCommit, WORKING_HASH } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 import { VscodeService } from '../../services/vscode.service';
+import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 @Component({
@@ -30,12 +31,28 @@ export class CommitDetail implements OnDestroy {
   private readonly vscode = inject(VscodeService);
 
   readonly commit = input.required<GitCommit>();
+  /** How the changed-file list is rendered: a flat list or a collapsible directory tree. */
+  readonly fileListView = input<'flat' | 'tree'>('flat');
   readonly closed = output<void>();
 
   protected readonly diff = signal<CommitDiff | null>(null);
   protected readonly loading = signal(false);
   protected readonly error = signal('');
   protected readonly dialogFile = signal<FileDiff | null>(null);
+
+  /** Collapsed directory paths; keyed by full path so folders stay collapsed
+   * across diff reloads. */
+  protected readonly collapsed = signal<Set<string>>(new Set());
+
+  /** Rows rendered for the changed files: tree folders plus files, or the flat list. */
+  protected readonly rows = computed<FileTreeRow[]>(() => {
+    const files = this.diff()?.files ?? [];
+    if (this.fileListView() !== 'tree') {
+      // Flat view keeps the full path as the row label.
+      return files.map((file) => ({ kind: 'file', path: file.path, name: file.path, depth: 0, file }));
+    }
+    return buildFileTreeRows(files, this.collapsed());
+  });
 
   /** Commit body, fetched on demand because the list payload omits it. */
   protected readonly body = signal('');
@@ -72,6 +89,19 @@ export class CommitDetail implements OnDestroy {
       return;
     }
     this.dialogFile.set(file);
+  }
+
+  /** Expands or collapses a directory row. */
+  protected toggleDir(path: string): void {
+    this.collapsed.update((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
   }
 
   private loadBody(commit: GitCommit): void {

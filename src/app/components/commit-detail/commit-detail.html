@@ -35,22 +35,46 @@
         <div class="state">No changes.</div>
       } @else {
         <div class="file-list">
-          @for (file of d.files; track file.path) {
-            <button class="file-row" type="button" (click)="openFile(file)">
-              <span [class]="'file-status status-' + file.status">{{ file.status }}</span>
-              <span class="file-path" [title]="file.path">{{ file.path }}</span>
-              <span class="file-counts">
-                @if (file.additions > 0) {
-                  <span class="additions">+{{ file.additions }}</span>
-                }
-                @if (file.deletions > 0) {
-                  <span class="deletions">−{{ file.deletions }}</span>
-                }
-              </span>
-              <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </button>
+          @for (row of rows(); track row.path) {
+            @if (row.kind === 'dir') {
+              <button class="file-row dir-row" type="button" [attr.aria-expanded]="!row.collapsed"
+                [title]="row.path" [style.paddingLeft.px]="row.depth * 14 + 8"
+                (click)="toggleDir(row.path)">
+                <svg class="chevron dir-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                  @if (row.collapsed) {
+                    <polyline points="9 6 15 12 9 18" />
+                  } @else {
+                    <polyline points="6 9 12 15 18 9" />
+                  }
+                </svg>
+                <span class="file-path dir-name" [title]="row.path">{{ row.name }}</span>
+                <span class="file-counts">
+                  @if (row.additions > 0) {
+                    <span class="additions">+{{ row.additions }}</span>
+                  }
+                  @if (row.deletions > 0) {
+                    <span class="deletions">−{{ row.deletions }}</span>
+                  }
+                </span>
+              </button>
+            } @else {
+              <button class="file-row" type="button" [style.paddingLeft.px]="row.depth * 14 + 8"
+                (click)="openFile(row.file)">
+                <span [class]="'file-status status-' + row.file.status">{{ row.file.status }}</span>
+                <span class="file-path" [title]="row.file.path">{{ row.name }}</span>
+                <span class="file-counts">
+                  @if (row.file.additions > 0) {
+                    <span class="additions">+{{ row.file.additions }}</span>
+                  }
+                  @if (row.file.deletions > 0) {
+                    <span class="deletions">−{{ row.file.deletions }}</span>
+                  }
+                </span>
+                <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </button>
+            }
           }
         </div>
       }

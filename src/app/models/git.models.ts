@@ -179,6 +179,8 @@ export interface AzureSettings {
   diffViewer?: 'guito' | 'vscode';
   /** Whether the commit table shows the graph column; defaults to true. */
   showGraph?: boolean;
+  /** How changed-file lists (staged, unstaged, commit) are shown; defaults to flat. */
+  fileListView?: 'flat' | 'tree';
 }
 
 export interface CreatePrRequest {

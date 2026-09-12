@@ -47,6 +47,8 @@ export interface GuitoServerOptions {
   /** Injectable Azure DevOps HTTP runner; defaults to curl.exe with Windows integrated auth. */
   azureRequestImpl?: AzureRequestImpl;
   avatarFetchImpl?: typeof fetch;
+  /** Receives a line whenever the server produces an error response (status >= 400). */
+  onLog?: (line: string) => void;
 }
 
 const AZURE_API_VERSION = '5.0';
@@ -254,11 +256,23 @@ export async function startGuitoServer({
   diffViewer,
   azureRequestImpl,
   avatarFetchImpl,
+  onLog,
 }: GuitoServerOptions): Promise<RunningGuitoServer> {
   // Initialize server
   const app = fastify({
     logger: false,
   });
+
+  if (onLog) {
+    // Report error responses to the host (e.g. the VS Code output channel).
+    app.addHook('onSend', (request, reply, payload) => {
+      if (reply.statusCode >= 400) {
+        const body = typeof payload === 'string' ? payload.slice(0, 500) : '';
+        onLog(`${request.method} ${request.url} -> ${reply.statusCode}${body ? ` ${body}` : ''}`);
+      }
+      return payload;
+    });
+  }
 
   // Register cors
   await app.register(fastifyCors);
@@ -484,16 +498,20 @@ export async function startGuitoServer({
     autoReload: boolean;
     diffViewer: 'guito' | 'vscode';
     showGraph: boolean;
+    fileListView: 'flat' | 'tree';
   }> => {
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
     const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
+    const fileListView =
+      file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
     return {
       azureDevOpsUrl: azure.url,
       source: azure.source,
       autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
       diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
       showGraph: fileShowGraph ?? true,
+      fileListView: fileListView ?? 'flat',
     };
   };
 
@@ -601,23 +619,23 @@ export async function startGuitoServer({
 
     try {
       const [raw, history] = await Promise.all([
-        git.raw([
-          'log',
-          '--all',
-          '-i',
-          '--fixed-strings',
-          `--grep=${query}`,
-          '--format=%H',
-        ]),
+        git.raw(['log', '--all', '-i', '--fixed-strings', `--grep=${query}`, '--format=%H']),
         git.raw(['log', '--all', '--format=%H']),
       ]);
-      const hashes = raw.split('\n').map((hash) => hash.trim()).filter(Boolean);
+      const hashes = raw
+        .split('\n')
+        .map((hash) => hash.trim())
+        .filter(Boolean);
       const matches = new Set(hashes);
       // Use the same unfiltered Git log order as the paged history endpoint.
       const indices: Record<string, number> = {};
-      history.split('\n').map((hash) => hash.trim()).filter(Boolean).forEach((hash, index) => {
-        if (matches.has(hash)) indices[hash] = index;
-      });
+      history
+        .split('\n')
+        .map((hash) => hash.trim())
+        .filter(Boolean)
+        .forEach((hash, index) => {
+          if (matches.has(hash)) indices[hash] = index;
+        });
       return resp.type('application/json').send({
         hashes,
         indices,
@@ -1107,6 +1125,9 @@ export async function startGuitoServer({
       }
       if (typeof body.showGraph === 'boolean') {
         settings.showGraph = body.showGraph;
+      }
+      if (body.fileListView === 'tree' || body.fileListView === 'flat') {
+        settings.fileListView = body.fileListView;
       }
       await writeSettings(settings);
       const effective = await effectiveSettings();

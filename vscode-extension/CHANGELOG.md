@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Add the guito.diffViewer setting that chooses where file diffs open: Guito's own dialog (the default) or the native VS Code diff tab, showing both sides of the diff (commit, HEAD, index, or working tree) with VS Code's diff editor. Changing the setting applies immediately to open Guito panels; binary files keep using Guito's dialog.
+- Log failed server requests (HTTP status 400 and above) in the Guito output channel with their method, path, status, and error body, prefixed with the repository name.
+- Show the Guito logo on the webview editor tab.
 
 ## 0.6.2
 

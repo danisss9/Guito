@@ -231,6 +231,7 @@ export class GitService {
   saveSettings(settings: {
     azureDevOpsUrl?: string;
     showGraph?: boolean;
+    fileListView?: 'flat' | 'tree';
   }): Observable<AzureSettings> {
     return this.http.post<AzureSettings>(`${this.base}/settings`, settings);
   }

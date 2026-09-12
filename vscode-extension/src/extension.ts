@@ -32,7 +32,10 @@ interface OpenDiffMessage {
 
 const sessions = new Map<string, RepositorySession>();
 
+let outputChannel: vscode.OutputChannel | undefined;
+
 export function activate(context: vscode.ExtensionContext): void {
+  outputChannel = vscode.window.createOutputChannel('Guito');
   const statusBar = vscode.window.createStatusBarItem(
     'guito.openStatusBar',
     vscode.StatusBarAlignment.Left,
@@ -66,6 +69,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   updateStatusBar();
   context.subscriptions.push(
+    outputChannel,
     statusBar,
     openCommand,
     vscode.workspace.onDidChangeWorkspaceFolders(updateStatusBar),
@@ -169,6 +173,7 @@ async function openRepository(
     azureDevOpsUrl: azureDevOpsUrl || undefined,
     autoReload,
     diffViewer: readDiffViewerSetting(),
+    onLog: (line) => outputChannel?.appendLine(`[${repository.label}] ${line}`),
   });
 
   try {
@@ -186,6 +191,8 @@ async function openRepository(
         localResourceRoots: [],
       },
     );
+    // Shows the extension logo on the webview's editor tab.
+    panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
     panel.webview.html = webviewHtml(externalUri, randomBytes(16).toString('hex'));
     panel.webview.onDidReceiveMessage((message: OpenDiffMessage) => {
       if (message?.type !== 'guito/openDiff' || typeof message.path !== 'string') {
@@ -330,7 +337,8 @@ function refLabel(ref: string): string {
 
 async function openDiffInVsCode(root: string, message: OpenDiffMessage): Promise<void> {
   // Mirrors the diff dialog: an added file without a previous path diffs from nothing.
-  const originalRef = message.status === 'added' && !message.oldPath ? 'EMPTY' : message.originalRef;
+  const originalRef =
+    message.status === 'added' && !message.oldPath ? 'EMPTY' : message.originalRef;
   const left = diffUri(root, originalRef, message.oldPath || message.path);
   const right = diffUri(root, message.modifiedRef, message.path);
   const title = `${basename(message.path)} (${refLabel(originalRef)} ↔ ${refLabel(message.modifiedRef)})`;

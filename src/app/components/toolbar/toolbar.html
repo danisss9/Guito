@@ -14,9 +14,10 @@
         <line x1="3" y1="18" x2="21" y2="18" />
       </svg>
     </button>
+    <span class="app-title">Guito</span>
   </div>
 
-  <div class="group">
+  <div class="group actions">
     <app-search-box
       [matchIndex]="matchIndex()"
       [matchCount]="matchCount()"
@@ -139,6 +140,75 @@
           </button>
           <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
             {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
+          </button>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-file-view')">
+            {{ fileListView() === 'tree' ? 'View Files as Flat List' : 'View Files as Tree' }}
+          </button>
+        </div>
+      }
+    </div>
+
+    <div class="overflow-anchor">
+      <button
+        type="button"
+        class="icon-btn overflow-btn"
+        title="More actions"
+        aria-label="More actions"
+        aria-haspopup="menu"
+        [attr.aria-expanded]="openMenu() === 'overflow'"
+        (click)="toggleMenu('overflow', $event)"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="5" cy="12" r="2.1" />
+          <circle cx="12" cy="12" r="2.1" />
+          <circle cx="19" cy="12" r="2.1" />
+        </svg>
+      </button>
+      @if (openMenu() === 'overflow') {
+        <div class="remote-menu overflow-menu" role="menu">
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('fetch')">Fetch</button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('fetch-prune')">
+            Fetch (prune)
+          </button>
+          <div class="menu-sep"></div>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('pull')">Pull</button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('pull-rebase')">
+            Pull (rebase)
+          </button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('rebase-from')">
+            Rebase (from)...
+          </button>
+          <div class="menu-sep"></div>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('push')">Push</button>
+          <button
+            type="button"
+            role="menuitem"
+            class="danger"
+            (click)="chooseRemoteAction('push-force')"
+          >
+            Push (force)
+          </button>
+          <button type="button" role="menuitem" (click)="chooseRemoteAction('sync')">Sync</button>
+          @if (prEnabled()) {
+            <button
+              type="button"
+              role="menuitem"
+              (click)="chooseRemoteAction('create-pr')"
+            >
+              Create Pull Request...
+            </button>
+          }
+          <div class="menu-sep"></div>
+          <button type="button" role="menuitem" (click)="chooseRefresh()">Refresh</button>
+          <div class="menu-sep"></div>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('azure-url')">
+            Azure DevOps URL...
+          </button>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
+            {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
+          </button>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-file-view')">
+            {{ fileListView() === 'tree' ? 'View Files as Flat List' : 'View Files as Tree' }}
           </button>
         </div>
       }

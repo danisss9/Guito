@@ -130,6 +130,10 @@ export class App implements OnDestroy {
   protected readonly autoReload = computed(() => this.azureSettings()?.autoReload !== false);
   /** The commit graph column can be hidden from the settings menu. */
   protected readonly showGraph = computed(() => this.azureSettings()?.showGraph !== false);
+  /** Whether changed-file lists render as a directory tree instead of a flat list. */
+  protected readonly fileListView = computed(() =>
+    this.azureSettings()?.fileListView === 'tree' ? 'tree' : 'flat',
+  );
   /** Whether the Create Pull Request dialog is open. */
   protected readonly prDialogOpen = signal(false);
   /** Files awaiting confirmation for the unstaged-discard dialog. */
@@ -1282,6 +1286,15 @@ export class App implements OnDestroy {
   /** Persists the graph visibility; the response carries the effective settings. */
   protected onGraphToggle(show: boolean): void {
     this.git.saveSettings({ showGraph: show }).subscribe({
+      next: (settings) => this.azureSettings.set(settings),
+      error: (err) => this.error.set(this.errorMessage(err)),
+    });
+  }
+
+  /** Persists the flat/tree choice for changed-file lists (staged, unstaged, commits). */
+  protected onFileViewToggle(): void {
+    const fileListView = this.fileListView() === 'tree' ? 'flat' : 'tree';
+    this.git.saveSettings({ fileListView }).subscribe({
       next: (settings) => this.azureSettings.set(settings),
       error: (err) => this.error.set(this.errorMessage(err)),
     });

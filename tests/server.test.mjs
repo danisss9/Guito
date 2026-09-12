@@ -777,6 +777,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    fileListView: 'flat',
   });
 
   const loaded = await fetch(`${server.address}/api/settings`);
@@ -787,6 +788,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    fileListView: 'flat',
   });
 
   // The settings file lives in the repository's git directory.
@@ -817,6 +819,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    fileListView: 'flat',
   });
 
   // Hiding the graph persists it, and a post without the URL keeps the
@@ -833,11 +836,41 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: false,
+    fileListView: 'flat',
   });
   const fileAfterHide = JSON.parse(
     await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
   );
   assert.equal(fileAfterHide.showGraph, false);
+
+  // Switching the file lists to the tree view persists, an invalid value is
+  // ignored, and unrelated keys survive.
+  const treed = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fileListView: 'tree' }),
+  });
+  assert.equal(treed.status, 200);
+  assert.deepEqual(await treed.json(), {
+    azureDevOpsUrl: '',
+    source: '',
+    autoReload: true,
+    diffViewer: 'guito',
+    showGraph: false,
+    fileListView: 'tree',
+  });
+  const fileAfterTree = JSON.parse(
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
+  );
+  assert.equal(fileAfterTree.fileListView, 'tree');
+  assert.equal(fileAfterTree.showGraph, false);
+  const invalidView = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fileListView: 'folders' }),
+  });
+  assert.equal(invalidView.status, 200);
+  assert.equal((await invalidView.json()).fileListView, 'tree');
 
   // A VS Code-provided URL wins over the file and is reported as such.
   const extension = await startGuitoServer({
@@ -857,6 +890,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'vscode',
     showGraph: false,
+    fileListView: 'tree',
   });
 
   // Auto-reload falls back to the settings file when the extension does not
@@ -873,6 +907,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'guito',
     showGraph: true,
+    fileListView: 'flat',
   });
   const reloaded = await startGuitoServer({
     repositoryPath,
@@ -889,6 +924,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    fileListView: 'flat',
   });
 });
 

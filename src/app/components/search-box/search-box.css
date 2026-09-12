@@ -61,6 +61,13 @@
   color: #777;
 }
 
+/* Narrow windows: give the match nav room next to the action buttons. */
+@media (max-width: 720px) {
+  .search input {
+    width: 100px;
+  }
+}
+
 .clear-btn {
   display: inline-flex;
   align-items: center;

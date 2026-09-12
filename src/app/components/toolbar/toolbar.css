@@ -101,3 +101,50 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+.app-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-bright);
+  letter-spacing: 0.2px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Narrow windows: the five action buttons collapse into a single
+   three-dots overflow menu so the toolbar keeps fitting. */
+.overflow-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.overflow-btn {
+  display: none;
+}
+
+.overflow-btn svg circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.overflow-menu {
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  .actions > .action-menu,
+  .actions > button.icon-btn {
+    display: none;
+  }
+
+  .overflow-btn {
+    display: inline-flex;
+  }
+}

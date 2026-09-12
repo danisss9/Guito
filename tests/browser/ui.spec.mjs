@@ -21,7 +21,7 @@ function history(count) {
   }));
 }
 
-async function setup(page, count = 700) {
+async function setup(page, count = 700, overrides = {}) {
   const commits = history(count);
   const state = {
     staged: ['partial.txt'],
@@ -47,6 +47,9 @@ async function setup(page, count = 700) {
     commitRequests: [],
     contentRequests: [],
     conflicts: [],
+    diffFiles: [],
+    settings: { azureDevOpsUrl: 'https://azure.example/collection', source: 'file' },
+    ...overrides,
   };
   const snapshot = () => ({
     files: [...new Set([...state.staged, ...state.unstaged])].map(file),
@@ -79,7 +82,10 @@ async function setup(page, count = 700) {
             })
           : route.fulfill({ status: 204 });
       case '/api/settings':
-        return send({ azureDevOpsUrl: 'https://azure.example/collection', source: 'file' });
+        if (request.method() === 'POST') {
+          state.settings = { ...state.settings, ...body };
+        }
+        return send(state.settings);
       case '/api/azure-devops/tags':
         return send({ tags: ['release', 'ui'] });
       case '/api/azure-devops/reviewers': {
@@ -181,7 +187,7 @@ async function setup(page, count = 700) {
       case '/api/commit/detail':
         return send({ ...commits.find((c) => c.hash === body.hash), body: 'Details' });
       case '/api/commit/diff':
-        return send({ hash: body.hash, files: [] });
+        return send({ hash: body.hash, files: state.diffFiles });
       default:
         return send({ error: `Unexpected API: ${parsed.pathname}` }, 400);
     }
@@ -425,6 +431,78 @@ test('modifier selection, separate diffs, bulk actions and drafts', async ({ pag
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeDisabled();
   await page.getByRole('button', { name: 'Stage all', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeEnabled();
+});
+
+test('file lists render as a tree or flat list from the settings menu', async ({ page }) => {
+  const { state } = await setup(page, 700, {
+    staged: ['src/app/app.ts', 'src/app/components/toolbar/toolbar.ts', 'README.md'],
+    unstaged: ['docs/guide/intro.md', 'docs/guide/advanced.md', 'package.json'],
+  });
+  state.diffFiles = [file('src/main.ts'), file('src/app/app.ts'), file('README.md')];
+
+  await page.locator('.working-row').click();
+  const staged = page.getByRole('listbox', { name: 'staged files', exact: true });
+  const unstaged = page.getByRole('listbox', { name: 'unstaged files', exact: true });
+
+  // Flat by default: rows show full paths and no folder rows exist.
+  await expect(
+    unstaged.getByRole('option', { name: 'docs/guide/intro.md', exact: true }),
+  ).toBeVisible();
+  await expect(staged.getByRole('option', { name: 'src/app/app.ts', exact: true })).toBeVisible();
+  await expect(staged.locator('.dir-row')).toHaveCount(0);
+
+  // The settings menu switches both groups to the tree view and persists it.
+  await page.getByTitle('Settings').click();
+  await page.getByRole('menuitem', { name: 'View Files as Tree' }).click();
+  await expect.poll(() => state.settings.fileListView).toBe('tree');
+
+  const stagedTree = page.getByRole('tree', { name: 'staged files', exact: true });
+  const unstagedTree = page.getByRole('tree', { name: 'unstaged files', exact: true });
+  await expect(stagedTree.locator('.dir-row')).toHaveCount(4);
+  await expect(stagedTree.locator('.dir-row').first()).toContainText('src');
+  await expect(
+    stagedTree.getByRole('treeitem', { name: 'src/app/app.ts', exact: true }),
+  ).toBeVisible();
+  await expect(
+    stagedTree.getByRole('treeitem', { name: 'src/app/components/toolbar/toolbar.ts', exact: true }),
+  ).toBeVisible();
+
+  // Collapsing a folder hides only its own files.
+  await unstagedTree.getByRole('treeitem', { name: 'Directory docs', exact: true }).click();
+  await expect(
+    unstagedTree.getByRole('treeitem', { name: 'docs/guide/intro.md', exact: true }),
+  ).toBeHidden();
+  await expect(
+    unstagedTree.getByRole('treeitem', { name: 'package.json', exact: true }),
+  ).toBeVisible();
+  await unstagedTree.getByRole('treeitem', { name: 'Directory docs', exact: true }).click();
+  await expect(
+    unstagedTree.getByRole('treeitem', { name: 'docs/guide/intro.md', exact: true }),
+  ).toBeVisible();
+
+  // Shift-range selection follows the visible tree order.
+  await unstagedTree.getByRole('treeitem', { name: 'docs/guide/intro.md', exact: true }).click();
+  await unstagedTree
+    .getByRole('treeitem', { name: 'docs/guide/advanced.md', exact: true })
+    .click({ modifiers: ['Shift'] });
+  await expect(unstagedTree.locator('.file-row.selected')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Stage selected', exact: true }).click();
+  await expect.poll(() => state.stageRequests.length).toBe(1);
+  expect(state.stageRequests[0].files).toEqual(['docs/guide/advanced.md', 'docs/guide/intro.md']);
+
+  // Commit details use the same tree view.
+  await page.locator('.list-viewport .row').first().click();
+  const detailFiles = page.locator('app-commit-detail .file-list');
+  await expect(detailFiles.locator('.dir-row')).toHaveCount(2);
+  await expect(detailFiles.locator('.file-row:not(.dir-row)')).toHaveCount(3);
+  await expect(detailFiles.getByText('main.ts', { exact: true })).toBeVisible();
+
+  // The menu offers the way back to flat lists.
+  await page.getByTitle('Settings').click();
+  await page.getByRole('menuitem', { name: 'View Files as Flat List' }).click();
+  await expect.poll(() => state.settings.fileListView).toBe('flat');
+  await expect(detailFiles.locator('.dir-row')).toHaveCount(0);
+  await expect(detailFiles.locator('.file-row')).toHaveCount(3);
 });
 
 test('failed status and commits preserve data; duplicate commits are prevented', async ({

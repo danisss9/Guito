@@ -58,6 +58,16 @@
   stroke-linejoin: round;
 }
 
+/* Directory rows reuse the file-row look with a leading expand chevron. */
+.dir-row .chevron {
+  width: 11px;
+  height: 11px;
+}
+
+.dir-name {
+  font-weight: 600;
+}
+
 .file-row:hover .chevron {
   stroke: var(--accent);
 }

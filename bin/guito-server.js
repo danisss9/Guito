@@ -180,11 +180,21 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, autoReload, diffViewer, azureRequestImpl, avatarFetchImpl, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, autoReload, diffViewer, azureRequestImpl, avatarFetchImpl, onLog, }) {
     // Initialize server
     const app = fastify({
         logger: false,
     });
+    if (onLog) {
+        // Report error responses to the host (e.g. the VS Code output channel).
+        app.addHook('onSend', (request, reply, payload) => {
+            if (reply.statusCode >= 400) {
+                const body = typeof payload === 'string' ? payload.slice(0, 500) : '';
+                onLog(`${request.method} ${request.url} -> ${reply.statusCode}${body ? ` ${body}` : ''}`);
+            }
+            return payload;
+        });
+    }
     // Register cors
     await app.register(fastifyCors);
     // Compress JSON responses (commit history payloads are highly repetitive)
@@ -386,12 +396,14 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
         const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
         const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
+        const fileListView = file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
         return {
             azureDevOpsUrl: azure.url,
             source: azure.source,
             autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
             diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
             showGraph: fileShowGraph ?? true,
+            fileListView: fileListView ?? 'flat',
         };
     };
     const configuredIdentity = async () => {
@@ -991,6 +1003,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             if (typeof body.showGraph === 'boolean') {
                 settings.showGraph = body.showGraph;
+            }
+            if (body.fileListView === 'tree' || body.fileListView === 'flat') {
+                settings.fileListView = body.fileListView;
             }
             await writeSettings(settings);
             const effective = await effectiveSettings();

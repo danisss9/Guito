@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { FileDiff, StashScope, WorkingChanges } from '../../models/git.models';
 import { VscodeService } from '../../services/vscode.service';
+import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 type Group = 'staged' | 'unstaged';
@@ -31,6 +32,8 @@ export class WorkingPanel {
   readonly statusError = input('');
   readonly subject = input('');
   readonly description = input('');
+  /** How the file lists are rendered: a flat list or a collapsible directory tree. */
+  readonly fileListView = input<'flat' | 'tree'>('flat');
   readonly subjectChange = output<string>();
   readonly descriptionChange = output<string>();
   readonly stageChange = output<{ staged: boolean; files: string[] }>();
@@ -46,6 +49,9 @@ export class WorkingPanel {
   });
   private readonly anchors: Record<Group, string | null> = { staged: null, unstaged: null };
   protected readonly dialog = signal<{ file: FileDiff; group: Group } | null>(null);
+  /** Collapsed directory paths (shared by both groups); keyed by full path so
+   * the folders stay collapsed across working-tree refreshes. */
+  protected readonly collapsed = signal<Set<string>>(new Set());
   protected readonly disabled = computed(
     () => this.busy() || !!this.statusError() || !this.changes(),
   );
@@ -82,6 +88,36 @@ export class WorkingPanel {
     return (group === 'staged' ? this.changes()?.stagedFiles : this.changes()?.unstagedFiles) ?? [];
   }
 
+  /** Rows rendered for a group: tree folders plus files, or the flat file list. */
+  protected rows(group: Group): FileTreeRow[] {
+    const files = this.files(group);
+    if (this.fileListView() !== 'tree') {
+      // Flat view keeps the full path as the row label.
+      return files.map((file) => ({ kind: 'file', path: file.path, name: file.path, depth: 0, file }));
+    }
+    return buildFileTreeRows(files, this.collapsed());
+  }
+
+  /** File paths in display order; drives shift-range selection and arrow focus. */
+  private orderedPaths(group: Group): string[] {
+    return this.rows(group)
+      .filter((row) => row.kind === 'file')
+      .map((row) => row.path);
+  }
+
+  /** Expands or collapses a directory row. */
+  protected toggleDir(path: string): void {
+    this.collapsed.update((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }
+
   /** Opens the file's diff in VS Code when configured, otherwise in the dialog. */
   protected openDiff(group: Group, file: FileDiff): void {
     const originalRef = group === 'staged' ? 'HEAD' : 'INDEX';
@@ -94,7 +130,7 @@ export class WorkingPanel {
 
   protected select(group: Group, path: string, event: MouseEvent | KeyboardEvent): void {
     const additive = event.ctrlKey || event.metaKey;
-    const paths = this.files(group).map((file) => file.path);
+    const paths = this.orderedPaths(group);
     const anchor = this.anchors[group];
     const range = event.shiftKey && anchor !== null && paths.includes(anchor);
     const selection = additive ? new Set(this.selected()[group]) : new Set<string>();
@@ -118,10 +154,11 @@ export class WorkingPanel {
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
+      // Only file rows are selectable; directory toggles are skipped.
       const rows = Array.from(
         (event.currentTarget as HTMLElement)
           .closest('.file-list')!
-          .querySelectorAll<HTMLElement>('[role="option"]'),
+          .querySelectorAll<HTMLElement>('.file-row'),
       );
       const index = rows.indexOf(event.currentTarget as HTMLElement);
       const next = Math.max(
@@ -129,7 +166,7 @@ export class WorkingPanel {
         Math.min(rows.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)),
       );
       rows[next]?.focus();
-      if (event.shiftKey) this.select(group, this.files(group)[next].path, event);
+      if (event.shiftKey) this.select(group, this.orderedPaths(group)[next], event);
     }
   }
 
