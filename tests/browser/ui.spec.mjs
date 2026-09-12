@@ -900,8 +900,12 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   await feature.click();
   await expect(rows.first()).toContainText('Commit 0');
 
-  // The remote toggle hides remote branches from the panel.
-  await page.getByLabel('Show Remote Branches').uncheck();
+  // The settings dialog toggle hides remote branches from the panel.
+  await page.getByTitle('Settings').click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByLabel('Show remote branches').uncheck();
+  await settings.getByRole('button', { name: 'Save settings' }).click();
+  await expect(settings).toHaveCount(0);
   await expect(panel.getByTitle('origin/main', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Toggle repository panel' }).click();
   await expect(panel).toHaveCount(0);

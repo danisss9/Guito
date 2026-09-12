@@ -13,7 +13,7 @@
         <label class="setting-row"><span><strong>Show Git graph</strong><small>Display branch lines beside commit history.</small></span><input type="checkbox" [checked]="showGraph()" (change)="setChecked($event.target, 'showGraph')" /></label>
         <label class="setting-row"><span><strong>Show stashes</strong><small>Pin stash entries above commit history.</small></span><input type="checkbox" [checked]="showStashes()" (change)="setChecked($event.target, 'showStashes')" /></label>
         <label class="setting-row"><span><strong>Show tags</strong><small>Show tag badges attached to commits.</small></span><input type="checkbox" [checked]="showTags()" (change)="setChecked($event.target, 'showTags')" /></label>
-        <label class="setting-row"><span><strong>Show remote branches</strong><small>Include remote branches in the repository panel.</small></span><input type="checkbox" [checked]="showRemoteBranches()" (change)="setChecked($event.target, 'showRemoteBranches')" /></label>
+        <label class="setting-row"><span><strong>Show remote branches</strong><small>Include remote branches in the repository panel and branch pills.</small></span><input type="checkbox" [checked]="showRemoteBranches()" (change)="setChecked($event.target, 'showRemoteBranches')" /></label>
       </fieldset>
 
       <fieldset><legend>User details</legend>

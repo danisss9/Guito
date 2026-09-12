@@ -34,7 +34,6 @@ export class SidePanel {
   readonly loading = input(false);
 
   readonly branchChange = output<string>();
-  readonly remoteToggle = output<boolean>();
   readonly contextMenu = output<ContextMenuEvent>();
 
   protected readonly branchesOpen = signal(true);
@@ -64,10 +63,6 @@ export class SidePanel {
   protected onContextMenu(event: MouseEvent, target: ContextMenuTarget): void {
     event.preventDefault();
     this.contextMenu.emit({ x: event.clientX, y: event.clientY, target });
-  }
-
-  protected onRemoteToggle(event: Event): void {
-    this.remoteToggle.emit((event.target as HTMLInputElement).checked);
   }
 
   /** Folder or worktree name shown as the row label. */

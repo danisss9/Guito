@@ -111,7 +111,7 @@
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "Show remote branches in the repository panel and history decorations."
+          "description": "Show remote branches in the repository panel and branch pills."
         },
         "guito.fileListView": {
           "type": "string",

@@ -659,14 +659,6 @@ export class App implements OnDestroy {
     this.pendingSearchHash.set(hash);
   }
 
-  protected onRemoteToggle(show: boolean): void {
-    this.showRemote.set(show);
-    this.git.saveSettings({ showRemoteBranches: show }).subscribe({
-      next: (settings) => this.azureSettings.set(settings),
-      error: (err) => this.error.set(this.errorMessage(err)),
-    });
-  }
-
   protected runRemoteAction(action: RemoteAction): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     if (action === 'rebase-from') {
