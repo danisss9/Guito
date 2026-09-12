@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.0
+
 - Add native VS Code commands for managing repository user details and Git remotes with Quick Pick and Input Box prompts.
 - Add the `guito.searchCaseSensitive` setting for exact-case commit searches; searches remain case insensitive by default.
 - Add an Azure DevOps Pull Requests section and full review dialog with details, reviewers, votes, completion, comments, changed files, and inline diff comments.
