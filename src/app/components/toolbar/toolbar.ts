@@ -33,6 +33,8 @@ export class Toolbar {
   readonly prEnabled = input(false);
   /** Whether the commit graph column is shown; toggled from the settings menu. */
   readonly showGraph = input(true);
+  /** Whether stash rows are shown in the commit table; toggled from the settings menu. */
+  readonly showStashes = input(true);
   /** How changed-file lists are rendered; toggled from the settings menu. */
   readonly fileListView = input<'flat' | 'tree'>('flat');
   /** Whether the left repository panel is open; reflected on the toggle button. */
@@ -47,6 +49,7 @@ export class Toolbar {
   readonly remoteAction = output<RemoteAction>();
   readonly settingsClick = output<void>();
   readonly graphToggle = output<boolean>();
+  readonly stashToggle = output<boolean>();
   readonly fileViewToggle = output<void>();
   readonly filterModeChange = output<boolean>();
   readonly searchChange = output<string>();
@@ -74,12 +77,16 @@ export class Toolbar {
     this.refresh.emit();
   }
 
-  protected chooseSettingsAction(action: 'azure-url' | 'toggle-graph' | 'toggle-file-view'): void {
+  protected chooseSettingsAction(
+    action: 'azure-url' | 'toggle-graph' | 'toggle-stashes' | 'toggle-file-view',
+  ): void {
     this.openMenu.set(null);
     if (action === 'azure-url') {
       this.settingsClick.emit();
     } else if (action === 'toggle-graph') {
       this.graphToggle.emit(!this.showGraph());
+    } else if (action === 'toggle-stashes') {
+      this.stashToggle.emit(!this.showStashes());
     } else {
       this.fileViewToggle.emit();
     }

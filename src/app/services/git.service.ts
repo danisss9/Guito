@@ -156,13 +156,18 @@ export class GitService {
   /** Stash stack, newest first; index is the position used by stash@{index}. */
   getStashes(): Observable<StashEntry[]> {
     return this.http
-      .get<{ all?: { hash: string; message: string }[] }>(`${this.base}/stash/list`)
+      .get<{
+        all?: { hash: string; message: string; date?: string; author_name?: string; author_email?: string }[];
+      }>(`${this.base}/stash/list`)
       .pipe(
         map((result) =>
           (result.all ?? []).map((stash, index) => ({
             index,
             hash: stash.hash,
             message: stash.message,
+            date: stash.date,
+            author_name: stash.author_name,
+            author_email: stash.author_email,
           })),
         ),
       );
@@ -231,6 +236,7 @@ export class GitService {
   saveSettings(settings: {
     azureDevOpsUrl?: string;
     showGraph?: boolean;
+    showStashes?: boolean;
     fileListView?: 'flat' | 'tree';
   }): Observable<AzureSettings> {
     return this.http.post<AzureSettings>(`${this.base}/settings`, settings);

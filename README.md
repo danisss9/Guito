@@ -9,6 +9,7 @@ The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese w
 ## Features
 
 - Visual commit graph with branch and tag references.
+- Stashes listed in the commit table with apply, pop, and drop actions.
 - Commit search by subject, body, author, or hash, with loading feedback and retries.
 - Local and remote branch filtering.
 - Commit and working-tree diffs powered by the Monaco editor, with inline and side-by-side layouts.

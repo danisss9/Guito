@@ -396,6 +396,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
         const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
         const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
+        const fileShowStashes = typeof file.showStashes === 'boolean' ? file.showStashes : undefined;
         const fileListView = file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
         return {
             azureDevOpsUrl: azure.url,
@@ -403,6 +404,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
             diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
             showGraph: fileShowGraph ?? true,
+            showStashes: fileShowStashes ?? true,
             fileListView: fileListView ?? 'flat',
         };
     };
@@ -495,21 +497,21 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         }
         try {
             const [raw, history] = await Promise.all([
-                git.raw([
-                    'log',
-                    '--all',
-                    '-i',
-                    '--fixed-strings',
-                    `--grep=${query}`,
-                    '--format=%H',
-                ]),
+                git.raw(['log', '--all', '-i', '--fixed-strings', `--grep=${query}`, '--format=%H']),
                 git.raw(['log', '--all', '--format=%H']),
             ]);
-            const hashes = raw.split('\n').map((hash) => hash.trim()).filter(Boolean);
+            const hashes = raw
+                .split('\n')
+                .map((hash) => hash.trim())
+                .filter(Boolean);
             const matches = new Set(hashes);
             // Use the same unfiltered Git log order as the paged history endpoint.
             const indices = {};
-            history.split('\n').map((hash) => hash.trim()).filter(Boolean).forEach((hash, index) => {
+            history
+                .split('\n')
+                .map((hash) => hash.trim())
+                .filter(Boolean)
+                .forEach((hash, index) => {
                 if (matches.has(hash))
                     indices[hash] = index;
             });
@@ -807,8 +809,26 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // ==================== Stash ====================
     app.get('/api/stash/list', async (_req, resp) => {
         try {
-            const stashList = await git.stashList();
-            return resp.type('application/json').send(stashList);
+            // Extra fields (date, author) let the commit table render stash rows;
+            // they are NUL-separated because messages cannot contain NUL.
+            const raw = await git.raw([
+                'stash',
+                'list',
+                '--format=%H%x00%aI%x00%aN%x00%aE%x00%s',
+            ]);
+            const all = raw
+                .trim()
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => {
+                const [hash, date, authorName, authorEmail, message] = line.split('\u0000');
+                return { hash, date, author_name: authorName, author_email: authorEmail, message };
+            });
+            return resp.type('application/json').send({
+                all,
+                latest: all[0] ?? null,
+                total: all.length,
+            });
         }
         catch (err) {
             return resp.status(400).type('application/json').send({ error: err.message });
@@ -1003,6 +1023,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             if (typeof body.showGraph === 'boolean') {
                 settings.showGraph = body.showGraph;
+            }
+            if (typeof body.showStashes === 'boolean') {
+                settings.showStashes = body.showStashes;
             }
             if (body.fileListView === 'tree' || body.fileListView === 'flat') {
                 settings.fileListView = body.fileListView;

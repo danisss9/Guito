@@ -70,6 +70,10 @@ export interface StashEntry {
   index: number;
   hash: string;
   message: string;
+  /** Stash commit metadata, shown in the commit table rows. */
+  date?: string;
+  author_name?: string;
+  author_email?: string;
 }
 
 /** A working directory attached to the repository (git worktree). */
@@ -179,6 +183,8 @@ export interface AzureSettings {
   diffViewer?: 'guito' | 'vscode';
   /** Whether the commit table shows the graph column; defaults to true. */
   showGraph?: boolean;
+  /** Whether the commit table shows stash rows; defaults to true. */
+  showStashes?: boolean;
   /** How changed-file lists (staged, unstaged, commit) are shown; defaults to flat. */
   fileListView?: 'flat' | 'tree';
 }

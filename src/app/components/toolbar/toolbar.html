@@ -141,6 +141,9 @@
           <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
             {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
           </button>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-stashes')">
+            {{ showStashes() ? 'Hide Stashes' : 'Show Stashes' }}
+          </button>
           <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-file-view')">
             {{ fileListView() === 'tree' ? 'View Files as Flat List' : 'View Files as Tree' }}
           </button>
@@ -206,6 +209,9 @@
           </button>
           <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-graph')">
             {{ showGraph() ? 'Hide Git Graph' : 'Show Git Graph' }}
+          </button>
+          <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-stashes')">
+            {{ showStashes() ? 'Hide Stashes' : 'Show Stashes' }}
           </button>
           <button type="button" role="menuitem" (click)="chooseSettingsAction('toggle-file-view')">
             {{ fileListView() === 'tree' ? 'View Files as Flat List' : 'View Files as Tree' }}

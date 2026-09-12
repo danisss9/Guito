@@ -44,6 +44,7 @@ async function setup(page, count = 700, overrides = {}) {
     worktreeRequests: 0,
     bodyMatchIndex: 600,
     stageRequests: [],
+    stashRequests: [],
     commitRequests: [],
     contentRequests: [],
     conflicts: [],
@@ -115,8 +116,21 @@ async function setup(page, count = 700, overrides = {}) {
       case '/api/stash/list':
         return send({
           total: 1,
-          all: [{ hash: 'f'.padEnd(40, '0'), message: 'WIP on main: fixture stash' }],
+          all: [
+            {
+              hash: 'f'.padEnd(40, '0'),
+              message: 'WIP on main: fixture stash',
+              date: '2026-09-08T09:30:00Z',
+              author_name: 'Stash Author',
+              author_email: 'test@example.test',
+            },
+          ],
         });
+      case '/api/stash/apply':
+      case '/api/stash/pop':
+      case '/api/stash/drop':
+        state.stashRequests.push({ path: parsed.pathname, ...body });
+        return send({ success: true });
       case '/api/worktrees':
         state.worktreeRequests++;
         return send([
@@ -802,5 +816,47 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
     .poll(() => state.fetchRequests.some((request) => request.prune === '1'))
     .toBe(true);
   await expect(page.locator('.table-loading')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('stash rows show above the history with a pill, actions, and a settings toggle', async ({
+  page,
+}) => {
+  const { state, errors } = await setup(page);
+  const stashRow = page.locator('.stash-row');
+
+  // The stash appears as a pinned row with a stash@{n} pill and its message,
+  // author, and date, above the working row and the history.
+  await expect(stashRow).toHaveCount(1);
+  await expect(stashRow.locator('.badge-stash')).toContainText('stash@{0}');
+  await expect(stashRow).toContainText('fixture stash');
+  await expect(stashRow).toContainText('Stash Author');
+  await expect(stashRow).toContainText('Sep 2026');
+
+  // Clicking opens the stash commit in the details pane.
+  await stashRow.click();
+  const detail = page.locator('app-commit-detail');
+  await expect(detail).toBeVisible();
+  await expect(detail.locator('.subject')).toContainText('fixture stash');
+
+  // Right-clicking offers the stash actions; applying posts the stash index.
+  await stashRow.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Pop Stash' }).click();
+  await expect.poll(() => state.stashRequests.at(-1)).toEqual({
+    path: '/api/stash/pop',
+    index: 0,
+  });
+
+  // The settings menu hides the rows and persists the choice.
+  await page.getByTitle('Settings').click();
+  await page.getByRole('menuitem', { name: 'Hide Stashes' }).click();
+  await expect.poll(() => state.settings.showStashes).toBe(false);
+  await expect(stashRow).toHaveCount(0);
+
+  // The settings menu offers the way back.
+  await page.getByTitle('Settings').click();
+  await page.getByRole('menuitem', { name: 'Show Stashes' }).click();
+  await expect.poll(() => state.settings.showStashes).toBe(true);
+  await expect(stashRow).toHaveCount(1);
   expect(errors).toEqual([]);
 });

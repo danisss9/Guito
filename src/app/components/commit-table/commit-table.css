@@ -175,6 +175,40 @@
   border-color: rgba(215, 186, 125, 0.4);
 }
 
+.stash-row {
+  flex: none;
+  background: rgba(197, 134, 192, 0.04);
+}
+
+.stash-row:hover {
+  background: rgba(197, 134, 192, 0.08);
+}
+
+.stash-row.selected {
+  background: #4d2a49;
+}
+
+.stash-row:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+.stash-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  fill: none;
+  stroke: #c586c0;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.badge-stash {
+  background: rgba(197, 134, 192, 0.14);
+  color: #c586c0;
+  border-color: rgba(197, 134, 192, 0.4);
+}
+
 .count-badge {
   flex: none;
   padding: 1px 7px;

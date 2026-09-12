@@ -26,6 +26,7 @@ import {
   GitCommit,
   GitIdentity,
   RefBadge,
+  StashEntry,
   WORKING_HASH,
   WorkingChanges,
 } from '../../models/git.models';
@@ -124,6 +125,10 @@ export class CommitTable implements OnDestroy {
   readonly selectedBranch = input<string>('');
   readonly showRemote = input(true);
   readonly workingChanges = input<WorkingChanges | null>(null);
+  /** Stash stack rendered as pinned rows above the history. */
+  readonly stashes = input<StashEntry[]>([]);
+  /** Whether stash rows are shown; toggled from the settings menu. */
+  readonly showStashes = input(true);
   readonly unloaded = input(0);
   readonly historyLoading = input(false);
   readonly loadingLabel = input('');
@@ -446,6 +451,29 @@ export class CommitTable implements OnDestroy {
     parents: [],
   }));
 
+  /** Stash rows pinned above the history; empty when hidden or none exist. */
+  protected readonly visibleStashes = computed(() =>
+    this.showStashes() ? this.stashes() : [],
+  );
+
+  /** Builds the pseudo commit handed to the detail pane for a stash row. */
+  protected stashCommit(stash: StashEntry): GitCommit {
+    return {
+      hash: stash.hash,
+      date: stash.date ?? '',
+      message: stash.message,
+      refs: '',
+      author_name: stash.author_name ?? '',
+      author_email: stash.author_email ?? '',
+      parents: [],
+    };
+  }
+
+  /** Display name of a stash, e.g. stash@{0}. */
+  protected stashLabel(stash: StashEntry): string {
+    return `stash@{${stash.index}}`;
+  }
+
   // ==================== Column resizing ====================
 
   private resizeState: { column: ResizableColumn; startX: number; startWidth: number } | null =
@@ -526,6 +554,12 @@ export class CommitTable implements OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.contextMenu.emit({ x: event.clientX, y: event.clientY, target: { kind: 'working' } });
+  }
+
+  protected onStashContextMenu(event: MouseEvent, stash: StashEntry): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenu.emit({ x: event.clientX, y: event.clientY, target: { kind: 'stash', stash } });
   }
 
   // ==================== Search highlighting ====================

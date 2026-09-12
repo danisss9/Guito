@@ -498,11 +498,13 @@ export async function startGuitoServer({
     autoReload: boolean;
     diffViewer: 'guito' | 'vscode';
     showGraph: boolean;
+    showStashes: boolean;
     fileListView: 'flat' | 'tree';
   }> => {
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
     const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
+    const fileShowStashes = typeof file.showStashes === 'boolean' ? file.showStashes : undefined;
     const fileListView =
       file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
     return {
@@ -511,6 +513,7 @@ export async function startGuitoServer({
       autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
       diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
       showGraph: fileShowGraph ?? true,
+      showStashes: fileShowStashes ?? true,
       fileListView: fileListView ?? 'flat',
     };
   };
@@ -933,8 +936,26 @@ export async function startGuitoServer({
   // ==================== Stash ====================
   app.get('/api/stash/list', async (_req, resp) => {
     try {
-      const stashList = await git.stashList();
-      return resp.type('application/json').send(stashList);
+      // Extra fields (date, author) let the commit table render stash rows;
+      // they are NUL-separated because messages cannot contain NUL.
+      const raw = await git.raw([
+        'stash',
+        'list',
+        '--format=%H%x00%aI%x00%aN%x00%aE%x00%s',
+      ]);
+      const all = raw
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [hash, date, authorName, authorEmail, message] = line.split('\u0000');
+          return { hash, date, author_name: authorName, author_email: authorEmail, message };
+        });
+      return resp.type('application/json').send({
+        all,
+        latest: all[0] ?? null,
+        total: all.length,
+      });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1125,6 +1146,9 @@ export async function startGuitoServer({
       }
       if (typeof body.showGraph === 'boolean') {
         settings.showGraph = body.showGraph;
+      }
+      if (typeof body.showStashes === 'boolean') {
+        settings.showStashes = body.showStashes;
       }
       if (body.fileListView === 'tree' || body.fileListView === 'flat') {
         settings.fileListView = body.fileListView;

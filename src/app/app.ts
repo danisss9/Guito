@@ -130,6 +130,8 @@ export class App implements OnDestroy {
   protected readonly autoReload = computed(() => this.azureSettings()?.autoReload !== false);
   /** The commit graph column can be hidden from the settings menu. */
   protected readonly showGraph = computed(() => this.azureSettings()?.showGraph !== false);
+  /** Stash rows in the commit table can be hidden from the settings menu. */
+  protected readonly showStashes = computed(() => this.azureSettings()?.showStashes !== false);
   /** Whether changed-file lists render as a directory tree instead of a flat list. */
   protected readonly fileListView = computed(() =>
     this.azureSettings()?.fileListView === 'tree' ? 'tree' : 'flat',
@@ -409,6 +411,8 @@ export class App implements OnDestroy {
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
       settings: this.git.getSettings().pipe(catchError(() => of(null))),
+      // The commit table shows stash rows even when the side panel is closed.
+      stashes: this.git.getStashes().pipe(catchError(() => of([] as StashEntry[]))),
       working: this.git.getWorkingChanges().pipe(
         catchError((err) => {
           this.lastRepositoryState = null;
@@ -417,12 +421,13 @@ export class App implements OnDestroy {
         }),
       ),
     }).subscribe({
-      next: ({ history, branches, repo, settings, working }) => {
+      next: ({ history, branches, repo, settings, stashes, working }) => {
         this.commits.set(history.commits);
         this.totalCommits.set(Math.max(history.total, history.commits.length));
         this.branches.set(branches);
         this.repoName.set(repo.name);
         this.identity.set(repo.identity ?? { name: '', email: '' });
+        this.stashes.set(stashes);
         if (
           this.selectedBranch() &&
           !branches.some((branch) => branch.name === this.selectedBranch())
@@ -1286,6 +1291,14 @@ export class App implements OnDestroy {
   /** Persists the graph visibility; the response carries the effective settings. */
   protected onGraphToggle(show: boolean): void {
     this.git.saveSettings({ showGraph: show }).subscribe({
+      next: (settings) => this.azureSettings.set(settings),
+      error: (err) => this.error.set(this.errorMessage(err)),
+    });
+  }
+
+  /** Persists the commit-table stash rows visibility. */
+  protected onStashToggle(show: boolean): void {
+    this.git.saveSettings({ showStashes: show }).subscribe({
       next: (settings) => this.azureSettings.set(settings),
       error: (err) => this.error.set(this.errorMessage(err)),
     });

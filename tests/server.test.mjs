@@ -343,10 +343,32 @@ test('lists worktrees and stashes, and prunes deleted remote branches on fetch',
   assert.equal(other.branch, 'linked-branch');
   assert.equal(resolve(other.path), resolve(linked));
 
-  // The stash list feeds the panel with hash + message entries.
+  // The stash list feeds the panel and the commit table rows; the entries
+  // carry the stash commit's metadata on top of hash + message.
   const stashList = await (await fetch(`${server.address}/api/stash/list`)).json();
   assert.equal(stashList.total, 1);
   assert.ok(stashList.all[0].message.includes('wip stash'));
+  assert.match(stashList.all[0].hash, /^[0-9a-f]{40}$/);
+  assert.match(stashList.all[0].date, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(typeof stashList.all[0].author_name, 'string');
+  assert.equal(typeof stashList.all[0].author_email, 'string');
+  // The stash hash resolves through the commit endpoints used by the detail pane.
+  const stashDetail = await fetch(`${server.address}/api/commit/detail`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hash: stashList.all[0].hash }),
+  });
+  assert.equal(stashDetail.status, 200);
+  const stashDiff = await fetch(`${server.address}/api/commit/diff`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hash: stashList.all[0].hash }),
+  });
+  assert.equal(stashDiff.status, 200);
+  assert.ok(
+    (await stashDiff.json()).files.some((file) => file.path === 'stashed.txt'),
+    'the stash diff shows the stashed file',
+  );
 
   // A plain fetch keeps the stale remote-tracking branch; prune removes it.
   assert.ok(
@@ -777,6 +799,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    showStashes: true,
     fileListView: 'flat',
   });
 
@@ -788,6 +811,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    showStashes: true,
     fileListView: 'flat',
   });
 
@@ -819,6 +843,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    showStashes: true,
     fileListView: 'flat',
   });
 
@@ -836,12 +861,30 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: false,
+    showStashes: true,
     fileListView: 'flat',
   });
   const fileAfterHide = JSON.parse(
     await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
   );
   assert.equal(fileAfterHide.showGraph, false);
+
+  // Hiding the commit-table stash rows persists the same way.
+  const stashesHidden = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ showStashes: false }),
+  });
+  assert.equal(stashesHidden.status, 200);
+  assert.deepEqual(await stashesHidden.json(), {
+    azureDevOpsUrl: '',
+    source: '',
+    autoReload: true,
+    diffViewer: 'guito',
+    showGraph: false,
+    showStashes: false,
+    fileListView: 'flat',
+  });
 
   // Switching the file lists to the tree view persists, an invalid value is
   // ignored, and unrelated keys survive.
@@ -857,6 +900,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: false,
+    showStashes: false,
     fileListView: 'tree',
   });
   const fileAfterTree = JSON.parse(
@@ -890,6 +934,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'vscode',
     showGraph: false,
+    showStashes: false,
     fileListView: 'tree',
   });
 
@@ -907,6 +952,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'guito',
     showGraph: true,
+    showStashes: true,
     fileListView: 'flat',
   });
   const reloaded = await startGuitoServer({
@@ -924,6 +970,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
+    showStashes: true,
     fileListView: 'flat',
   });
 });
