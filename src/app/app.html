@@ -38,6 +38,7 @@
         (branchChange)="selectedBranch.set($event)"
         (tagSelect)="selectTag($event)"
         (contextMenu)="onContextMenu($event)"
+        (worktreeCreate)="openWorktreeDialog()"
         (prSelect)="openPrDetail($event)"
         (prRefresh)="loadPullRequests()"
       />
@@ -83,6 +84,16 @@
 
   <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
   <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="onPromptCancel()" />
+  @if (worktreeDialogOpen()) {
+    <app-worktree-dialog
+      [branches]="branches()"
+      [worktrees]="worktrees()"
+      [busy]="mutationBusy()"
+      [error]="worktreeDialogError()"
+      (created)="createWorktree($event)"
+      (closed)="worktreeDialogOpen.set(false)"
+    />
+  }
   @if (prDialogOpen()) {
     <app-create-pr-dialog
       [branches]="branches()"

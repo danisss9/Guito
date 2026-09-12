@@ -87,7 +87,7 @@
           ],
           "default": "guito",
           "scope": "window",
-          "description": "Where file diffs open when you click a file in Guito."
+          "description": "Where file diffs opened from Guito are displayed."
         },
         "guito.showGraph": {
           "type": "boolean",

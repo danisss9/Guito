@@ -40,17 +40,17 @@
                 <span class="counts"><span class="additions">+{{ row.additions }}</span> <span class="deletions">−{{ row.deletions }}</span></span>
               </button>
             } @else {
-              <div class="file-entry">
-                <div class="file-row" [attr.role]="fileListView() === 'tree' ? 'treeitem' : 'option'"
-                  tabindex="0" [attr.aria-selected]="selected()[group].has(row.file.path)"
-                  [class.selected]="selected()[group].has(row.file.path)" [attr.aria-label]="row.file.path"
-                  [style.paddingLeft.px]="row.depth * 14 + 4"
-                  (click)="select(group, row.file.path, $event)" (keydown)="keySelect(group, row.file.path, $event)">
-                  <span class="file-status" [title]="row.file.status">{{ row.file.status.slice(0, 1).toUpperCase() }}</span>
-                  <span class="file-path" [title]="row.file.oldPath && row.file.oldPath !== row.file.path ? row.file.oldPath + ' → ' + row.file.path : row.file.path">{{ row.name }}</span>
-                  <span class="counts"><span class="additions">+{{ row.file.additions }}</span> <span class="deletions">−{{ row.file.deletions }}</span></span>
-                </div>
-                <button type="button" class="file-action" [attr.aria-label]="'View ' + group + ' diff for ' + row.file.path" [disabled]="busy()" (click)="openDiff(group, row.file)">Diff</button>
+              <div class="file-row" [attr.role]="fileListView() === 'tree' ? 'treeitem' : 'option'"
+                tabindex="0" [attr.aria-selected]="selected()[group].has(row.file.path)"
+                [class.selected]="selected()[group].has(row.file.path)" [attr.aria-label]="row.file.path"
+                [style.paddingLeft.px]="row.depth * 14 + 4"
+                (click)="select(group, row.file.path, $event)"
+                (dblclick)="openDiff(group, row.file)"
+                (contextmenu)="openContextMenu($event, group, row.file)"
+                (keydown)="keySelect(group, row.file.path, $event)">
+                <span class="file-status" [title]="row.file.status">{{ row.file.status.slice(0, 1).toUpperCase() }}</span>
+                <span class="file-path" [title]="row.file.oldPath && row.file.oldPath !== row.file.path ? row.file.oldPath + ' → ' + row.file.path : row.file.path">{{ row.name }}</span>
+                <span class="counts"><span class="additions">+{{ row.file.additions }}</span> <span class="deletions">−{{ row.file.deletions }}</span></span>
               </div>
             }
           } @empty { <p class="empty">{{ group === 'staged' ? 'No staged changes.' : 'No unstaged changes.' }}</p> }
@@ -71,3 +71,4 @@
   <app-diff-dialog [file]="value.file" [originalRef]="value.group === 'staged' ? 'HEAD' : 'INDEX'"
     [modifiedRef]="value.group === 'staged' ? 'INDEX' : 'WORKING'" (closed)="dialog.set(null)" />
 }
+<app-context-menu [menu]="contextMenu()" (select)="runContextAction($event)" (closed)="closeContextMenu()" />

@@ -25,6 +25,7 @@ import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
 import { PrDialog } from './components/pr-dialog/pr-dialog';
 import { SidePanel } from './components/side-panel/side-panel';
 import { WorkingPanel } from './components/working-panel/working-panel';
+import { WorktreeDialog } from './components/worktree-dialog/worktree-dialog';
 import { Toolbar, RemoteAction } from './components/toolbar/toolbar';
 import {
   AzureSettings,
@@ -82,6 +83,7 @@ function loadCommitDraft(): CommitDraft {
     CreatePrDialog,
     SettingsDialog,
     PrDialog,
+    WorktreeDialog,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -169,6 +171,8 @@ export class App implements OnDestroy {
   protected readonly panelLoading = signal(false);
   protected readonly stashes = signal<StashEntry[]>([]);
   protected readonly worktrees = signal<WorktreeInfo[]>([]);
+  protected readonly worktreeDialogOpen = signal(false);
+  protected readonly worktreeDialogError = signal('');
   protected readonly tags = signal<TagInfo[]>([]);
 
   /** The signed-in user's Azure DevOps pull requests; null until first load. */
@@ -887,6 +891,13 @@ export class App implements OnDestroy {
       items.push({ separator: true });
       items.push({ label: 'Copy Stash Name to Clipboard', action: 'copy-stash-name' });
     } else if (event.target.kind === 'worktree') {
+      items.push({
+        label: 'Delete Worktree...',
+        action: 'delete-worktree',
+        danger: true,
+        disabled: event.target.worktree?.current || event.target.worktree?.bare,
+      });
+      items.push({ separator: true });
       items.push({ label: 'Copy Worktree Path to Clipboard', action: 'copy-worktree-path' });
     } else {
       items.push({ label: 'Stash uncommitted changes...', action: 'stash-working' });
@@ -910,6 +921,23 @@ export class App implements OnDestroy {
   /** Jumps to the commit a tag points to; pages load until it appears. */
   protected selectTag(tag: TagInfo): void {
     this.pendingSearchHash.set(tag.hash);
+  }
+
+  protected openWorktreeDialog(): void {
+    this.worktreeDialogError.set('');
+    this.worktreeDialogOpen.set(true);
+  }
+
+  protected createWorktree(request: { path: string; branch: string }): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
+    this.worktreeDialogError.set('');
+    this.git.createWorktree(request.path, request.branch).subscribe({
+      next: () => {
+        this.worktreeDialogOpen.set(false);
+        this.loadSidePanelData();
+      },
+      error: (err) => this.worktreeDialogError.set(this.errorMessage(err)),
+    });
   }
 
   protected onContextAction(action: string): void {
@@ -1139,6 +1167,19 @@ export class App implements OnDestroy {
         }
         break;
       }
+      case 'delete-worktree': {
+        const worktree = this.contextMenuTarget()?.worktree;
+        if (worktree && !worktree.current && !worktree.bare) {
+          this.promptState.set({
+            title: 'Delete worktree?',
+            label: `This will remove the worktree folder "${worktree.path}". Git will refuse if it contains uncommitted changes.`,
+            confirmOnly: true,
+            okLabel: 'Delete',
+            danger: true,
+          });
+        }
+        break;
+      }
       case 'copy-branch-name':
         if (this.contextMenuTarget()?.branch?.name) {
           void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
@@ -1276,6 +1317,17 @@ export class App implements OnDestroy {
       if (name) {
         this.git.deleteTag(name).subscribe({
           next: () => this.refresh(),
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
+      }
+      return;
+    }
+
+    if (state.title === 'Delete worktree?') {
+      const worktree = this.contextMenuTarget()?.worktree;
+      if (worktree && !worktree.current && !worktree.bare) {
+        this.git.removeWorktree(worktree.path).subscribe({
+          next: () => this.loadSidePanelData(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });
       }

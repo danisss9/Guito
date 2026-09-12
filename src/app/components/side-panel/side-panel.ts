@@ -47,6 +47,7 @@ export class SidePanel {
   readonly branchChange = output<string>();
   readonly tagSelect = output<TagInfo>();
   readonly contextMenu = output<ContextMenuEvent>();
+  readonly worktreeCreate = output<void>();
   /** Opens the pull request detail dialog. */
   readonly prSelect = output<number>();
   /** Reloads the pull request list. */

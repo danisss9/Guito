@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { basename, join, normalize, resolve } from 'node:path';
+import { basename, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import {
@@ -36,6 +36,16 @@ interface OpenDiffMessage {
 
 interface OpenSettingsMessage {
   type: 'guito/openSettings';
+}
+
+interface OpenFileMessage {
+  type: 'guito/openFile';
+  path: string;
+}
+
+interface PickFolderMessage {
+  type: 'guito/pickFolder';
+  requestId: number;
 }
 
 const sessions = new Map<string, RepositorySession>();
@@ -202,9 +212,32 @@ async function openRepository(
     // Shows the extension logo on the webview's editor tab.
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
     panel.webview.html = webviewHtml(externalUri, randomBytes(16).toString('hex'));
-    panel.webview.onDidReceiveMessage((message: OpenDiffMessage | OpenSettingsMessage) => {
+    panel.webview.onDidReceiveMessage((message: OpenDiffMessage | OpenFileMessage | OpenSettingsMessage | PickFolderMessage) => {
       if (message?.type === 'guito/openSettings') {
         void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:danisss9.guito');
+        return;
+      }
+      if (message?.type === 'guito/pickFolder' && Number.isInteger(message.requestId)) {
+        void vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          defaultUri: vscode.Uri.file(resolve(repository.root, '..')),
+          openLabel: 'Select Worktree Folder',
+          title: 'Select a folder for the new worktree',
+        }).then((selection) => panel.webview.postMessage({
+          type: 'guito/folderSelected',
+          requestId: message.requestId,
+          path: selection?.[0]?.fsPath ?? '',
+        }));
+        return;
+      }
+      if (message?.type === 'guito/openFile' && typeof message.path === 'string') {
+        openFileInVsCode(repository.root, message.path).catch((error) => {
+          void vscode.window.showErrorMessage(
+            `Guito could not open the file: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
         return;
       }
       if (message?.type !== 'guito/openDiff' || typeof message.path !== 'string') {
@@ -263,8 +296,8 @@ function webviewHtml(externalUri: vscode.Uri, nonce: string): string {
           if (event.source === frame.contentWindow) {
             // The app asks the extension host to act (e.g. open a diff in a tab).
             vscode.postMessage(data);
-          } else if (data.type === 'guito/config') {
-            // The extension host pushed updated settings; relay them into the app.
+          } else if (data.type.indexOf('guito/') === 0) {
+            // The extension host pushed a response or settings update; relay it.
             frame.contentWindow.postMessage(data, '*');
           }
         });
@@ -376,6 +409,24 @@ async function openDiffInVsCode(root: string, message: OpenDiffMessage): Promise
   const right = diffUri(root, message.modifiedRef, message.path);
   const title = `${basename(message.path)} (${refLabel(originalRef)} ↔ ${refLabel(message.modifiedRef)})`;
   await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
+}
+
+async function openFileInVsCode(root: string, path: string): Promise<void> {
+  const absolutePath = resolve(root, path);
+  const repositoryPath = relative(root, absolutePath);
+  if (
+    !path ||
+    path.includes('\0') ||
+    isAbsolute(path) ||
+    repositoryPath === '..' ||
+    repositoryPath.startsWith(`..${sep}`) ||
+    isAbsolute(repositoryPath) ||
+    path.split(/[\\/]/).some((part) => part.toLowerCase() === '.git')
+  ) {
+    throw new Error('Select a repository-relative file path.');
+  }
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
+  await vscode.window.showTextDocument(document, { preview: true });
 }
 
 function escapeHtml(value: string): string {

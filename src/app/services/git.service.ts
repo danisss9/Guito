@@ -205,6 +205,14 @@ export class GitService {
     return this.http.get<WorktreeInfo[]>(`${this.base}/worktrees`);
   }
 
+  createWorktree(path: string, branch: string): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/worktrees`, { path, branch }));
+  }
+
+  removeWorktree(path: string): Observable<unknown> {
+    return this.mutate(() => this.http.post(`${this.base}/worktrees/remove`, { path }));
+  }
+
   /** All repository tags, sorted by name, each with the commit it points to. */
   getTags(): Observable<TagInfo[]> {
     return this.http.get<TagInfo[]>(`${this.base}/tags`);

@@ -166,22 +166,36 @@
   </section>
 
   <section class="tree">
-    <button
-      type="button"
-      class="tree-head"
-      [attr.aria-expanded]="worktreesOpen()"
-      (click)="worktreesOpen.set(!worktreesOpen())"
-    >
-      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-        @if (worktreesOpen()) {
-          <polyline points="6 9 12 15 18 9" />
-        } @else {
-          <polyline points="9 6 15 12 9 18" />
-        }
-      </svg>
-      <span class="tree-title">Worktrees</span>
-      <span class="tree-count">{{ worktrees().length }}</span>
-    </button>
+    <div class="tree-head-row">
+      <button
+        type="button"
+        class="tree-head"
+        [attr.aria-expanded]="worktreesOpen()"
+        (click)="worktreesOpen.set(!worktreesOpen())"
+      >
+        <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+          @if (worktreesOpen()) {
+            <polyline points="6 9 12 15 18 9" />
+          } @else {
+            <polyline points="9 6 15 12 9 18" />
+          }
+        </svg>
+        <span class="tree-title">Worktrees</span>
+        <span class="tree-count">{{ worktrees().length }}</span>
+      </button>
+      <button
+        type="button"
+        class="head-action"
+        title="Create worktree"
+        aria-label="Create worktree"
+        (click)="worktreeCreate.emit()"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </button>
+    </div>
     @if (worktreesOpen()) {
       <div class="tree-body">
         @for (worktree of worktrees(); track worktree.path) {

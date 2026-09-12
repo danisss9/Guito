@@ -416,6 +416,45 @@ test('lists worktrees and stashes, and prunes deleted remote branches on fetch',
   assert.equal(other.branch, 'linked-branch');
   assert.equal(resolve(other.path), resolve(linked));
 
+  // Worktrees can be created from an existing local branch and removed again.
+  git('branch', 'api-worktree');
+  const apiLinked = join(repositoryPath, 'api-linked');
+  const created = await fetch(`${server.address}/api/worktrees`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: apiLinked, branch: 'api-worktree' }),
+  });
+  assert.equal(created.status, 200, await created.text());
+  assert.equal(execFileSync('git', ['branch', '--show-current'], { cwd: apiLinked }).toString().trim(), 'api-worktree');
+
+  // Removing the served worktree is always rejected.
+  const removeCurrent = await fetch(`${server.address}/api/worktrees/remove`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: repositoryPath }),
+  });
+  assert.equal(removeCurrent.status, 400);
+  assert.match((await removeCurrent.json()).error, /currently open/i);
+
+  await writeFile(join(apiLinked, 'uncommitted.txt'), 'keep me\n');
+  const dirtyRemoval = await fetch(`${server.address}/api/worktrees/remove`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: apiLinked }),
+  });
+  assert.equal(dirtyRemoval.status, 400);
+  assert.ok((await dirtyRemoval.json()).error);
+  await rm(join(apiLinked, 'uncommitted.txt'));
+
+  const removed = await fetch(`${server.address}/api/worktrees/remove`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: apiLinked }),
+  });
+  assert.equal(removed.status, 200, await removed.text());
+  assert.equal((await fetch(`${server.address}/api/worktrees`).then((response) => response.json()))
+    .some((entry) => resolve(entry.path) === resolve(apiLinked)), false);
+
   // The stash list feeds the panel and the commit table rows; the entries
   // carry the stash commit's metadata on top of hash + message.
   const stashList = await (await fetch(`${server.address}/api/stash/list`)).json();

@@ -1,0 +1,46 @@
+<div class="backdrop" (click)="closed.emit()"></div>
+<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="worktree-title" (submit)="$event.preventDefault(); submit()">
+  <h3 id="worktree-title" class="title">Create Worktree</h3>
+  <p class="description">Create a linked working folder from an available local branch.</p>
+
+  <label class="field-label" for="worktree-folder">Folder</label>
+  <div class="folder-row">
+    <input
+      id="worktree-folder"
+      class="input"
+      type="text"
+      autocomplete="off"
+      placeholder="Absolute path to an empty or new folder"
+      [value]="path()"
+      [disabled]="busy()"
+      (input)="onPath($event)"
+    />
+    <button
+      class="btn"
+      type="button"
+      [disabled]="busy() || !canBrowse"
+      [title]="canBrowse ? 'Browse for a folder' : 'Folder browsing is available in the VS Code extension'"
+      (click)="browse()"
+    >Browse...</button>
+  </div>
+
+  <label class="field-label" for="worktree-branch">Branch</label>
+  <select id="worktree-branch" class="input select" [value]="branch()" [disabled]="busy()" (change)="onBranch($event)">
+    @for (item of availableBranches(); track item.name) {
+      <option [value]="item.name">{{ item.name }}</option>
+    }
+  </select>
+  @if (availableBranches().length === 0) {
+    <p class="notice">Every local branch is already checked out in a worktree.</p>
+  }
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <div class="actions">
+    <button class="btn" type="button" [disabled]="busy()" (click)="closed.emit()">Cancel</button>
+    <button class="btn btn-primary" type="submit" [disabled]="busy() || !path().trim() || !branch()">
+      {{ busy() ? 'Creating...' : 'Create Worktree' }}
+    </button>
+  </div>
+</form>

@@ -60,6 +60,15 @@ async function setup(page, count = 700, overrides = {}) {
     historyRanges: [],
     fetchRequests: [],
     worktreeRequests: 0,
+    worktreeMutations: [],
+    worktrees: [{
+      path: '/fixture',
+      head: commits[0].hash,
+      branch: 'main',
+      bare: false,
+      detached: false,
+      current: true,
+    }],
     bodyMatchIndex: 600,
     stageRequests: [],
     stashRequests: [],
@@ -212,16 +221,23 @@ async function setup(page, count = 700, overrides = {}) {
         return send({ success: true });
       case '/api/worktrees':
         state.worktreeRequests++;
-        return send([
-          {
-            path: '/fixture',
-            head: commits[0].hash,
-            branch: 'main',
+        if (request.method() === 'POST') {
+          state.worktreeMutations.push({ endpoint: parsed.pathname, ...body });
+          state.worktrees.push({
+            path: body.path,
+            head: commits[10].hash,
+            branch: body.branch,
             bare: false,
             detached: false,
-            current: true,
-          },
-        ]);
+            current: false,
+          });
+          return send({ success: true });
+        }
+        return send(state.worktrees);
+      case '/api/worktrees/remove':
+        state.worktreeMutations.push({ endpoint: parsed.pathname, ...body });
+        state.worktrees = state.worktrees.filter((worktree) => worktree.path !== body.path);
+        return send({ success: true });
       case '/api/fetch':
         state.fetchRequests.push({ prune: parsed.searchParams.get('prune') });
         return send({ success: true });
@@ -558,15 +574,22 @@ test('modifier selection, separate diffs, bulk actions and drafts', async ({ pag
   await expect.poll(() => state.stageRequests.length).toBe(1);
   expect(state.stageRequests[0].files).toEqual(['a.txt', 'c.txt']);
   await expect(unstaged.getByRole('option', { selected: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'View staged diff for partial.txt', exact: true }).click();
+  const staged = page.getByRole('listbox', { name: 'staged files', exact: true });
+  await expect(staged.getByRole('button', { name: /diff/i })).toHaveCount(0);
+  await staged.getByRole('option', { name: 'partial.txt', exact: true }).dblclick();
   await expect.poll(() => state.contentRequests.length).toBe(2);
   expect(state.contentRequests.map((r) => r.ref)).toEqual(['HEAD', 'INDEX']);
   await page.getByRole('button', { name: 'Close diff', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'View unstaged diff for partial.txt', exact: true })
-    .click();
+  await unstaged.getByRole('option', { name: 'partial.txt', exact: true }).dblclick();
   await expect.poll(() => state.contentRequests.length).toBe(4);
   expect(state.contentRequests.slice(2).map((r) => r.ref)).toEqual(['INDEX', 'WORKING']);
+  await page.getByRole('button', { name: 'Close diff', exact: true }).click();
+  await unstaged.getByRole('option', { name: 'partial.txt', exact: true }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Open Diff', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Open File', exact: true })).toBeDisabled();
+  await page.getByRole('menuitem', { name: 'Open Diff', exact: true }).click();
+  await expect.poll(() => state.contentRequests.length).toBe(6);
+  expect(state.contentRequests.slice(4).map((r) => r.ref)).toEqual(['INDEX', 'WORKING']);
   await page.getByRole('button', { name: 'Close diff', exact: true }).click();
   await page.getByLabel('Commit message', { exact: true }).fill('Keep this draft');
   await page.getByRole('button', { name: 'Close changes' }).click();
@@ -997,6 +1020,36 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   );
   await expect(panel.locator('.tree').filter({ hasText: 'Worktrees' })).toContainText('fixture');
   expect(state.worktreeRequests).toBeGreaterThan(0);
+
+  // The section action creates a worktree from an available local branch.
+  await panel.getByRole('button', { name: 'Create worktree' }).click();
+  const worktreeDialog = page.getByRole('dialog', { name: 'Create Worktree' });
+  await expect(worktreeDialog).toBeVisible();
+  await expect(worktreeDialog.getByRole('button', { name: 'Browse...' })).toBeDisabled();
+  await worktreeDialog.getByLabel('Folder').fill('/tmp/feature-worktree');
+  await worktreeDialog.getByLabel('Branch').selectOption('feature');
+  await worktreeDialog.getByRole('button', { name: 'Create Worktree' }).click();
+  await expect(worktreeDialog).toHaveCount(0);
+  await expect(panel.getByTitle('/tmp/feature-worktree')).toContainText('feature');
+  await expect.poll(() => state.worktreeMutations.at(-1)).toEqual({
+    endpoint: '/api/worktrees',
+    path: '/tmp/feature-worktree',
+    branch: 'feature',
+  });
+
+  // Right-click deletion confirms before removing the folder; the current
+  // worktree's equivalent action remains disabled.
+  await panel.getByTitle('/fixture', { exact: true }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Delete Worktree...' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await panel.getByTitle('/tmp/feature-worktree').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete Worktree...' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(panel.getByTitle('/tmp/feature-worktree')).toHaveCount(0);
+  await expect.poll(() => state.worktreeMutations.at(-1)).toEqual({
+    endpoint: '/api/worktrees/remove',
+    path: '/tmp/feature-worktree',
+  });
 
   // Tags are listed below the branches with a count.
   const tagsSection = panel.locator('.tree').filter({ hasText: 'Tags' });

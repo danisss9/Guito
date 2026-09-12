@@ -9,16 +9,22 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { FileDiff, StashScope, WorkingChanges } from '../../models/git.models';
+import {
+  ContextMenuState,
+  FileDiff,
+  StashScope,
+  WorkingChanges,
+} from '../../models/git.models';
 import { VscodeService } from '../../services/vscode.service';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
+import { ContextMenu } from '../context-menu/context-menu';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 type Group = 'staged' | 'unstaged';
 
 @Component({
   selector: 'app-working-panel',
-  imports: [ErrorBanner, DiffDialog],
+  imports: [ErrorBanner, ContextMenu, DiffDialog],
   templateUrl: './working-panel.html',
   styleUrl: './working-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,6 +55,8 @@ export class WorkingPanel {
   });
   private readonly anchors: Record<Group, string | null> = { staged: null, unstaged: null };
   protected readonly dialog = signal<{ file: FileDiff; group: Group } | null>(null);
+  protected readonly contextMenu = signal<ContextMenuState | null>(null);
+  private contextMenuTarget: { file: FileDiff; group: Group } | null = null;
   /** Collapsed directory paths (shared by both groups); keyed by full path so
    * the folders stay collapsed across working-tree refreshes. */
   protected readonly collapsed = signal<Set<string>>(new Set());
@@ -81,6 +89,7 @@ export class WorkingPanel {
         return next;
       });
       this.dialog.set(null);
+      this.closeContextMenu();
     });
   }
 
@@ -120,12 +129,46 @@ export class WorkingPanel {
 
   /** Opens the file's diff in VS Code when configured, otherwise in the dialog. */
   protected openDiff(group: Group, file: FileDiff): void {
+    if (this.busy()) return;
     const originalRef = group === 'staged' ? 'HEAD' : 'INDEX';
     const modifiedRef = group === 'staged' ? 'INDEX' : 'WORKING';
     if (this.vscode.openDiff(file, originalRef, modifiedRef)) {
       return;
     }
     this.dialog.set({ file, group });
+  }
+
+  /** Shows file-specific actions without changing the current multi-selection. */
+  protected openContextMenu(event: MouseEvent, group: Group, file: FileDiff): void {
+    event.preventDefault();
+    this.contextMenuTarget = { file, group };
+    this.contextMenu.set({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: 'Open Diff', action: 'open-diff', disabled: this.busy() },
+        {
+          label: 'Open File',
+          action: 'open-file',
+          disabled: !this.vscode.canOpenFile(),
+        },
+      ],
+    });
+  }
+
+  protected runContextAction(action: string): void {
+    const target = this.contextMenuTarget;
+    if (!target) return;
+    if (action === 'open-diff') {
+      this.openDiff(target.group, target.file);
+    } else if (action === 'open-file') {
+      this.vscode.openFile(target.file.path);
+    }
+  }
+
+  protected closeContextMenu(): void {
+    this.contextMenu.set(null);
+    this.contextMenuTarget = null;
   }
 
   protected select(group: Group, path: string, event: MouseEvent | KeyboardEvent): void {

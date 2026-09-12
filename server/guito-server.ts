@@ -1141,6 +1141,60 @@ export async function startGuitoServer({
     }
   });
 
+  app.post('/api/worktrees', async (req: any, resp) => {
+    try {
+      const path = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+      const branch = typeof req.body?.branch === 'string' ? req.body.branch.trim() : '';
+      if (!path || !isAbsolute(path)) {
+        throw new Error('Choose an absolute folder path for the worktree.');
+      }
+      if (!branch) {
+        throw new Error('Choose a local branch for the worktree.');
+      }
+
+      // Resolve the branch as a local ref before passing it to Git. Besides a
+      // clearer error, this prevents a request from treating an option as a ref.
+      await git.raw(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
+      await mutate(() => git.raw(['worktree', 'add', '--', resolve(path), branch]).then(() => {}));
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  app.post('/api/worktrees/remove', async (req: any, resp) => {
+    try {
+      const path = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+      if (!path || !isAbsolute(path)) {
+        throw new Error('A valid worktree path is required.');
+      }
+      const target = resolve(path);
+      const samePath = (a: string, b: string) =>
+        process.platform === 'win32'
+          ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
+          : resolve(a) === resolve(b);
+      if (samePath(target, repositoryPath)) {
+        throw new Error('The worktree currently open in Guito cannot be removed.');
+      }
+
+      // Only registered worktrees may be removed. Do not use --force: Git must
+      // protect uncommitted or untracked files in the selected worktree.
+      const registered = (await git.raw(['worktree', 'list', '--porcelain']))
+        .split(/\n\s*\n/)
+        .some((block) => {
+          const line = block.split('\n').find((entry) => entry.startsWith('worktree '));
+          return !!line && samePath(line.slice('worktree '.length).trim(), target);
+        });
+      if (!registered) {
+        throw new Error('The selected folder is not a registered worktree.');
+      }
+      await mutate(() => git.raw(['worktree', 'remove', '--', target]).then(() => {}));
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
   app.post('/api/checkout', async (req: any, resp) => {
     try {
       const { ref } = req.body;
