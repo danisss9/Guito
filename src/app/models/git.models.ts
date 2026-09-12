@@ -62,6 +62,8 @@ export interface FileDiff {
   lines: DiffLine[];
   additions: number;
   deletions: number;
+  /** True when Azure or Git reports content that cannot be rendered as text. */
+  binary?: boolean;
 }
 
 export interface CommitDiff {
@@ -211,6 +213,10 @@ export interface AzureSettings {
   showRemoteBranches?: boolean;
   /** How changed-file lists (staged, unstaged, commit) are shown; defaults to flat. */
   fileListView?: 'flat' | 'tree';
+  /** Whether commit search navigates through history or filters it; defaults to navigate. */
+  searchMode?: 'navigate' | 'filter';
+  /** Whether commit search matches letter casing; defaults to false. */
+  searchCaseSensitive?: boolean;
   /** Optional conversion of issue references in commit messages to links. */
   issueLinking?: IssueLinkingSettings | null;
 }
@@ -326,6 +332,7 @@ export interface PrComment {
   author: PrIdentity;
   content: string;
   createdAt: string;
+  isDeleted: boolean;
 }
 
 /** A pull request comment thread; inline threads anchor to a file line. */

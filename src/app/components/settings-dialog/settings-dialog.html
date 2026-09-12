@@ -14,6 +14,8 @@
         <label class="setting-row"><span><strong>Show stashes</strong><small>Pin stash entries above commit history.</small></span><input type="checkbox" [checked]="showStashes()" (change)="setChecked($event.target, 'showStashes')" /></label>
         <label class="setting-row"><span><strong>Show tags</strong><small>Show tag badges attached to commits.</small></span><input type="checkbox" [checked]="showTags()" (change)="setChecked($event.target, 'showTags')" /></label>
         <label class="setting-row"><span><strong>Show remote branches</strong><small>Include remote branches in the repository panel and branch pills.</small></span><input type="checkbox" [checked]="showRemoteBranches()" (change)="setChecked($event.target, 'showRemoteBranches')" /></label>
+        <label class="setting-row" for="search-mode"><span><strong>Search mode</strong><small>Navigate jumps between matches with arrows; filter shows only matching commits.</small></span><select id="search-mode" [value]="searchMode()" (change)="changeSearchMode($event.target)"><option value="navigate">Navigate matches</option><option value="filter">Filter matches</option></select></label>
+        <label class="setting-row"><span><strong>Case-sensitive search</strong><small>Only match commits with the same uppercase and lowercase letters.</small></span><input type="checkbox" [checked]="searchCaseSensitive()" (change)="setChecked($event.target, 'searchCaseSensitive')" /></label>
       </fieldset>
 
       <fieldset><legend>User details</legend>

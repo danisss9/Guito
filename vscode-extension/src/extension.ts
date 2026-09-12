@@ -303,6 +303,8 @@ function readHostSettings(): GuitoHostSettings {
     showTags: configuration.get<boolean>('showTags', true),
     showRemoteBranches: configuration.get<boolean>('showRemoteBranches', true),
     fileListView: configuration.get<'flat' | 'tree'>('fileListView', 'flat'),
+    searchMode: configuration.get<'navigate' | 'filter'>('searchMode', 'navigate'),
+    searchCaseSensitive: configuration.get<boolean>('searchCaseSensitive', false),
     issueRegex: configuration.get<string>('issueRegex')?.trim() || undefined,
     issueUrl: configuration.get<string>('issueUrl')?.trim() || undefined,
   };

@@ -43,7 +43,7 @@
                     {{ statusLabel(thread.status) }}
                   </span>
                   <span class="thread-preview">
-                    {{ thread.comments[0]?.author.name }}:
+                    {{ thread.comments[0]?.author?.name }}:
                     {{ thread.comments[0]?.content }}
                   </span>
                   <span class="thread-count">{{ thread.comments.length }}</span>

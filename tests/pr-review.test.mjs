@@ -444,5 +444,6 @@ test('serves PR iteration changes and per-file diffs', async (context) => {
     await fetch(`${base}/file-diff?path=${encodeURIComponent('logo.png')}`)
   ).json();
   assert.equal(binary.status, 'binary');
+  assert.equal(binary.binary, true);
   assert.deepEqual(binary.lines, []);
 });

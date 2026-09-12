@@ -118,7 +118,6 @@ export class App implements OnDestroy {
   protected readonly selectedBranch = signal('');
   protected readonly showRemote = signal(true);
   protected readonly search = signal('');
-  protected readonly filterSearch = signal(false);
   protected readonly selectedCommit = signal<GitCommit | null>(null);
   protected readonly loading = signal(false);
   protected readonly busy = signal(false);
@@ -148,6 +147,14 @@ export class App implements OnDestroy {
   /** Whether changed-file lists render as a directory tree instead of a flat list. */
   protected readonly fileListView = computed(() =>
     this.azureSettings()?.fileListView === 'tree' ? 'tree' : 'flat',
+  );
+  /** Whether commit search shows only matches instead of navigating through history. */
+  protected readonly filterSearch = computed(() =>
+    this.azureSettings()?.searchMode === 'filter',
+  );
+  /** Whether commit search matches the query's exact letter casing. */
+  protected readonly searchCaseSensitive = computed(
+    () => this.azureSettings()?.searchCaseSensitive === true,
   );
   /** Whether the Create Pull Request dialog is open. */
   protected readonly prDialogOpen = signal(false);
@@ -234,7 +241,9 @@ export class App implements OnDestroy {
 
   /** Hashes of commits matching the search, in display order. */
   protected readonly searchMatches = computed(() => {
-    const query = this.search().trim().toLowerCase();
+    const rawQuery = this.search().trim();
+    const caseSensitive = this.searchCaseSensitive();
+    const query = caseSensitive ? rawQuery : rawQuery.toLowerCase();
     if (!query) {
       return [];
     }
@@ -242,9 +251,9 @@ export class App implements OnDestroy {
     const loaded = this.filteredCommits()
       .filter(
         (commit) =>
-          commit.message.toLowerCase().includes(query) ||
-          commit.author_name.toLowerCase().includes(query) ||
-          commit.hash.toLowerCase().startsWith(query) ||
+          (caseSensitive ? commit.message : commit.message.toLowerCase()).includes(query) ||
+          (caseSensitive ? commit.author_name : commit.author_name.toLowerCase()).includes(query) ||
+          (caseSensitive ? commit.hash : commit.hash.toLowerCase()).startsWith(query) ||
           bodySet.has(commit.hash),
       )
       .map((commit) => commit.hash);
@@ -270,6 +279,7 @@ export class App implements OnDestroy {
       this.selectedBranch();
       this.historyGeneration();
       this.filterSearch();
+      const caseSensitive = this.searchCaseSensitive();
       untracked(() => {
         this.searchSub?.unsubscribe();
         this.searchLoading.set(false);
@@ -282,7 +292,7 @@ export class App implements OnDestroy {
         if (this.loading()) return;
         // Branch filtering is client-side, so the full history is needed.
         if ((this.selectedBranch() || (query && this.filterSearch())) && this.unloadedCommits() > 0) this.loadAllCommits();
-        if (query) this.fetchBodyMatches(query);
+        if (query) this.fetchBodyMatches(query, caseSensitive);
       });
     });
     effect(() => {
@@ -673,11 +683,11 @@ export class App implements OnDestroy {
     });
   }
 
-  private fetchBodyMatches(query: string): void {
+  private fetchBodyMatches(query: string, caseSensitive: boolean): void {
     // Rapid searches abort each other; only the latest response applies.
     this.searchSub?.unsubscribe();
     this.searchLoading.set(true);
-    this.searchSub = this.git.searchCommits(query).subscribe({
+    this.searchSub = this.git.searchCommits(query, caseSensitive).subscribe({
       next: (result) => {
         this.bodyMatches.set(result.hashes);
         this.searchHistoryIndices.set(result.indices ?? {});

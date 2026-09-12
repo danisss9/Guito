@@ -75,8 +75,9 @@ export class GitService {
   }
 
   /** Hashes of commits whose message (subject or body) contains the query. */
-  searchCommits(query: string): Observable<CommitSearchResponse> {
-    const params = new HttpParams().set('query', query);
+  searchCommits(query: string, caseSensitive = false): Observable<CommitSearchResponse> {
+    let params = new HttpParams().set('query', query);
+    if (caseSensitive) params = params.set('caseSensitive', '1');
     return this.http.get<CommitSearchResponse>(`${this.base}/commits/search`, { params });
   }
 
@@ -261,6 +262,8 @@ export class GitService {
     showTags?: boolean;
     showRemoteBranches?: boolean;
     fileListView?: 'flat' | 'tree';
+    searchMode?: 'navigate' | 'filter';
+    searchCaseSensitive?: boolean;
     issueLinking?: IssueLinkingSettings | null;
     issueLinkingGlobal?: boolean;
   }): Observable<AzureSettings> {
@@ -347,12 +350,16 @@ export class GitService {
     id: number,
     changes: { title?: string; description?: string; isDraft?: boolean },
   ): Observable<unknown> {
-    return this.http.patch(`${this.base}/azure-devops/pullrequests/${id}`, changes);
+    return this.mutate(() =>
+      this.http.patch(`${this.base}/azure-devops/pullrequests/${id}`, changes),
+    );
   }
 
   /** Records the current user's vote on a pull request. */
   votePr(id: number, vote: PrVote): Observable<unknown> {
-    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/vote`, { vote });
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/vote`, { vote }),
+    );
   }
 
   /** Adds, updates (required flag), or removes a reviewer. */
@@ -360,7 +367,9 @@ export class GitService {
     id: number,
     reviewer: { id: string; required?: boolean; vote?: number; remove?: boolean },
   ): Observable<unknown> {
-    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/reviewers`, reviewer);
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/reviewers`, reviewer),
+    );
   }
 
   /** Sets or clears auto-complete, with optional completion options. */
@@ -369,15 +378,19 @@ export class GitService {
     enabled: boolean,
     options?: PrCompletionOptions,
   ): Observable<unknown> {
-    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/autocomplete`, {
-      enabled,
-      ...options,
-    });
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/autocomplete`, {
+        enabled,
+        ...options,
+      }),
+    );
   }
 
   /** Completes (merges) the pull request. */
   completePr(id: number, options?: PrCompletionOptions): Observable<unknown> {
-    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/complete`, options ?? {});
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/complete`, options ?? {}),
+    );
   }
 
   /** Comment threads of a pull request, general and inline. */
@@ -389,14 +402,18 @@ export class GitService {
 
   /** Adds a reply, general comment, or inline line comment. */
   addPrComment(id: number, comment: PrCommentRequest): Observable<unknown> {
-    return this.http.post(`${this.base}/azure-devops/pullrequests/${id}/threads`, comment);
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/threads`, comment),
+    );
   }
 
   /** Resolves, reactivates, or closes a thread. */
   setPrThreadStatus(id: number, threadId: number, status: PrThreadStatus): Observable<unknown> {
-    return this.http.post(
-      `${this.base}/azure-devops/pullrequests/${id}/threads/${threadId}/status`,
-      { status },
+    return this.mutate(() =>
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/threads/${threadId}/status`,
+        { status },
+      ),
     );
   }
 

@@ -42,7 +42,6 @@ export class Toolbar {
   readonly refresh = output<void>();
   readonly remoteAction = output<RemoteAction>();
   readonly settingsClick = output<void>();
-  readonly filterModeChange = output<boolean>();
   readonly searchChange = output<string>();
   readonly searchNavigate = output<'next' | 'prev'>();
 

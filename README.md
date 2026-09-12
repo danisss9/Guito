@@ -17,6 +17,7 @@ The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese w
 - Context actions for creating branches and tags, checking out commits, cherry-picking, reverting, merging, rebasing, resetting, and exporting archives.
 - Working-tree actions for stashing changes, resetting tracked changes, and cleaning untracked files.
 - Stage and unstage files with multi-selection, preview staged and unstaged diffs, and commit staged changes.
+- Review your active Azure DevOps pull requests from the repository side panel: edit details, manage reviewers and votes, complete or auto-complete, discuss comment threads, and add inline comments on file diffs.
 - Browser-based CLI and a VS Code extension with local, Remote SSH, Dev Container, and Codespaces support.
 
 > [!CAUTION]

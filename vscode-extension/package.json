@@ -124,6 +124,23 @@
           "scope": "window",
           "description": "How changed-file lists are displayed."
         },
+        "guito.searchMode": {
+          "type": "string",
+          "enum": ["navigate", "filter"],
+          "enumDescriptions": [
+            "Keep the full history visible and jump between matching commits.",
+            "Show only commits that match the search."
+          ],
+          "default": "navigate",
+          "scope": "window",
+          "description": "How commit search results are displayed."
+        },
+        "guito.searchCaseSensitive": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Match commit searches using the query's exact letter casing."
+        },
         "guito.issueRegex": {
           "type": "string",
           "default": "",

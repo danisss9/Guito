@@ -10,7 +10,6 @@
     (refresh)="refresh()"
     (remoteAction)="runRemoteAction($event)"
     (settingsClick)="openSettings()"
-    (filterModeChange)="filterSearch.set($event)"
     (searchChange)="search.set($event)"
     (searchNavigate)="navigateSearch($event)"
   />
@@ -92,7 +91,7 @@
     />
   }
   @if (prDetailId(); as prId) {
-    <app-pr-dialog [prId]="prId" (closed)="closePrDetail()" />
+    <app-pr-dialog [prId]="prId" (changed)="loadPullRequests()" (closed)="closePrDetail()" />
   }
   @if (settingsDialogOpen() && azureSettings(); as settings) {
     <app-settings-dialog

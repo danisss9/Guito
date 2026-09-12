@@ -261,6 +261,24 @@ test('omits commit bodies from the list and serves them on demand', async (conte
   ).json();
   assert.deepEqual(search.hashes, [listed.hash]);
   assert.equal(search.indices[listed.hash], list.commits.indexOf(listed));
+  const insensitiveSearch = await (
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('SESSION COOKIE EXPIRED')}`,
+    )
+  ).json();
+  assert.deepEqual(insensitiveSearch.hashes, [listed.hash]);
+  const sensitiveMiss = await (
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('SESSION COOKIE EXPIRED')}&caseSensitive=1`,
+    )
+  ).json();
+  assert.deepEqual(sensitiveMiss.hashes, []);
+  const sensitiveMatch = await (
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('session cookie expired')}&caseSensitive=1`,
+    )
+  ).json();
+  assert.deepEqual(sensitiveMatch.hashes, [listed.hash]);
   const older = list.commits[1];
   const olderSearch = await (
     await fetch(`${server.address}/api/commits/search?query=${encodeURIComponent(older.message)}`)
@@ -909,6 +927,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'navigate',
+    searchCaseSensitive: false,
   });
 
   const loaded = await fetch(`${server.address}/api/settings`);
@@ -921,6 +941,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'navigate',
   });
 
   // The settings file lives in the repository's git directory.
@@ -987,6 +1008,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'navigate',
   });
 
   // Hiding the graph persists it, and a post without the URL keeps the
@@ -1005,6 +1027,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: false,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'navigate',
   });
   const fileAfterHide = JSON.parse(
     await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
@@ -1027,6 +1050,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: false,
     showStashes: false,
     fileListView: 'flat',
+    searchMode: 'navigate',
   });
 
   // Switching the file lists to the tree view persists, an invalid value is
@@ -1045,6 +1069,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: false,
     showStashes: false,
     fileListView: 'tree',
+    searchMode: 'navigate',
   });
   const fileAfterTree = JSON.parse(
     await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
@@ -1058,6 +1083,37 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   assert.equal(invalidView.status, 200);
   assert.equal((await invalidView.json()).fileListView, 'tree');
+
+  const filtered = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ searchMode: 'filter' }),
+  });
+  assert.equal(filtered.status, 200);
+  assert.equal((await filtered.json()).searchMode, 'filter');
+  const fileAfterSearchMode = JSON.parse(
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
+  );
+  assert.equal(fileAfterSearchMode.searchMode, 'filter');
+  const invalidSearchMode = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ searchMode: 'find' }),
+  });
+  assert.equal(invalidSearchMode.status, 200);
+  assert.equal((await invalidSearchMode.json()).searchMode, 'filter');
+
+  const caseSensitive = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ searchCaseSensitive: true }),
+  });
+  assert.equal(caseSensitive.status, 200);
+  assert.equal((await caseSensitive.json()).searchCaseSensitive, true);
+  const fileAfterSearchCase = JSON.parse(
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
+  );
+  assert.equal(fileAfterSearchCase.searchCaseSensitive, true);
 
   const linked = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
@@ -1092,6 +1148,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://vscode/Collection',
     autoReload: false,
     diffViewer: 'vscode',
+    searchMode: 'navigate',
+    searchCaseSensitive: false,
   });
   context.after(() => extension.close());
   const fromExtension = await fetch(`${extension.address}/api/settings`);
@@ -1103,6 +1161,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: false,
     showStashes: false,
     fileListView: 'tree',
+    searchMode: 'navigate',
+    searchCaseSensitive: false,
   });
 
   // Changes from VS Code become effective in an already-running session.
@@ -1113,6 +1173,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: undefined,
+    searchCaseSensitive: undefined,
   });
   const updatedFromExtension = await fetch(`${extension.address}/api/settings`);
   assertSettings(await updatedFromExtension.json(), {
@@ -1123,6 +1185,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'filter',
+    searchCaseSensitive: true,
   });
 
   // Auto-reload falls back to the settings file when the extension does not
@@ -1141,6 +1205,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'navigate',
+    searchCaseSensitive: false,
   });
   const reloaded = await startGuitoServer({
     repositoryPath,
@@ -1159,6 +1225,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'navigate',
+    searchCaseSensitive: false,
   });
 });
 

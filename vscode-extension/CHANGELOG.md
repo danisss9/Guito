@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add the `guito.searchCaseSensitive` setting for exact-case commit searches; searches remain case insensitive by default.
+- Add an Azure DevOps Pull Requests section and full review dialog with details, reviewers, votes, completion, comments, changed files, and inline diff comments.
 - List all repository tags in a collapsible section of the side panel below the branches; clicking a tag opens the commit it points to in the history, and right-clicking keeps the view details, delete, push, archive, and copy name actions.
 - Add Show Tags, Show Remote Branches, and issue-linking regex/URL preferences to Guito's native VS Code settings.
 - Add the `guito.prBranchNameTemplate` setting for remote-only pull request branch names, with variables for the computer user, random text, current and target branches, pull request title, repository, UTC date/time, and timestamp.

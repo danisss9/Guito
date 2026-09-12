@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   ElementRef,
   input,
   output,
@@ -25,13 +26,20 @@ export class SearchBox {
   /** Total number of commits matching the current search. */
   readonly matchCount = input(0);
   readonly filterMode = input(false);
-  readonly filterModeChange = output<boolean>();
 
   readonly searchChange = output<string>();
   readonly searchNavigate = output<'next' | 'prev'>();
 
   /** Raw search text; bound to the input so typing stays responsive. */
   protected readonly searchValue = signal('');
+  protected readonly badgeText = computed(() => {
+    const total = this.matchCount();
+    const formattedTotal = total > 99 ? '99+' : String(total);
+    if (!this.filterMode() && this.matchIndex() >= 0) {
+      return `${this.matchIndex() + 1}/${formattedTotal}`;
+    }
+    return formattedTotal;
+  });
 
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 

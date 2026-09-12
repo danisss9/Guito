@@ -11,6 +11,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Observable, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
@@ -18,7 +19,13 @@ import { GitService } from '../../services/git.service';
 import { AuthorAvatar } from '../author-avatar/author-avatar';
 import { ChipInput, ChipSuggestion } from '../create-pr-dialog/chip-input';
 import { MarkdownText } from '../markdown-text/markdown-text';
-import { DiffFocus, PrFileDiff } from './pr-file-diff';
+import {
+  DiffFocus,
+  LineCommentRequest,
+  PrFileDiff,
+  ThreadReplyRequest,
+  ThreadStatusRequest,
+} from './pr-file-diff';
 import {
   FileDiff,
   PrDetail,
@@ -48,7 +55,7 @@ const THREAD_STATUS_LABELS: Record<string, string> = {
  */
 @Component({
   selector: 'app-pr-dialog',
-  imports: [AuthorAvatar, ChipInput, MarkdownText, PrFileDiff],
+  imports: [AuthorAvatar, ChipInput, MarkdownText, NgTemplateOutlet, PrFileDiff],
   templateUrl: './pr-dialog.html',
   styleUrl: './pr-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,6 +67,8 @@ export class PrDialog implements OnInit {
   /** Azure DevOps pull request id. */
   readonly prId = input.required<number>();
   readonly closed = output<void>();
+  /** Notifies the app so the side-panel summary stays current after mutations. */
+  readonly changed = output<void>();
 
   protected readonly pr = signal<PrDetail | null>(null);
   protected readonly threads = signal<PrThread[]>([]);
@@ -97,7 +106,7 @@ export class PrDialog implements OnInit {
 
   // Files tab state; per-file diffs are fetched lazily and cached.
   protected readonly selectedFile = signal<PrFileChange | null>(null);
-  protected readonly fileDiffs = signal<Record<string, FileDiff>>({});
+  protected readonly fileDiffs = signal<Partial<Record<string, FileDiff>>>({});
   protected readonly fileDiffLoading = signal(false);
   protected readonly fileDiffError = signal('');
   protected readonly fileFocus = signal<DiffFocus | null>(null);
@@ -131,6 +140,15 @@ export class PrDialog implements OnInit {
   protected readonly inlineThreads = computed(() =>
     this.threads().filter((thread) => thread.filePath),
   );
+  protected readonly selectedFileThreads = computed(() => {
+    const selected = this.selectedFile();
+    if (!selected) {
+      return [];
+    }
+    return this.inlineThreads().filter(
+      (thread) => thread.filePath === selected.path || thread.filePath === selected.oldPath,
+    );
+  });
 
   constructor() {
     // Debounced reviewer typeahead, mirroring the create-PR dialog.
@@ -221,6 +239,7 @@ export class PrDialog implements OnInit {
       .subscribe({
         next: () => {
           this.busy.set(false);
+          this.changed.emit();
           done?.();
         },
         error: (err) => {
@@ -311,6 +330,8 @@ export class PrDialog implements OnInit {
   protected openAutoComplete(): void {
     this.mergeStrategy.set('noFastForward');
     this.deleteSourceBranch.set(false);
+    this.completeWorkItems.set(false);
+    this.transitionWorkItems.set(false);
     this.completeOpen.set(false);
     this.autoCompleteOpen.set(true);
   }
@@ -373,6 +394,18 @@ export class PrDialog implements OnInit {
       () => this.git.setPrThreadStatus(this.prId(), threadId, status),
       () => this.reload(),
     );
+  }
+
+  protected addInlineComment(comment: LineCommentRequest): void {
+    this.run(() => this.git.addPrComment(this.prId(), comment), () => this.reload());
+  }
+
+  protected replyFromDiff(reply: ThreadReplyRequest): void {
+    this.replyToThread(reply.threadId, reply.content);
+  }
+
+  protected setStatusFromDiff(change: ThreadStatusRequest): void {
+    this.setThreadStatus(change.threadId, change.status);
   }
 
   /** Opens the Files tab at a thread's file and line. */

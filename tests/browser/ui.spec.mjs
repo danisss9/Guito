@@ -33,12 +33,28 @@ async function setup(page, count = 700, overrides = {}) {
     avatarRequests: 0,
     avatarAvailable: false,
     prRequests: [],
+    prMutations: [],
+    pullRequests: [{
+      id: 101,
+      title: 'Review the new login flow',
+      isDraft: true,
+      author: { id: 'author-1', name: 'Ada Author', email: 'ada@example.test' },
+      createdAt: '2026-09-12T10:00:00Z',
+      sourceBranch: 'feature/login',
+      targetBranch: 'main',
+      status: 'active',
+      webUrl: 'https://azure.example/project/_git/repo/pullrequest/101',
+      reviewers: [{ id: 'me', name: 'Test Reviewer', email: 'test@example.test', vote: 0, isRequired: true }],
+      myVote: 0,
+      requiresMe: true,
+    }],
     failedStatus: false,
     failedSearch: false,
     failedHistory: false,
     failedCommit: false,
     delay: 0,
     searchDelay: 0,
+    searchRequests: [],
     refreshDelay: 0,
     historyRequests: 0,
     historyRanges: [],
@@ -74,13 +90,47 @@ async function setup(page, count = 700, overrides = {}) {
     const request = route.request();
     expect(request.headers()['x-guito-token']).toBe('browser-test-token');
     const parsed = new URL(request.url());
-    const body = request.method() === 'POST' ? request.postDataJSON() : {};
+    const body = request.method() === 'GET' || !request.postData() ? {} : request.postDataJSON();
     const send = (json, status = 200) => route.fulfill({ status, json });
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     if (request.method() === 'DELETE' && parsed.pathname.startsWith('/api/remotes/')) {
       const name = decodeURIComponent(parsed.pathname.split('/').pop());
       state.remotes = state.remotes.filter((remote) => remote.name !== name);
       return send(state.remotes);
+    }
+    const prPath = parsed.pathname.match(/^\/api\/azure-devops\/pullrequests\/(\d+)(?:\/(.*))?$/);
+    if (prPath) {
+      const id = Number(prPath[1]);
+      const action = prPath[2] || '';
+      if (!action && request.method() === 'GET') {
+        const summary = state.pullRequests.find((pr) => pr.id === id);
+        return send({
+          ...summary,
+          description: 'Please review **carefully**.',
+          autoCompleteSetBy: null,
+          completionOptions: null,
+          lastMergeSourceCommit: 'a'.repeat(40),
+          lastMergeTargetCommit: 'b'.repeat(40),
+          labels: ['ui'],
+        });
+      }
+      if (action === 'threads' && request.method() === 'GET') return send({ threads: [] });
+      if (action === 'changes' && request.method() === 'GET') {
+        return send({ files: [{ path: '/src/login.ts', oldPath: '/src/login.ts', changeType: 'modified' }] });
+      }
+      if (action === 'file-diff' && request.method() === 'GET') {
+        return send({ path: '/src/login.ts', oldPath: '/src/login.ts', status: 'modified', additions: 1, deletions: 1, lines: [
+          { type: 'hunk', text: '@@ -1,2 +1,2 @@' },
+          { type: 'del', oldLine: 1, text: 'old login' },
+          { type: 'add', newLine: 1, text: 'new login' },
+          { type: 'context', oldLine: 2, newLine: 2, text: 'unchanged' },
+        ] });
+      }
+      state.prMutations.push({ method: request.method(), action, body });
+      if (!action && request.method() === 'PATCH') {
+        state.pullRequests = state.pullRequests.map((pr) => pr.id === id ? { ...pr, ...body } : pr);
+      }
+      return send({ success: true });
     }
     switch (parsed.pathname) {
       case '/api/repository-state':
@@ -128,6 +178,8 @@ async function setup(page, count = 700, overrides = {}) {
       case '/api/azure-devops/pullrequest':
         state.prRequests.push(body);
         return send({ id: 1, url: 'https://azure.example/pr/1', branch: 'main' });
+      case '/api/azure-devops/pullrequests':
+        return send({ pullRequests: state.pullRequests });
       case '/api/repo':
         return send({
           name: 'Fixture',
@@ -198,6 +250,10 @@ async function setup(page, count = 700, overrides = {}) {
       }
       case '/api/commits/search': {
         const query = parsed.searchParams.get('query');
+        state.searchRequests.push({
+          query,
+          caseSensitive: parsed.searchParams.get('caseSensitive') === '1',
+        });
         const fail = state.failedSearch;
         await delay(state.searchDelay);
         return fail
@@ -305,30 +361,62 @@ test('search navigates body and author matches while retaining the surrounding h
   const search = page.getByPlaceholder('Search commits');
   await search.fill('body-only');
   await expect(page.getByRole('status').filter({ hasText: 'Searching' })).toBeVisible();
-  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('1');
   await search.press('Enter');
+  await expect(page.locator('.search .count-badge')).toHaveText('1/1');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 600');
   expect(await page.locator('.list-viewport .row').count()).toBeGreaterThan(1);
   await search.fill('no-match');
-  await expect(page.locator('.search-nav .count')).toHaveText('No matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('0');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 600');
   await search.fill('Special Author');
-  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('1');
   await search.press('Enter');
+  await expect(page.locator('.search .count-badge')).toHaveText('1/1');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 7');
+  await search.fill('Commit');
+  await expect(page.locator('.search .count-badge')).toHaveText('99+');
   expect(errors).toEqual([]);
 });
 
-test('search toggles filtering, includes unloaded body matches, and restores the graph', async ({ page }) => {
-  const { errors } = await setup(page);
+test('search is case insensitive by default and can require matching case', async ({ page }) => {
+  const { state, errors } = await setup(page);
   const search = page.getByPlaceholder('Search commits');
-  const toggle = page.getByRole('button', { name: 'Filter search results' });
+  const count = page.locator('.search .count-badge');
+
+  await search.fill('special author');
+  await expect(count).toHaveText('1');
+  expect(state.searchRequests.at(-1)).toEqual({
+    query: 'special author',
+    caseSensitive: false,
+  });
+
+  await page.getByTitle('Settings').click();
+  await page.getByLabel('Case-sensitive search').check();
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect.poll(() => state.settings.searchCaseSensitive).toBe(true);
+  await expect(count).toHaveText('0');
+  expect(state.searchRequests.at(-1)).toEqual({
+    query: 'special author',
+    caseSensitive: true,
+  });
+
+  await search.fill('Special Author');
+  await expect(count).toHaveText('1');
+  expect(errors).toEqual([]);
+});
+
+test('search mode settings filter unloaded body matches and restore navigation with the graph', async ({ page }) => {
+  const { state, errors } = await setup(page);
+  const search = page.getByPlaceholder('Search commits');
   const rows = page.locator('.list-viewport .row');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await search.fill('body-only');
-  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.search .count-badge')).toHaveText('1');
+  await expect(page.getByRole('button', { name: 'Next match', exact: true })).toBeVisible();
+  await page.getByTitle('Settings').click();
+  await page.getByLabel('Search mode').selectOption('filter');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect.poll(() => state.settings.searchMode).toBe('filter');
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('Commit 600');
   await expect(page.locator('.graph-overlay, .cell-graph')).toHaveCount(0);
@@ -340,15 +428,21 @@ test('search toggles filtering, includes unloaded body matches, and restores the
   await expect(rows).toHaveCount(0);
   await expect(page.getByText('No matching commits', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();
+  await expect(page.locator('.search .count-badge')).toHaveCount(0);
   await expect(rows.first()).toContainText('Commit 0');
   await expect(page.locator('.graph-overlay')).toHaveCount(0);
   await search.fill('Commit 42');
-  await expect(page.locator('.search-nav .count')).toHaveText('11 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('11');
   await expect(rows).toHaveCount(11);
-  await toggle.click();
+  await page.getByTitle('Settings').click();
+  await page.getByLabel('Search mode').selectOption('navigate');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect.poll(() => state.settings.searchMode).toBe('navigate');
   await expect(page.locator('.graph-overlay')).toBeVisible();
   await expect(rows.first()).toContainText('Commit 0');
+  await expect(page.getByRole('button', { name: 'Next match', exact: true })).toBeVisible();
   await search.press('Enter');
+  await expect(page.locator('.search .count-badge')).toHaveText('1/11');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 42');
   expect(errors).toEqual([]);
 });
@@ -357,7 +451,7 @@ test('search loads through a distant match in one request and reuses loaded page
   const { state, errors } = await setup(page, 3600);
   state.bodyMatchIndex = 2700;
   await page.getByPlaceholder('Search commits').fill('body-only');
-  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('1');
   const before = state.historyRequests;
   await page.getByPlaceholder('Search commits').press('Enter');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 2700');
@@ -374,7 +468,7 @@ test('failed search navigation waits for explicit history retry', async ({ page 
   state.bodyMatchIndex = 2700;
   state.failedHistory = true;
   await page.getByPlaceholder('Search commits').fill('body-only');
-  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('1');
   await page.getByPlaceholder('Search commits').press('Enter');
   await expect(page.locator('.error-banner')).toContainText('History unavailable');
   const requests = state.historyRequests;
@@ -395,8 +489,9 @@ test('rapid queries and refresh retain history and the latest match count', asyn
   await page.getByTitle('Refresh').click();
   await expect(page.locator('.list-viewport .row').first()).toBeVisible();
   await expect(page.locator('.table-loading')).toHaveCount(0);
-  await expect(page.locator('.search-nav .count')).toHaveText('11 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('11');
   await search.press('Enter');
+  await expect(page.locator('.search .count-badge')).toHaveText('1/11');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 42');
 });
 
@@ -436,7 +531,7 @@ test('worker failure completes graph computation above 2000 rows', async ({ page
   });
   await expect(page.locator('.list-viewport .row').last()).toContainText('Commit 2499');
   await page.getByPlaceholder('Search commits').fill('no-match');
-  await expect(page.locator('.search-nav .count')).toHaveText('No matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('0');
   await page.getByPlaceholder('Search commits').fill('');
   await page.locator('.list-viewport').evaluate((el) => {
     el.scrollTop = 0;
@@ -566,6 +661,8 @@ test('full settings dialog saves repository and Azure DevOps preferences togethe
   await expect(dialog).toContainText('Repository preferences and Git configuration.');
   await page.getByLabel('Automatically refresh').uncheck();
   await page.getByLabel('Show Git graph').uncheck();
+  await page.getByLabel('Search mode').selectOption('filter');
+  await page.getByLabel('Case-sensitive search').check();
   await page.getByLabel('Server URL').fill('https://devops.example/DefaultCollection');
   await page
     .getByLabel('Automatic PR branch name')
@@ -581,6 +678,8 @@ test('full settings dialog saves repository and Azure DevOps preferences togethe
     showGraph: false,
     showStashes: true,
     fileListView: 'flat',
+    searchMode: 'filter',
+    searchCaseSensitive: true,
   });
   expect(errors).toEqual([]);
 });
@@ -688,7 +787,7 @@ test('search errors keep rows and retry; refresh loading respects reduced motion
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Refreshing' })).toBeVisible();
   await expect(page.locator('.table-loading .spinner')).toHaveCSS('animation-name', 'none');
-  await expect(page.locator('.search-nav .count')).toHaveText('1 matches');
+  await expect(page.locator('.search .count-badge')).toHaveText('1');
   await page.getByPlaceholder('Search commits').press('Enter');
   await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 600');
 });
@@ -948,6 +1047,69 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
     .poll(() => state.fetchRequests.some((request) => request.prune === '1'))
     .toBe(true);
   await expect(page.locator('.table-loading')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('pull request panel reviews, edits, comments, diffs, and completes a PR', async ({ page }) => {
+  const { state, errors } = await setup(page);
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  await expect(page.locator('.side-panel .tree-title')).toHaveText([
+    'Branches',
+    'Tags',
+    'Stashes',
+    'Worktrees',
+    'Pull Requests',
+  ]);
+  const prSection = page.locator('.tree').filter({ hasText: 'Pull Requests' });
+  await expect(prSection).toContainText('Review the new login flow');
+  await expect(prSection).toContainText('Draft');
+  await expect(prSection).toContainText('Required');
+  await prSection.locator('.pr-row').click();
+
+  const dialog = page.getByRole('dialog', { name: 'Pull request details' });
+  await expect(dialog).toContainText('Please review carefully.');
+  await dialog.getByRole('button', { name: 'Review ▾', exact: true }).click();
+  await dialog.getByRole('menuitem', { name: 'Approve', exact: true }).click();
+  await expect.poll(() => state.prMutations.some((item) => item.action === 'vote' && item.body.vote === 'approve')).toBe(true);
+
+  await dialog.getByRole('button', { name: 'Edit' }).click();
+  await dialog.getByLabel('Title').fill('Updated login review');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(() => state.prMutations.some((item) => item.method === 'PATCH' && item.body.title === 'Updated login review')).toBe(true);
+
+  await dialog.getByRole('button', { name: /^Comments/ }).click();
+  await dialog.getByPlaceholder('Leave a comment (markdown supported)').fill('General feedback');
+  await dialog.getByRole('button', { name: 'Comment', exact: true }).click();
+  await expect.poll(() => state.prMutations.some((item) => item.action === 'threads' && item.body.content === 'General feedback')).toBe(true);
+
+  await dialog.getByRole('button', { name: /^Files/ }).click();
+  await dialog.getByRole('button', { name: /src\/login\.ts/ }).click();
+  await expect(dialog).toContainText('new login');
+  await dialog.locator('.diff-line.add').hover();
+  await dialog.locator('.diff-line.add').getByRole('button', { name: 'Comment on this line' }).click();
+  await dialog.locator('.composer textarea').fill('Inline feedback');
+  await dialog.locator('.composer').getByRole('button', { name: 'Comment' }).click();
+  await expect.poll(() => state.prMutations.some((item) => item.action === 'threads' && item.body.filePath === '/src/login.ts' && item.body.line === 1 && item.body.side === 'right')).toBe(true);
+
+  await dialog.getByRole('button', { name: 'Set auto-complete' }).click();
+  const autoComplete = page.getByRole('dialog', { name: 'Set auto-complete' });
+  await autoComplete.getByLabel('Merge strategy').selectOption('squash');
+  await autoComplete.getByLabel('Delete source branch').check();
+  await autoComplete.getByRole('button', { name: 'Enable' }).click();
+  await expect.poll(() => state.prMutations.some((item) => item.action === 'autocomplete' && item.body.enabled === true && item.body.mergeStrategy === 'squash')).toBe(true);
+
+  await dialog.getByRole('button', { name: 'Complete', exact: true }).click();
+  const complete = page.getByRole('dialog', { name: 'Complete pull request' });
+  await complete.getByLabel('Complete associated work items').check();
+  await complete.getByRole('button', { name: 'Complete', exact: true }).click();
+  await expect.poll(() => state.prMutations.some((item) => item.action === 'complete' && item.body.completeWorkItems === true)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('pull request section stays hidden when Azure DevOps is not configured', async ({ page }) => {
+  const { errors } = await setup(page, 700, { settings: { azureDevOpsUrl: '', source: '' } });
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  await expect(page.getByText('Pull Requests', { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

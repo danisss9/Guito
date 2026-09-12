@@ -229,7 +229,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, fileListView, azureRequestImpl, avatarFetchImpl, onLog, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, fileListView, searchMode, searchCaseSensitive, azureRequestImpl, avatarFetchImpl, onLog, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -535,6 +535,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         const fileShowTags = typeof file.showTags === 'boolean' ? file.showTags : undefined;
         const fileShowRemoteBranches = typeof file.showRemoteBranches === 'boolean' ? file.showRemoteBranches : undefined;
         const fileFileListView = file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
+        const fileSearchMode = file.searchMode === 'filter' || file.searchMode === 'navigate' ? file.searchMode : undefined;
+        const fileSearchCaseSensitive = typeof file.searchCaseSensitive === 'boolean' ? file.searchCaseSensitive : undefined;
         const filePrBranchNameTemplate = typeof file.prBranchNameTemplate === 'string' && file.prBranchNameTemplate.trim()
             ? file.prBranchNameTemplate.trim()
             : undefined;
@@ -570,6 +572,10 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 ? showRemoteBranches
                 : (fileShowRemoteBranches ?? true),
             fileListView: fileListView ?? fileFileListView ?? 'flat',
+            searchMode: searchMode ?? fileSearchMode ?? 'navigate',
+            searchCaseSensitive: typeof searchCaseSensitive === 'boolean'
+                ? searchCaseSensitive
+                : (fileSearchCaseSensitive ?? false),
             issueLinking,
         };
     };
@@ -657,12 +663,17 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // matches over the loaded history.
     app.get('/api/commits/search', async (req, resp) => {
         const query = String((req.query ?? {}).query ?? '').trim();
+        const caseSensitive = String((req.query ?? {}).caseSensitive ?? '') === '1';
         if (!query) {
             return resp.type('application/json').send({ hashes: [], indices: {} });
         }
         try {
+            const grepArgs = ['log', '--all'];
+            if (!caseSensitive)
+                grepArgs.push('-i');
+            grepArgs.push('--fixed-strings', `--grep=${query}`, '--format=%H');
             const [raw, history] = await Promise.all([
-                git.raw(['log', '--all', '-i', '--fixed-strings', `--grep=${query}`, '--format=%H']),
+                git.raw(grepArgs),
                 git.raw(['log', '--all', '--format=%H']),
             ]);
             const hashes = raw
@@ -1321,6 +1332,12 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             if (body.fileListView === 'tree' || body.fileListView === 'flat') {
                 settings.fileListView = body.fileListView;
+            }
+            if (body.searchMode === 'filter' || body.searchMode === 'navigate') {
+                settings.searchMode = body.searchMode;
+            }
+            if (typeof body.searchCaseSensitive === 'boolean') {
+                settings.searchCaseSensitive = body.searchCaseSensitive;
             }
             if ('issueLinking' in body) {
                 if (body.issueLinking === null) {
@@ -2071,6 +2088,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     path,
                     oldPath,
                     status: 'binary',
+                    binary: true,
                     additions: 0,
                     deletions: 0,
                     lines: [],
@@ -2093,6 +2111,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 path,
                 oldPath,
                 status,
+                binary: false,
                 additions: file?.additions ?? 0,
                 deletions: file?.deletions ?? 0,
                 lines,
@@ -2282,6 +2301,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             showGraph = settings.showGraph;
             showStashes = settings.showStashes;
             fileListView = settings.fileListView;
+            searchMode = settings.searchMode;
+            searchCaseSensitive = settings.searchCaseSensitive;
             showTags = settings.showTags;
             showRemoteBranches = settings.showRemoteBranches;
             issueRegex = settings.issueRegex;

@@ -12,6 +12,32 @@
     (keydown)="onSearchKeydown($event)"
   />
   @if (searchValue()) {
+    @if (!filterMode()) {
+      <button
+        type="button"
+        class="nav-btn"
+        title="Previous match (Shift+Enter)"
+        aria-label="Previous match"
+        [disabled]="matchCount() === 0"
+        (click)="searchNavigate.emit('prev')"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="nav-btn"
+        title="Next match (Enter)"
+        aria-label="Next match"
+        [disabled]="matchCount() === 0"
+        (click)="searchNavigate.emit('next')"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+    }
     <button
       type="button"
       class="clear-btn"
@@ -24,54 +50,6 @@
         <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </button>
+    <span class="count-badge">{{ badgeText() }}</span>
   }
 </div>
-<button
-  type="button"
-  class="mode-btn"
-  aria-label="Filter search results"
-  [attr.aria-pressed]="filterMode()"
-  [title]="filterMode() ? 'Show matching commits only. Switch to navigation' : 'Navigate matches in history. Switch to filtering'"
-  (click)="filterModeChange.emit(!filterMode())"
->{{ filterMode() ? 'Filter' : 'Navigate' }}</button>
-@if (searchValue()) {
-  <div class="search-nav">
-    @if (!filterMode()) {
-    <button
-      type="button"
-      class="nav-btn"
-      title="Previous match (Shift+Enter)"
-      aria-label="Previous match"
-      [disabled]="matchCount() === 0"
-      (click)="searchNavigate.emit('prev')"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="18 15 12 9 6 15" />
-      </svg>
-    </button>
-    }
-    <span class="count">
-      @if (matchCount() === 0) {
-        No matches
-      } @else if (filterMode() || matchIndex() < 0) {
-        {{ matchCount() }} matches
-      } @else {
-        {{ matchIndex() + 1 }} of {{ matchCount() }}
-      }
-    </span>
-    @if (!filterMode()) {
-    <button
-      type="button"
-      class="nav-btn"
-      title="Next match (Enter)"
-      aria-label="Next match"
-      [disabled]="matchCount() === 0"
-      (click)="searchNavigate.emit('next')"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-    </button>
-    }
-  </div>
-}
