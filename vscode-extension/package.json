@@ -36,7 +36,9 @@
   },
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:guito.open"
+    "onCommand:guito.open",
+    "onCommand:guito.configureUserDetails",
+    "onCommand:guito.configureRemotes"
   ],
   "capabilities": {
     "virtualWorkspaces": false,
@@ -51,6 +53,16 @@
         "title": "Open Guito",
         "category": "Guito",
         "icon": "$(git-branch)"
+      },
+      {
+        "command": "guito.configureUserDetails",
+        "title": "Configure User Details",
+        "category": "Guito"
+      },
+      {
+        "command": "guito.configureRemotes",
+        "title": "Configure Remotes",
+        "category": "Guito"
       }
     ],
     "configuration": {

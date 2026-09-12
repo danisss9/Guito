@@ -6,6 +6,8 @@ Explore and manage the Git repositories in your workspace without leaving Visual
 
 Open a folder containing a Git repository, then select **Guito** in the status bar or run **Guito: Open Guito** from the Command Palette. Multi-root workspaces prompt you to choose a repository.
 
+Use **Guito: Configure User Details** and **Guito: Configure Remotes** from the Command Palette to manage repository Git configuration with native VS Code pickers.
+
 Guito runs against the selected repository and supports local workspaces, Remote SSH, Dev Containers, and GitHub Codespaces.
 
 ## Requirements

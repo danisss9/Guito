@@ -601,6 +601,22 @@ test('modifier selection, separate diffs, bulk actions and drafts', async ({ pag
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeEnabled();
 });
 
+test('staged and unstaged file menus copy the repository-relative path', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await setup(page);
+  await page.locator('.working-row').click();
+
+  const staged = page.getByRole('listbox', { name: 'staged files', exact: true });
+  await staged.getByRole('option', { name: 'partial.txt', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Copy File Path', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('partial.txt');
+
+  const unstaged = page.getByRole('listbox', { name: 'unstaged files', exact: true });
+  await unstaged.getByRole('option', { name: 'a.txt', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Copy File Path', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('a.txt');
+});
+
 test('file lists render as a tree or flat list from the settings dialog', async ({ page }) => {
   const { state } = await setup(page, 700, {
     staged: ['src/app/app.ts', 'src/app/components/toolbar/toolbar.ts', 'README.md'],

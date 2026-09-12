@@ -152,6 +152,7 @@ export class WorkingPanel {
           action: 'open-file',
           disabled: !this.vscode.canOpenFile(),
         },
+        { label: 'Copy File Path', action: 'copy-file-path' },
       ],
     });
   }
@@ -163,6 +164,8 @@ export class WorkingPanel {
       this.openDiff(target.group, target.file);
     } else if (action === 'open-file') {
       this.vscode.openFile(target.file.path);
+    } else if (action === 'copy-file-path') {
+      void navigator.clipboard?.writeText(target.file.path);
     }
   }
 

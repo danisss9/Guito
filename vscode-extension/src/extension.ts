@@ -24,6 +24,12 @@ interface RepositorySession {
   server: RunningGuitoServer;
 }
 
+interface GitRemote {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+}
+
 /** The app in the webview iframe asks the extension host to open a file diff. */
 interface OpenDiffMessage {
   type: 'guito/openDiff';
@@ -85,11 +91,22 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
+  const configureUserDetailsCommand = vscode.commands.registerCommand(
+    'guito.configureUserDetails',
+    () => runRepositoryCommand('configure user details', configureUserDetails),
+  );
+  const configureRemotesCommand = vscode.commands.registerCommand(
+    'guito.configureRemotes',
+    () => runRepositoryCommand('configure remotes', configureRemotes),
+  );
+
   updateStatusBar();
   context.subscriptions.push(
     outputChannel,
     statusBar,
     openCommand,
+    configureUserDetailsCommand,
+    configureRemotesCommand,
     vscode.workspace.onDidChangeWorkspaceFolders(updateStatusBar),
     vscode.workspace.registerTextDocumentContentProvider('guito-diff', {
       provideTextDocumentContent: (uri: vscode.Uri) => provideDiffContent(uri),
@@ -113,7 +130,21 @@ export async function deactivate(): Promise<void> {
   await closeAllSessions();
 }
 
-async function selectRepository(): Promise<RepositoryChoice | undefined> {
+async function runRepositoryCommand(
+  action: string,
+  command: (repository: RepositoryChoice) => Promise<void>,
+): Promise<void> {
+  try {
+    const repository = await selectRepository(`Guito: ${action}`);
+    if (repository) await command(repository);
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `Guito could not ${action}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function selectRepository(title = 'Open Guito'): Promise<RepositoryChoice | undefined> {
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
     void vscode.window.showInformationMessage('Open a folder containing a Git repository first.');
@@ -137,10 +168,169 @@ async function selectRepository(): Promise<RepositoryChoice | undefined> {
   }
 
   return vscode.window.showQuickPick(repositories, {
-    title: 'Open Guito',
+    title,
     placeHolder: 'Choose a Git repository',
     matchOnDescription: true,
   });
+}
+
+async function git(root: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['-C', root, ...args], { windowsHide: true });
+  return stdout.trim();
+}
+
+async function optionalGit(root: string, args: string[]): Promise<string> {
+  try {
+    return await git(root, args);
+  } catch {
+    return '';
+  }
+}
+
+async function configureUserDetails(repository: RepositoryChoice): Promise<void> {
+  const [name, email, localName, localEmail] = await Promise.all([
+    optionalGit(repository.root, ['config', '--get', 'user.name']),
+    optionalGit(repository.root, ['config', '--get', 'user.email']),
+    optionalGit(repository.root, ['config', '--local', '--get', 'user.name']),
+    optionalGit(repository.root, ['config', '--local', '--get', 'user.email']),
+  ]);
+  const choices: vscode.QuickPickItem[] = [
+    {
+      label: '$(edit) Set user details',
+      description: name && email ? `${name} <${email}>` : 'Name and email for this repository',
+    },
+  ];
+  if (localName || localEmail) {
+    choices.push({
+      label: '$(trash) Remove repository user details',
+      description: 'Fall back to the global Git configuration',
+    });
+  }
+  const action = await vscode.window.showQuickPick(choices, {
+    title: `Guito: User Details — ${repository.label}`,
+    placeHolder: 'Choose how to manage the repository Git identity',
+  });
+  if (!action) return;
+
+  if (action.label.includes('Remove')) {
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove the repository-specific Git user name and email for ${repository.label}?`,
+      { modal: true },
+      'Remove',
+    );
+    if (confirmation !== 'Remove') return;
+    await Promise.all([
+      optionalGit(repository.root, ['config', '--local', '--unset-all', 'user.name']),
+      optionalGit(repository.root, ['config', '--local', '--unset-all', 'user.email']),
+    ]);
+    void vscode.window.showInformationMessage(`Guito removed user details for ${repository.label}.`);
+    return;
+  }
+
+  const nextName = await vscode.window.showInputBox({
+    title: `Guito: User Details — ${repository.label}`,
+    prompt: 'Git user name for this repository',
+    value: name,
+    validateInput: (value) => value.trim() ? undefined : 'A user name is required.',
+  });
+  if (nextName === undefined) return;
+  const nextEmail = await vscode.window.showInputBox({
+    title: `Guito: User Details — ${repository.label}`,
+    prompt: 'Git user email for this repository',
+    value: email,
+    validateInput: (value) => value.trim() ? undefined : 'An email address is required.',
+  });
+  if (nextEmail === undefined) return;
+  await git(repository.root, ['config', '--local', 'user.name', nextName.trim()]);
+  await git(repository.root, ['config', '--local', 'user.email', nextEmail.trim()]);
+  void vscode.window.showInformationMessage(`Guito updated user details for ${repository.label}.`);
+}
+
+async function listGitRemotes(root: string): Promise<GitRemote[]> {
+  const names = (await optionalGit(root, ['remote'])).split(/\r?\n/).filter(Boolean);
+  return Promise.all(names.map(async (name) => {
+    const fetchUrl = await git(root, ['remote', 'get-url', name]);
+    const pushUrl = await optionalGit(root, ['remote', 'get-url', '--push', name]) || fetchUrl;
+    return { name, fetchUrl, pushUrl };
+  }));
+}
+
+async function configureRemotes(repository: RepositoryChoice): Promise<void> {
+  const remotes = await listGitRemotes(repository.root);
+  const selected = await vscode.window.showQuickPick(
+    [
+      { label: '$(add) Add remote', description: 'Configure a new fetch and push destination' },
+      ...remotes.map((remote) => ({
+        label: `$(cloud) ${remote.name}`,
+        description: remote.fetchUrl,
+        remote,
+      })),
+    ],
+    {
+      title: `Guito: Remotes — ${repository.label}`,
+      placeHolder: 'Choose a remote to manage, or add one',
+      matchOnDescription: true,
+    },
+  );
+  if (!selected) return;
+
+  const remote = 'remote' in selected ? selected.remote : undefined;
+  if (remote) {
+    const action = await vscode.window.showQuickPick(
+      [
+        { label: '$(edit) Edit remote', description: remote.fetchUrl },
+        { label: '$(trash) Remove remote', description: `Remove ${remote.name} from this repository` },
+      ],
+      { title: `Guito: Remote ${remote.name}`, placeHolder: 'Choose an action' },
+    );
+    if (!action) return;
+    if (action.label.includes('Remove')) {
+      const confirmation = await vscode.window.showWarningMessage(
+        `Remove the remote "${remote.name}" from ${repository.label}?`,
+        { modal: true },
+        'Remove',
+      );
+      if (confirmation !== 'Remove') return;
+      await git(repository.root, ['remote', 'remove', remote.name]);
+      void vscode.window.showInformationMessage(`Guito removed remote ${remote.name}.`);
+      return;
+    }
+  }
+
+  const name = await vscode.window.showInputBox({
+    title: `Guito: ${remote ? 'Edit' : 'Add'} Remote — ${repository.label}`,
+    prompt: 'Remote name',
+    value: remote?.name ?? '',
+    placeHolder: 'origin',
+    validateInput: (value) => /^[A-Za-z0-9._-]+$/.test(value.trim())
+      ? undefined
+      : 'Use letters, numbers, periods, underscores, or hyphens.',
+  });
+  if (name === undefined) return;
+  const fetchUrl = await vscode.window.showInputBox({
+    title: `Guito: ${remote ? 'Edit' : 'Add'} Remote — ${repository.label}`,
+    prompt: 'Fetch URL',
+    value: remote?.fetchUrl ?? '',
+    validateInput: (value) => value.trim() ? undefined : 'A fetch URL is required.',
+  });
+  if (fetchUrl === undefined) return;
+  const pushUrl = await vscode.window.showInputBox({
+    title: `Guito: ${remote ? 'Edit' : 'Add'} Remote — ${repository.label}`,
+    prompt: 'Push URL (leave blank to use the fetch URL)',
+    value: remote?.pushUrl === remote?.fetchUrl ? '' : (remote?.pushUrl ?? ''),
+  });
+  if (pushUrl === undefined) return;
+
+  const trimmedName = name.trim();
+  const trimmedFetchUrl = fetchUrl.trim();
+  if (!remote) {
+    await git(repository.root, ['remote', 'add', trimmedName, trimmedFetchUrl]);
+  } else if (remote.name !== trimmedName) {
+    await git(repository.root, ['remote', 'rename', remote.name, trimmedName]);
+  }
+  await git(repository.root, ['remote', 'set-url', trimmedName, trimmedFetchUrl]);
+  await git(repository.root, ['remote', 'set-url', '--push', trimmedName, pushUrl.trim() || trimmedFetchUrl]);
+  void vscode.window.showInformationMessage(`Guito ${remote ? 'updated' : 'added'} remote ${trimmedName}.`);
 }
 
 async function discoverRepositories(
