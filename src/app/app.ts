@@ -501,6 +501,7 @@ export class App implements OnDestroy {
       history: this.git.getCommits(
         automatic ? Math.max(LOAD_PAGE_SIZE, this.commits().length) : LOAD_PAGE_SIZE,
       ),
+      repositoryState: this.git.getRepositoryState().pipe(catchError(() => of(null))),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
       settings: this.git.getSettings().pipe(catchError(() => of(null))),
@@ -514,9 +515,10 @@ export class App implements OnDestroy {
         }),
       ),
     }).subscribe({
-      next: ({ history, branches, repo, settings, stashes, working }) => {
+      next: ({ history, repositoryState, branches, repo, settings, stashes, working }) => {
         this.commits.set(history.commits);
         this.totalCommits.set(Math.max(history.total, history.commits.length));
+        if (repositoryState) this.lastRepositoryState = repositoryState;
         this.branches.set(branches);
         this.repoName.set(repo.name);
         this.identity.set(repo.identity ?? { name: '', email: '' });

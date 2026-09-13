@@ -30,6 +30,7 @@ async function setup(page, count = 700, overrides = {}) {
     unstaged: ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'partial.txt'],
     revision: 'initial',
     workingRevision: 'initial',
+    repositoryStateRequests: 0,
     avatarRequests: 0,
     avatarAvailable: false,
     prRequests: [],
@@ -143,6 +144,7 @@ async function setup(page, count = 700, overrides = {}) {
     }
     switch (parsed.pathname) {
       case '/api/repository-state':
+        state.repositoryStateRequests++;
         return send({ history: state.revision, working: state.workingRevision });
       case '/api/avatar':
         state.avatarRequests++;
@@ -321,6 +323,13 @@ async function setup(page, count = 700, overrides = {}) {
   await expect(page.locator('.table-loading')).toHaveCount(0);
   return { state, commits, errors };
 }
+
+test('opening performs only one commit-history refresh', async ({ page }) => {
+  const { state, errors } = await setup(page);
+  await expect.poll(() => state.repositoryStateRequests, { timeout: 5000 }).toBeGreaterThan(1);
+  expect(state.historyRequests).toBe(1);
+  expect(errors).toEqual([]);
+});
 
 test('header, working row and graph follow horizontal scrolling and column resize', async ({
   page,
