@@ -2,7 +2,7 @@
   "name": "guito",
   "displayName": "Guito",
   "description": "Explore and manage the current Git repository with Guito inside VS Code.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "danisss9",
   "license": "MIT",
   "icon": "logo.png",
@@ -127,7 +127,10 @@
         },
         "guito.fileListView": {
           "type": "string",
-          "enum": ["flat", "tree"],
+          "enum": [
+            "flat",
+            "tree"
+          ],
           "enumDescriptions": [
             "Show changed files as a flat list with full paths.",
             "Group changed files into a collapsible directory tree."
@@ -138,7 +141,10 @@
         },
         "guito.searchMode": {
           "type": "string",
-          "enum": ["navigate", "filter"],
+          "enum": [
+            "navigate",
+            "filter"
+          ],
           "enumDescriptions": [
             "Keep the full history visible and jump between matching commits.",
             "Show only commits that match the search."

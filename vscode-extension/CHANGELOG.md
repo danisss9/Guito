@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.1
+
 - Fix pull request policy evaluations in the merge checks card: build the documented `vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}` artifact id instead of the rejected `CodeReviewIdentity` form, so the card shows branch policies again instead of degrading to pull request statuses only.
 - Add and remove pull request tags and related work items from the review dialog sidebar: a "+" button beside each section opens an inline picker (project tags, or Azure Boards search by title/id for work items), and each tag chip and work item row has an "×" that removes it.
 

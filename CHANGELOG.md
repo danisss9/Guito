@@ -4,6 +4,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-14
+
 ### Fixed
 
 - Load Azure DevOps pull request policy evaluations again in the merge checks card. The checks request used the undocumented `CodeReviewIdentity` artifact id, which Azure rejects with "Artifact id ... does not exist" and degraded the card to pull request statuses only; it now builds the documented `vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}` id and parses the live response shape (generic `count`/`value` list, plain string evaluation statuses, `isBlocking` for required gates, and build links/expiry from the evaluation context).
