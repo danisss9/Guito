@@ -1,18 +1,20 @@
 <div class="chip-input">
   <div class="chip-row">
     @for (chip of chips(); track chip.id) {
-      <span class="chip">
-        <span class="chip-label" [title]="chip.description ?? chip.label">{{ chip.label }}</span>
-        <button
-          type="button"
-          class="chip-remove"
-          [attr.aria-label]="'Remove ' + chip.label"
-          [disabled]="disabled()"
-          (click)="remove.emit(chip)"
-        >
-          ×
-        </button>
-      </span>
+    <span class="chip">
+      <span class="chip-label" [title]="chip.description ?? chip.label"
+        >{{ chip.label }}</span
+      >
+      <button
+        type="button"
+        class="chip-remove"
+        [attr.aria-label]="'Remove ' + chip.label"
+        [disabled]="disabled()"
+        (click)="remove.emit(chip)"
+      >
+        ×
+      </button>
+    </span>
     }
     <input
       class="chip-query"
@@ -25,29 +27,43 @@
       (focus)="open.set(true)"
       (blur)="onBlur()"
     />
+    @if (trailingIcon()) {
+    <button
+      type="button"
+      class="chip-trailing"
+      [class.on]="trailingPressed()"
+      [attr.aria-pressed]="trailingPressed()"
+      [attr.aria-label]="trailingLabel()"
+      [title]="trailingLabel()"
+      [disabled]="disabled()"
+      (mousedown)="$event.preventDefault()"
+      (click)="trailingAction.emit()"
+    >
+      {{ trailingIcon() }}
+    </button>
+    }
   </div>
-  @if (error()) { <app-error-banner [message]="error()" /> }
-  @if (open() && (loading() || suggestions().length > 0 || query().trim())) {
-    <ul class="suggestions" role="listbox">
-      @if (loading()) {
-        <li class="suggestion-hint">Searching...</li>
+  @if (error()) { <app-error-banner [message]="error()" /> } @if (open() &&
+  (loading() || suggestions().length > 0 || query().trim())) {
+  <ul class="suggestions" role="listbox">
+    @if (loading()) {
+    <li class="suggestion-hint">Searching...</li>
+    } @if (!loading() && !error() && !suggestions().length) {
+    <li class="suggestion-hint">No matches</li>
+    } @for (suggestion of suggestions(); track suggestion.id; let index =
+    $index) {
+    <li
+      role="option"
+      [attr.aria-selected]="index === highlight()"
+      [class.active]="index === highlight()"
+      (mousedown)="onSuggestionMouseDown($event, suggestion)"
+    >
+      <span class="suggestion-label">{{ suggestion.label }}</span>
+      @if (suggestion.description) {
+      <span class="suggestion-desc">{{ suggestion.description }}</span>
       }
-      @if (!loading() && !error() && !suggestions().length) {
-        <li class="suggestion-hint">No matches</li>
-      }
-      @for (suggestion of suggestions(); track suggestion.id; let index = $index) {
-        <li
-          role="option"
-          [attr.aria-selected]="index === highlight()"
-          [class.active]="index === highlight()"
-          (mousedown)="onSuggestionMouseDown($event, suggestion)"
-        >
-          <span class="suggestion-label">{{ suggestion.label }}</span>
-          @if (suggestion.description) {
-            <span class="suggestion-desc">{{ suggestion.description }}</span>
-          }
-        </li>
-      }
-    </ul>
+    </li>
+    }
+  </ul>
   }
 </div>

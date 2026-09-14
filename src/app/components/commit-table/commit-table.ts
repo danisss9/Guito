@@ -1,11 +1,11 @@
-import { AuthorAvatar } from '../author-avatar/author-avatar';
-import { IssueText } from '../issue-text/issue-text';
-import { DatePipe } from '@angular/common';
+import { AuthorAvatar } from "../author-avatar/author-avatar";
+import { IssueText } from "../issue-text/issue-text";
+import { DatePipe } from "@angular/common";
 import {
   CdkFixedSizeVirtualScroll,
   CdkVirtualForOf,
   CdkVirtualScrollViewport,
-} from '@angular/cdk/scrolling';
+} from "@angular/cdk/scrolling";
 import {
   ChangeDetectionStrategy,
   afterRenderEffect,
@@ -20,8 +20,8 @@ import {
   output,
   signal,
   viewChild,
-} from '@angular/core';
-import { Subscription } from 'rxjs';
+} from "@angular/core";
+import { Subscription } from "rxjs";
 import {
   ContextMenuEvent,
   GitCommit,
@@ -31,11 +31,11 @@ import {
   StashEntry,
   WORKING_HASH,
   WorkingChanges,
-} from '../../models/git.models';
-import { GraphService } from '../../services/graph.service';
-import { GraphCommit, laneColor } from '../../utils/graph';
-import { isHeadCommit, parseRefs } from '../../utils/refs';
-import { loadJson, saveJson } from '../../utils/storage';
+} from "../../models/git.models";
+import { GraphService } from "../../services/graph.service";
+import { GraphCommit, laneColor } from "../../utils/graph";
+import { isHeadCommit, parseRefs } from "../../utils/refs";
+import { loadJson, saveJson } from "../../utils/storage";
 
 interface GraphNodeView {
   hash: string;
@@ -64,7 +64,7 @@ interface HighlightSegment {
   match: boolean;
 }
 
-type ResizableColumn = 'graph' | 'description' | 'date' | 'author' | 'commit';
+type ResizableColumn = "graph" | "description" | "date" | "author" | "commit";
 
 const ROW_HEIGHT = 34;
 const LANE_WIDTH = 14;
@@ -74,7 +74,7 @@ const MIN_GRAPH_WIDTH = 72;
 const GRAPH_ROW_BUFFER = 10;
 
 /** localStorage key holding the persisted column widths. */
-const COLUMN_WIDTHS_KEY = 'guito.columnWidths';
+const COLUMN_WIDTHS_KEY = "guito.columnWidths";
 
 const DEFAULT_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
   graph: 0, // 0 = auto (derived from the lane count)
@@ -94,11 +94,20 @@ const MIN_COLUMN_WIDTHS: Record<ResizableColumn, number> = {
 };
 
 function loadColumnWidths(): Record<ResizableColumn, number> {
-  const stored = loadJson<Partial<Record<ResizableColumn, number>>>(COLUMN_WIDTHS_KEY, {});
+  const stored = loadJson<Partial<Record<ResizableColumn, number>>>(
+    COLUMN_WIDTHS_KEY,
+    {},
+  );
   const widths = { ...DEFAULT_COLUMN_WIDTHS };
-  for (const column of Object.keys(DEFAULT_COLUMN_WIDTHS) as ResizableColumn[]) {
+  for (const column of Object.keys(
+    DEFAULT_COLUMN_WIDTHS,
+  ) as ResizableColumn[]) {
     const value = stored[column];
-    if (typeof value === 'number' && Number.isFinite(value) && value >= MIN_COLUMN_WIDTHS[column]) {
+    if (
+      typeof value === "number" &&
+      Number.isFinite(value) &&
+      value >= MIN_COLUMN_WIDTHS[column]
+    ) {
       widths[column] = value;
     }
   }
@@ -106,7 +115,7 @@ function loadColumnWidths(): Record<ResizableColumn, number> {
 }
 
 @Component({
-  selector: 'app-commit-table',
+  selector: "app-commit-table",
   imports: [
     AuthorAvatar,
     DatePipe,
@@ -115,33 +124,35 @@ function loadColumnWidths(): Record<ResizableColumn, number> {
     CdkVirtualScrollViewport,
     IssueText,
   ],
-  templateUrl: './commit-table.html',
-  styleUrl: './commit-table.css',
+  templateUrl: "./commit-table.html",
+  styleUrl: "./commit-table.css",
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommitTable implements OnDestroy {
   readonly commits = input.required<GitCommit[]>();
   readonly selectedHash = input.required<string>();
-  readonly identity = input<GitIdentity>({ name: '', email: '' });
-  readonly search = input<string>('');
+  readonly identity = input<GitIdentity>({ name: "", email: "" });
+  readonly search = input<string>("");
   readonly showGraph = input(true);
-  readonly selectedBranch = input<string>('');
+  readonly selectedBranch = input<string>("");
   readonly showRemote = input(true);
   readonly workingChanges = input<WorkingChanges | null>(null);
   /** Stash stack rendered as pinned rows above the history. */
   readonly stashes = input<StashEntry[]>([]);
   /** Whether stash rows are shown; toggled from the settings menu. */
-  readonly showStashes = input(true);
+  readonly showStashes = input(false);
   readonly showTags = input(true);
   readonly issueLinking = input<IssueLinkingSettings | null>(null);
   readonly unloaded = input(0);
   readonly historyLoading = input(false);
-  readonly loadingLabel = input('');
+  readonly loadingLabel = input("");
   /** When set, scrolls the table so this commit is visible (id re-triggers). */
   readonly scrollToHash = input<{ hash: string; id: number } | null>(null);
   protected readonly graphLoading = signal(false);
   protected readonly pendingLabel = computed(
-    () => this.loadingLabel() || (this.graphLoading() ? 'Drawing commit graph...' : ''),
+    () =>
+      this.loadingLabel() ||
+      (this.graphLoading() ? "Drawing commit graph..." : ""),
   );
 
   readonly commitClick = output<GitCommit>();
@@ -196,7 +207,9 @@ export class CommitTable implements OnDestroy {
     effect(() => {
       const request = this.scrollToHash();
       if (!request) return;
-      const index = this.graphCommits().findIndex((entry) => entry.commit.hash === request.hash);
+      const index = this.graphCommits().findIndex(
+        (entry) => entry.commit.hash === request.hash,
+      );
       if (index === -1) return;
       const viewport = this.viewport();
       if (!viewport) return;
@@ -254,7 +267,10 @@ export class CommitTable implements OnDestroy {
    * new history size yet right after a page load, in which case the browser
    * clamps the offset; retry until the offset sticks.
    */
-  private scrollToIndex(viewport: CdkVirtualScrollViewport, index: number): void {
+  private scrollToIndex(
+    viewport: CdkVirtualScrollViewport,
+    index: number,
+  ): void {
     const element = viewport.elementRef.nativeElement;
     const height = element.clientHeight || this.viewportHeight();
     const target = Math.max(0, index * ROW_HEIGHT - (height - ROW_HEIGHT) / 2);
@@ -270,7 +286,8 @@ export class CommitTable implements OnDestroy {
   }
 
   /** Column widths, persisted across sessions; graph 0 = auto. */
-  protected readonly columnWidths = signal<Record<ResizableColumn, number>>(loadColumnWidths());
+  protected readonly columnWidths =
+    signal<Record<ResizableColumn, number>>(loadColumnWidths());
 
   protected readonly graphCommits = signal<GraphCommit[]>([]);
 
@@ -281,7 +298,9 @@ export class CommitTable implements OnDestroy {
     this.graphSubscription?.unsubscribe();
     if (!this.showGraph()) {
       this.graphLoading.set(false);
-      this.graphCommits.set(commits.map((commit) => ({ commit, lane: 0, parents: [] })));
+      this.graphCommits.set(
+        commits.map((commit) => ({ commit, lane: 0, parents: [] })),
+      );
       return;
     }
     this.graphLoading.set(true);
@@ -302,12 +321,16 @@ export class CommitTable implements OnDestroy {
   }
 
   protected readonly graphWidth = computed(() => {
-    const lanes = this.graphCommits().reduce((max, entry) => Math.max(max, entry.lane), 0) + 1;
+    const lanes =
+      this.graphCommits().reduce((max, entry) => Math.max(max, entry.lane), 0) +
+      1;
     return Math.max(MIN_GRAPH_WIDTH, GRAPH_PADDING * 2 + lanes * LANE_WIDTH);
   });
 
   protected readonly graphColumnWidth = computed(() =>
-    this.showGraph() ? Math.max(this.graphWidth(), this.columnWidths().graph) : 0,
+    this.showGraph()
+      ? Math.max(this.graphWidth(), this.columnWidths().graph)
+      : 0,
   );
 
   /**
@@ -331,10 +354,12 @@ export class CommitTable implements OnDestroy {
       this.descriptionWidth(),
   );
   protected readonly horizontalTransform = computed(
-    () => 'translateX(' + -this.scrollLeft() + 'px)',
+    () => "translateX(" + -this.scrollLeft() + "px)",
   );
 
-  protected readonly graphHeight = computed(() => this.graphCommits().length * ROW_HEIGHT);
+  protected readonly graphHeight = computed(
+    () => this.graphCommits().length * ROW_HEIGHT,
+  );
 
   /** Every commit→parent edge of the graph, resolved once per graph update. */
   private readonly allEdges = computed<GraphEdgeSpec[]>(() => {
@@ -354,7 +379,10 @@ export class CommitTable implements OnDestroy {
           childRow: index,
           childLane: entry.lane,
           parentRow: parentRow ?? -1,
-          parentLane: parentRow === undefined ? entry.lane : (laneOf.get(parent) ?? entry.lane),
+          parentLane:
+            parentRow === undefined
+              ? entry.lane
+              : (laneOf.get(parent) ?? entry.lane),
         });
       }
     }
@@ -367,10 +395,14 @@ export class CommitTable implements OnDestroy {
     if (total === 0 || this.viewportHeight() === 0) {
       return { start: 0, end: 0 };
     }
-    const start = Math.max(0, Math.floor(this.scrollTop() / ROW_HEIGHT) - GRAPH_ROW_BUFFER);
+    const start = Math.max(
+      0,
+      Math.floor(this.scrollTop() / ROW_HEIGHT) - GRAPH_ROW_BUFFER,
+    );
     const end = Math.min(
       total,
-      Math.ceil((this.scrollTop() + this.viewportHeight()) / ROW_HEIGHT) + GRAPH_ROW_BUFFER,
+      Math.ceil((this.scrollTop() + this.viewportHeight()) / ROW_HEIGHT) +
+        GRAPH_ROW_BUFFER,
     );
     return { start, end };
   });
@@ -401,8 +433,14 @@ export class CommitTable implements OnDestroy {
       // Keep every edge crossing the visible band, including edges anchored
       // above it whose lower part is on screen (e.g. long merge edges).
       const parentRow = spec.parentRow;
-      const top = Math.min(spec.childRow, parentRow < 0 ? spec.childRow : parentRow);
-      const bottom = parentRow < 0 ? Number.MAX_SAFE_INTEGER : Math.max(spec.childRow, parentRow);
+      const top = Math.min(
+        spec.childRow,
+        parentRow < 0 ? spec.childRow : parentRow,
+      );
+      const bottom =
+        parentRow < 0
+          ? Number.MAX_SAFE_INTEGER
+          : Math.max(spec.childRow, parentRow);
       if (bottom < start || top >= end) {
         continue;
       }
@@ -424,7 +462,10 @@ export class CommitTable implements OnDestroy {
         edges.push({ d: `M ${x1} ${y1} L ${x2} ${y2}`, color });
       } else {
         const midY = (y1 + y2) / 2;
-        edges.push({ d: `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`, color });
+        edges.push({
+          d: `M ${x1} ${y1} C ${x1} ${midY} ${x2} ${midY} ${x2} ${y2}`,
+          color,
+        });
       }
     }
 
@@ -448,10 +489,10 @@ export class CommitTable implements OnDestroy {
   protected readonly workingCommit = computed<GitCommit>(() => ({
     hash: WORKING_HASH,
     date: new Date().toISOString(),
-    message: 'Uncommitted changes',
-    refs: '',
-    body: '',
-    author_name: this.identity().name || 'You',
+    message: "Uncommitted changes",
+    refs: "",
+    body: "",
+    author_name: this.identity().name || "You",
     author_email: this.identity().email,
     parents: [],
   }));
@@ -465,11 +506,11 @@ export class CommitTable implements OnDestroy {
   protected stashCommit(stash: StashEntry): GitCommit {
     return {
       hash: stash.hash,
-      date: stash.date ?? '',
+      date: stash.date ?? "",
       message: stash.message,
-      refs: '',
-      author_name: stash.author_name ?? '',
-      author_email: stash.author_email ?? '',
+      refs: "",
+      author_name: stash.author_name ?? "",
+      author_email: stash.author_email ?? "",
       parents: [],
     };
   }
@@ -481,16 +522,23 @@ export class CommitTable implements OnDestroy {
 
   // ==================== Column resizing ====================
 
-  private resizeState: { column: ResizableColumn; startX: number; startWidth: number } | null =
-    null;
+  private resizeState: {
+    column: ResizableColumn;
+    startX: number;
+    startWidth: number;
+  } | null = null;
 
   protected startResize(column: ResizableColumn, event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
 
-    if (column === 'graph') {
-      this.resizeState = { column, startX: event.clientX, startWidth: this.graphColumnWidth() };
-    } else if (column === 'description') {
+    if (column === "graph") {
+      this.resizeState = {
+        column,
+        startX: event.clientX,
+        startWidth: this.graphColumnWidth(),
+      };
+    } else if (column === "description") {
       // Fold the fill width into the saved width: from here on the drag sets
       // the exact on-screen width, and the table may end up narrower until
       // the window is resized again.
@@ -499,11 +547,15 @@ export class CommitTable implements OnDestroy {
       this.fillerWidth.set(0);
       this.resizeState = { column, startX: event.clientX, startWidth: width };
     } else {
-      this.resizeState = { column, startX: event.clientX, startWidth: this.columnWidths()[column] };
+      this.resizeState = {
+        column,
+        startX: event.clientX,
+        startWidth: this.columnWidths()[column],
+      };
     }
 
-    document.addEventListener('mousemove', this.onResizeMove);
-    document.addEventListener('mouseup', this.onResizeEnd);
+    document.addEventListener("mousemove", this.onResizeMove);
+    document.addEventListener("mouseup", this.onResizeEnd);
   }
 
   private readonly onResizeMove = (event: MouseEvent): void => {
@@ -513,10 +565,13 @@ export class CommitTable implements OnDestroy {
     }
 
     const delta = event.clientX - state.startX;
-    const min = state.column === 'graph' ? this.graphWidth() : 48;
+    const min = state.column === "graph" ? this.graphWidth() : 48;
     const width = Math.max(min, state.startWidth + delta);
 
-    this.columnWidths.update((widths) => ({ ...widths, [state.column]: width }));
+    this.columnWidths.update((widths) => ({
+      ...widths,
+      [state.column]: width,
+    }));
   };
 
   private readonly onResizeEnd = (): void => {
@@ -524,8 +579,8 @@ export class CommitTable implements OnDestroy {
       saveJson(COLUMN_WIDTHS_KEY, this.columnWidths());
     }
     this.resizeState = null;
-    document.removeEventListener('mousemove', this.onResizeMove);
-    document.removeEventListener('mouseup', this.onResizeEnd);
+    document.removeEventListener("mousemove", this.onResizeMove);
+    document.removeEventListener("mouseup", this.onResizeEnd);
   };
 
   ngOnDestroy(): void {
@@ -541,30 +596,46 @@ export class CommitTable implements OnDestroy {
     this.contextMenu.emit({
       x: event.clientX,
       y: event.clientY,
-      target: { kind: 'commit', commit },
+      target: { kind: "commit", commit },
     });
   }
 
-  protected onBadgeContextMenu(event: MouseEvent, commit: GitCommit, badge: RefBadge): void {
+  protected onBadgeContextMenu(
+    event: MouseEvent,
+    commit: GitCommit,
+    badge: RefBadge,
+  ): void {
     event.preventDefault();
     event.stopPropagation();
     this.contextMenu.emit({
       x: event.clientX,
       y: event.clientY,
-      target: { kind: badge.type === 'tag' ? 'tag' : 'branch', commit, branch: badge },
+      target: {
+        kind: badge.type === "tag" ? "tag" : "branch",
+        commit,
+        branch: badge,
+      },
     });
   }
 
   protected onWorkingContextMenu(event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
-    this.contextMenu.emit({ x: event.clientX, y: event.clientY, target: { kind: 'working' } });
+    this.contextMenu.emit({
+      x: event.clientX,
+      y: event.clientY,
+      target: { kind: "working" },
+    });
   }
 
   protected onStashContextMenu(event: MouseEvent, stash: StashEntry): void {
     event.preventDefault();
     event.stopPropagation();
-    this.contextMenu.emit({ x: event.clientX, y: event.clientY, target: { kind: 'stash', stash } });
+    this.contextMenu.emit({
+      x: event.clientX,
+      y: event.clientY,
+      target: { kind: "stash", stash },
+    });
   }
 
   // ==================== Search highlighting ====================
@@ -584,7 +655,10 @@ export class CommitTable implements OnDestroy {
       if (found > index) {
         segments.push({ text: text.slice(index, found), match: false });
       }
-      segments.push({ text: text.slice(found, found + query.length), match: true });
+      segments.push({
+        text: text.slice(found, found + query.length),
+        match: true,
+      });
       index = found + query.length;
       found = lower.indexOf(query, index);
     }
@@ -615,16 +689,16 @@ export class CommitTable implements OnDestroy {
     const showRemote = this.showRemote();
 
     return parseRefs(commit.refs).filter((badge) => {
-      if (badge.type === 'tag' && !this.showTags()) {
+      if (badge.type === "tag" && !this.showTags()) {
         return false;
       }
-      if (badge.type === 'remote' && !showRemote) {
+      if (badge.type === "remote" && !showRemote) {
         return false;
       }
       if (!selectedBranch) {
         return true;
       }
-      if (badge.type === 'tag') {
+      if (badge.type === "tag") {
         return true;
       }
       return badge.name === selectedBranch;

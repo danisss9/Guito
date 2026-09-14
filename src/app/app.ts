@@ -1,4 +1,4 @@
-import { ErrorBanner } from './components/error-banner/error-banner';
+import { ErrorBanner } from "./components/error-banner/error-banner";
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,24 +9,24 @@ import {
   inject,
   signal,
   untracked,
-} from '@angular/core';
-import { Subscription } from 'rxjs';
-import { forkJoin, Observable, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
-import { CommitDetail } from './components/commit-detail/commit-detail';
-import { CommitTable } from './components/commit-table/commit-table';
-import { ContextMenu } from './components/context-menu/context-menu';
-import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
+} from "@angular/core";
+import { Subscription } from "rxjs";
+import { forkJoin, Observable, of } from "rxjs";
+import { catchError } from "rxjs/operators";
+import { CommitDetail } from "./components/commit-detail/commit-detail";
+import { CommitTable } from "./components/commit-table/commit-table";
+import { ContextMenu } from "./components/context-menu/context-menu";
+import { CreatePrDialog } from "./components/create-pr-dialog/create-pr-dialog";
 import {
   GuitoSettingsUpdate,
   SettingsDialog,
-} from './components/settings-dialog/settings-dialog';
-import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
-import { PrDialog } from './components/pr-dialog/pr-dialog';
-import { SidePanel } from './components/side-panel/side-panel';
-import { WorkingPanel } from './components/working-panel/working-panel';
-import { WorktreeDialog } from './components/worktree-dialog/worktree-dialog';
-import { Toolbar, RemoteAction } from './components/toolbar/toolbar';
+} from "./components/settings-dialog/settings-dialog";
+import { PromptDialog } from "./components/prompt-dialog/prompt-dialog";
+import { PrDialog } from "./components/pr-dialog/pr-dialog";
+import { SidePanel } from "./components/side-panel/side-panel";
+import { WorkingPanel } from "./components/working-panel/working-panel";
+import { WorktreeDialog } from "./components/worktree-dialog/worktree-dialog";
+import { Toolbar, RemoteAction } from "./components/toolbar/toolbar";
 import {
   AzureSettings,
   BranchInfo,
@@ -44,17 +44,17 @@ import {
   WORKING_HASH,
   WorkingChanges,
   WorktreeInfo,
-} from './models/git.models';
-import { GitService } from './services/git.service';
-import { VscodeService } from './services/vscode.service';
-import { authenticatedApiUrl } from './utils/session';
-import { loadJson, saveJson } from './utils/storage';
+} from "./models/git.models";
+import { GitService } from "./services/git.service";
+import { VscodeService } from "./services/vscode.service";
+import { authenticatedApiUrl } from "./utils/session";
+import { loadJson, saveJson } from "./utils/storage";
 
 /** Number of commits fetched from the server per request. */
 const LOAD_PAGE_SIZE = 500;
 
 /** localStorage key holding the persisted commit message draft. */
-const COMMIT_DRAFT_KEY = 'guito.commitDraft';
+const COMMIT_DRAFT_KEY = "guito.commitDraft";
 
 interface CommitDraft {
   subject: string;
@@ -64,13 +64,13 @@ interface CommitDraft {
 function loadCommitDraft(): CommitDraft {
   const draft = loadJson<Partial<CommitDraft>>(COMMIT_DRAFT_KEY, {});
   return {
-    subject: typeof draft.subject === 'string' ? draft.subject : '',
-    description: typeof draft.description === 'string' ? draft.description : '',
+    subject: typeof draft.subject === "string" ? draft.subject : "",
+    description: typeof draft.description === "string" ? draft.description : "",
   };
 }
 
 @Component({
-  selector: 'app-root',
+  selector: "app-root",
   imports: [
     ErrorBanner,
     Toolbar,
@@ -85,8 +85,8 @@ function loadCommitDraft(): CommitDraft {
     PrDialog,
     WorktreeDialog,
   ],
-  templateUrl: './app.html',
-  styleUrl: './app.css',
+  templateUrl: "./app.html",
+  styleUrl: "./app.css",
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App implements OnDestroy {
@@ -96,7 +96,7 @@ export class App implements OnDestroy {
   protected readonly workingHash = WORKING_HASH;
   protected readonly mutationBusy = this.git.mutating;
   protected readonly statusLoading = signal(false);
-  protected readonly statusError = signal('');
+  protected readonly statusError = signal("");
   /** Commit message draft, persisted across sessions. */
   private readonly commitDraft = loadCommitDraft();
   protected readonly commitSubject = signal(this.commitDraft.subject);
@@ -107,28 +107,31 @@ export class App implements OnDestroy {
   private readonly filterFailed = signal(false);
   protected readonly tableLoading = computed(() =>
     this.loading()
-      ? 'Refreshing commits...'
+      ? "Refreshing commits..."
       : this.searchLoading() || (this.search().trim() && this.historyLoading())
-        ? 'Searching commits...'
+        ? "Searching commits..."
         : this.historyLoading()
-          ? 'Loading history...'
-          : '',
+          ? "Loading history..."
+          : "",
   );
 
   protected readonly commits = signal<GitCommit[]>([]);
   protected readonly branches = signal<BranchInfo[]>([]);
-  protected readonly selectedBranch = signal('');
+  protected readonly selectedBranch = signal("");
   protected readonly showRemote = signal(true);
-  protected readonly search = signal('');
+  protected readonly search = signal("");
   protected readonly selectedCommit = signal<GitCommit | null>(null);
   protected readonly loading = signal(false);
   protected readonly busy = signal(false);
-  protected readonly error = signal('');
-  protected readonly repoName = signal('');
-  protected readonly identity = signal<GitIdentity>({ name: '', email: '' });
+  protected readonly error = signal("");
+  protected readonly repoName = signal("");
+  protected readonly identity = signal<GitIdentity>({ name: "", email: "" });
   private lastRepositoryState: RepositoryState | null = null;
   private stateSub: Subscription | null = null;
-  private readonly refreshTimer = window.setInterval(() => this.checkRepository(), 3000);
+  private readonly refreshTimer = window.setInterval(
+    () => this.checkRepository(),
+    3000,
+  );
   protected readonly workingChanges = signal<WorkingChanges | null>(null);
   protected readonly totalCommits = signal(0);
   protected readonly historyLoading = signal(false);
@@ -137,22 +140,34 @@ export class App implements OnDestroy {
   protected readonly promptState = signal<PromptState | null>(null);
   /** Azure DevOps integration settings; null until the first refresh. */
   protected readonly azureSettings = signal<AzureSettings | null>(null);
-  protected readonly hasAzureUrl = computed(() => !!this.azureSettings()?.azureDevOpsUrl);
+  protected readonly hasAzureUrl = computed(
+    () => !!this.azureSettings()?.azureDevOpsUrl,
+  );
   /** Automatic reloading can be disabled with the guito.autoReload setting. */
-  protected readonly autoReload = computed(() => this.azureSettings()?.autoReload !== false);
+  protected readonly autoReload = computed(
+    () => this.azureSettings()?.autoReload !== false,
+  );
   /** The commit graph column can be hidden from the settings menu. */
-  protected readonly showGraph = computed(() => this.azureSettings()?.showGraph !== false);
-  /** Stash rows in the commit table can be hidden from the settings menu. */
-  protected readonly showStashes = computed(() => this.azureSettings()?.showStashes !== false);
-  protected readonly showTags = computed(() => this.azureSettings()?.showTags !== false);
-  protected readonly issueLinking = computed(() => this.azureSettings()?.issueLinking ?? null);
+  protected readonly showGraph = computed(
+    () => this.azureSettings()?.showGraph !== false,
+  );
+  /** Stash rows in the commit table stay hidden until the settings enable them. */
+  protected readonly showStashes = computed(
+    () => this.azureSettings()?.showStashes === true,
+  );
+  protected readonly showTags = computed(
+    () => this.azureSettings()?.showTags !== false,
+  );
+  protected readonly issueLinking = computed(
+    () => this.azureSettings()?.issueLinking ?? null,
+  );
   /** Whether changed-file lists render as a directory tree instead of a flat list. */
   protected readonly fileListView = computed(() =>
-    this.azureSettings()?.fileListView === 'tree' ? 'tree' : 'flat',
+    this.azureSettings()?.fileListView === "tree" ? "tree" : "flat",
   );
   /** Whether commit search shows only matches instead of navigating through history. */
-  protected readonly filterSearch = computed(() =>
-    this.azureSettings()?.searchMode === 'filter',
+  protected readonly filterSearch = computed(
+    () => this.azureSettings()?.searchMode === "filter",
   );
   /** Whether commit search matches the query's exact letter casing. */
   protected readonly searchCaseSensitive = computed(
@@ -172,21 +187,24 @@ export class App implements OnDestroy {
   protected readonly stashes = signal<StashEntry[]>([]);
   protected readonly worktrees = signal<WorktreeInfo[]>([]);
   protected readonly worktreeDialogOpen = signal(false);
-  protected readonly worktreeDialogError = signal('');
+  protected readonly worktreeDialogError = signal("");
   protected readonly tags = signal<TagInfo[]>([]);
 
   /** The signed-in user's Azure DevOps pull requests; null until first load. */
   protected readonly pullRequests = signal<PrSummary[] | null>(null);
-  protected readonly pullRequestsError = signal('');
+  protected readonly pullRequestsError = signal("");
   /** Id of the pull request open in the PR detail dialog; null = closed. */
   protected readonly prDetailId = signal<number | null>(null);
 
   /** Hash of the focused search match; '' = none focused. */
-  protected readonly searchFocusHash = signal('');
+  protected readonly searchFocusHash = signal("");
   /** Match awaiting focus while pages are still being loaded. */
-  private readonly pendingSearchHash = signal('');
+  private readonly pendingSearchHash = signal("");
   /** Scroll request for the commit table; the id re-triggers same-hash scrolls. */
-  protected readonly scrollRequest = signal<{ hash: string; id: number } | null>(null);
+  protected readonly scrollRequest = signal<{
+    hash: string;
+    id: number;
+  } | null>(null);
   private scrollRequestCounter = 0;
 
   /**
@@ -222,7 +240,9 @@ export class App implements OnDestroy {
     let list = this.commits();
 
     const selectedBranch = this.selectedBranch();
-    const visibleBranches = this.branches().filter((branch) => this.showRemote() || !branch.remote);
+    const visibleBranches = this.branches().filter(
+      (branch) => this.showRemote() || !branch.remote,
+    );
     const branchesToShow = selectedBranch
       ? visibleBranches.filter((branch) => branch.name === selectedBranch)
       : visibleBranches;
@@ -255,9 +275,17 @@ export class App implements OnDestroy {
     const loaded = this.filteredCommits()
       .filter(
         (commit) =>
-          (caseSensitive ? commit.message : commit.message.toLowerCase()).includes(query) ||
-          (caseSensitive ? commit.author_name : commit.author_name.toLowerCase()).includes(query) ||
-          (caseSensitive ? commit.hash : commit.hash.toLowerCase()).startsWith(query) ||
+          (caseSensitive
+            ? commit.message
+            : commit.message.toLowerCase()
+          ).includes(query) ||
+          (caseSensitive
+            ? commit.author_name
+            : commit.author_name.toLowerCase()
+          ).includes(query) ||
+          (caseSensitive ? commit.hash : commit.hash.toLowerCase()).startsWith(
+            query,
+          ) ||
           bodySet.has(commit.hash),
       )
       .map((commit) => commit.hash);
@@ -290,12 +318,16 @@ export class App implements OnDestroy {
         this.bodyMatches.set([]);
         this.searchHistoryIndices.set({});
         this.filterFailed.set(false);
-        this.error.set('');
-        this.searchFocusHash.set('');
-        this.pendingSearchHash.set('');
+        this.error.set("");
+        this.searchFocusHash.set("");
+        this.pendingSearchHash.set("");
         if (this.loading()) return;
         // Branch filtering is client-side, so the full history is needed.
-        if ((this.selectedBranch() || (query && this.filterSearch())) && this.unloadedCommits() > 0) this.loadAllCommits();
+        if (
+          (this.selectedBranch() || (query && this.filterSearch())) &&
+          this.unloadedCommits() > 0
+        )
+          this.loadAllCommits();
         if (query) this.fetchBodyMatches(query, caseSensitive);
       });
     });
@@ -309,7 +341,9 @@ export class App implements OnDestroy {
         const matches = new Set(this.searchMatches());
         this.displayedCommits.set(
           this.filterSearch() && this.search().trim()
-            ? this.filteredCommits().filter((commit) => matches.has(commit.hash))
+            ? this.filteredCommits().filter((commit) =>
+                matches.has(commit.hash),
+              )
             : this.filteredCommits(),
         );
       }
@@ -321,29 +355,36 @@ export class App implements OnDestroy {
       const hash = this.pendingSearchHash();
       if (!hash) return;
       if (this.filterFailed()) return;
-      const match = this.displayedCommits().find((commit) => commit.hash === hash);
+      const match = this.displayedCommits().find(
+        (commit) => commit.hash === hash,
+      );
       if (match) {
         untracked(() => {
           this.selectedCommit.set(match);
           this.scrollRequestCounter += 1;
           this.scrollRequest.set({ hash, id: this.scrollRequestCounter });
-          this.pendingSearchHash.set('');
+          this.pendingSearchHash.set("");
         });
-      } else if (this.unloadedCommits() > 0 && !this.historyLoading() && !this.loading()) {
+      } else if (
+        this.unloadedCommits() > 0 &&
+        !this.historyLoading() &&
+        !this.loading()
+      ) {
         const index = this.searchHistoryIndices()[hash];
         const skip = this.commits().length;
         if (index !== undefined && index < skip) {
           // Already loaded but hidden by the active branch filter.
-          this.pendingSearchHash.set('');
+          this.pendingSearchHash.set("");
           return;
         }
-        const limit = index === undefined
-          ? undefined
-          : Math.ceil((index + 1 - skip) / LOAD_PAGE_SIZE) * LOAD_PAGE_SIZE;
+        const limit =
+          index === undefined
+            ? undefined
+            : Math.ceil((index + 1 - skip) / LOAD_PAGE_SIZE) * LOAD_PAGE_SIZE;
         untracked(() => this.loadHistory(this.git.getCommits(limit, skip)));
       } else if (!this.historyLoading() && !this.loading()) {
         // The match never appeared (e.g. outside the selected branch).
-        this.pendingSearchHash.set('');
+        this.pendingSearchHash.set("");
       }
     });
 
@@ -383,8 +424,8 @@ export class App implements OnDestroy {
     this.prListSub?.unsubscribe();
   }
 
-  @HostListener('window:focus')
-  @HostListener('document:visibilitychange')
+  @HostListener("window:focus")
+  @HostListener("document:visibilitychange")
   protected checkRepository(): void {
     if (
       !this.autoReload() ||
@@ -455,14 +496,14 @@ export class App implements OnDestroy {
   protected loadPullRequests(): void {
     if (!this.hasAzureUrl()) {
       this.pullRequests.set(null);
-      this.pullRequestsError.set('');
+      this.pullRequestsError.set("");
       return;
     }
     this.prListSub?.unsubscribe();
     this.prListSub = this.git.getMyPullRequests().subscribe({
       next: (pullRequests) => {
         this.pullRequests.set(pullRequests);
-        this.pullRequestsError.set('');
+        this.pullRequestsError.set("");
       },
       error: (err) => {
         if (this.pullRequests() === null) {
@@ -494,19 +535,25 @@ export class App implements OnDestroy {
     this.statusLoading.set(true);
     this.historyLoading.set(false);
     this.loading.set(true);
-    this.error.set('');
+    this.error.set("");
 
     this.refreshSub?.unsubscribe();
     this.refreshSub = forkJoin({
       history: this.git.getCommits(
-        automatic ? Math.max(LOAD_PAGE_SIZE, this.commits().length) : LOAD_PAGE_SIZE,
+        automatic
+          ? Math.max(LOAD_PAGE_SIZE, this.commits().length)
+          : LOAD_PAGE_SIZE,
       ),
-      repositoryState: this.git.getRepositoryState().pipe(catchError(() => of(null))),
+      repositoryState: this.git
+        .getRepositoryState()
+        .pipe(catchError(() => of(null))),
       branches: this.git.getAllBranches(),
       repo: this.git.getRepoInfo(),
       settings: this.git.getSettings().pipe(catchError(() => of(null))),
       // The commit table shows stash rows even when the side panel is closed.
-      stashes: this.git.getStashes().pipe(catchError(() => of([] as StashEntry[]))),
+      stashes: this.git
+        .getStashes()
+        .pipe(catchError(() => of([] as StashEntry[]))),
       working: this.git.getWorkingChanges().pipe(
         catchError((err) => {
           this.lastRepositoryState = null;
@@ -515,23 +562,33 @@ export class App implements OnDestroy {
         }),
       ),
     }).subscribe({
-      next: ({ history, repositoryState, branches, repo, settings, stashes, working }) => {
+      next: ({
+        history,
+        repositoryState,
+        branches,
+        repo,
+        settings,
+        stashes,
+        working,
+      }) => {
         this.commits.set(history.commits);
         this.totalCommits.set(Math.max(history.total, history.commits.length));
         if (repositoryState) this.lastRepositoryState = repositoryState;
         this.branches.set(branches);
         this.repoName.set(repo.name);
-        this.identity.set(repo.identity ?? { name: '', email: '' });
+        this.identity.set(repo.identity ?? { name: "", email: "" });
         this.stashes.set(stashes);
         if (
           this.selectedBranch() &&
           !branches.some((branch) => branch.name === this.selectedBranch())
         ) {
-          this.selectedBranch.set('');
+          this.selectedBranch.set("");
         }
         const selected = this.selectedCommit();
         if (selected && selected.hash !== WORKING_HASH) {
-          const updated = history.commits.find((commit) => commit.hash === selected.hash);
+          const updated = history.commits.find(
+            (commit) => commit.hash === selected.hash,
+          );
           if (updated) this.selectedCommit.set({ ...selected, ...updated });
         }
         if (settings) {
@@ -540,7 +597,7 @@ export class App implements OnDestroy {
         }
         if (working) {
           this.workingChanges.set(working);
-          this.statusError.set('');
+          this.statusError.set("");
         }
         this.statusLoading.set(false);
         this.loading.set(false);
@@ -566,7 +623,7 @@ export class App implements OnDestroy {
     this.workingSub = this.git.getWorkingChanges().subscribe({
       next: (working) => {
         this.workingChanges.set(working);
-        this.statusError.set('');
+        this.statusError.set("");
         this.statusLoading.set(false);
       },
       error: (err) => {
@@ -578,10 +635,19 @@ export class App implements OnDestroy {
   }
 
   protected changeStage(event: { staged: boolean; files: string[] }): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError()) return;
+    if (
+      this.busy() ||
+      this.mutationBusy() ||
+      this.statusLoading() ||
+      this.statusError()
+    )
+      return;
     this.busy.set(true);
-    this.error.set('');
-    (event.staged ? this.git.unstage(event.files) : this.git.stage(event.files)).subscribe({
+    this.error.set("");
+    (event.staged
+      ? this.git.unstage(event.files)
+      : this.git.stage(event.files)
+    ).subscribe({
       next: () => {
         this.refreshWorking();
         this.busy.set(false);
@@ -595,7 +661,13 @@ export class App implements OnDestroy {
   }
 
   protected stashChanges(scope: StashScope): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError()) return;
+    if (
+      this.busy() ||
+      this.mutationBusy() ||
+      this.statusLoading() ||
+      this.statusError()
+    )
+      return;
     this.git.stashSave(undefined, scope).subscribe({
       next: () => this.refresh(),
       error: (err) => this.error.set(this.errorMessage(err)),
@@ -603,17 +675,23 @@ export class App implements OnDestroy {
   }
 
   protected discardUnstaged(files: string[]): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError()) return;
+    if (
+      this.busy() ||
+      this.mutationBusy() ||
+      this.statusLoading() ||
+      this.statusError()
+    )
+      return;
     if (!files.length) return;
     this.pendingDiscard.set(files);
     this.promptState.set({
-      title: 'Discard unstaged changes?',
+      title: "Discard unstaged changes?",
       label:
         files.length === 1
           ? `${files[0]} will be discarded. This cannot be undone.`
           : `${files.length} files will be discarded. This cannot be undone.`,
       confirmOnly: true,
-      okLabel: 'Discard',
+      okLabel: "Discard",
       danger: true,
     });
   }
@@ -635,11 +713,11 @@ export class App implements OnDestroy {
     )
       return;
     this.busy.set(true);
-    this.error.set('');
+    this.error.set("");
     this.git.commit(this.commitSubject(), this.commitDescription()).subscribe({
       next: () => {
-        this.commitSubject.set('');
-        this.commitDescription.set('');
+        this.commitSubject.set("");
+        this.commitDescription.set("");
         this.refresh();
         this.busy.set(false);
       },
@@ -652,7 +730,9 @@ export class App implements OnDestroy {
   }
 
   protected loadMoreCommits(): void {
-    this.loadHistory(this.git.getCommits(LOAD_PAGE_SIZE, this.commits().length));
+    this.loadHistory(
+      this.git.getCommits(LOAD_PAGE_SIZE, this.commits().length),
+    );
   }
 
   protected loadAllCommits(): void {
@@ -676,7 +756,9 @@ export class App implements OnDestroy {
           this.commits.update((current) => [...current, ...commits]);
           // An empty page means there is nothing left to load.
           this.totalCommits.set(
-            commits.length > 0 ? Math.max(total, this.commits().length) : this.commits().length,
+            commits.length > 0
+              ? Math.max(total, this.commits().length)
+              : this.commits().length,
           );
         }
         this.historyLoading.set(false);
@@ -708,7 +790,7 @@ export class App implements OnDestroy {
   }
 
   /** Focus the next/previous search match, loading history until it appears. */
-  protected navigateSearch(direction: 'next' | 'prev'): void {
+  protected navigateSearch(direction: "next" | "prev"): void {
     const matches = this.searchMatches();
     if (matches.length === 0) {
       return;
@@ -716,10 +798,10 @@ export class App implements OnDestroy {
     const current = this.searchIndex();
     const next =
       current < 0
-        ? direction === 'next'
+        ? direction === "next"
           ? 0
           : matches.length - 1
-        : direction === 'next'
+        : direction === "next"
           ? (current + 1) % matches.length
           : (current - 1 + matches.length) % matches.length;
     const hash = matches[next];
@@ -729,37 +811,37 @@ export class App implements OnDestroy {
 
   protected runRemoteAction(action: RemoteAction): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
-    if (action === 'rebase-from') {
+    if (action === "rebase-from") {
       this.openRebaseFromDialog();
       return;
     }
-    if (action === 'create-pr') {
+    if (action === "create-pr") {
       this.prDialogOpen.set(true);
       return;
     }
-    if (action === 'push-force') {
+    if (action === "push-force") {
       // Force push rewrites remote history; confirm before running it.
       this.promptState.set({
-        title: 'Force push?',
+        title: "Force push?",
         label:
-          'This will overwrite the remote branch with your local history. Remote commits missing locally may be lost.',
+          "This will overwrite the remote branch with your local history. Remote commits missing locally may be lost.",
         confirmOnly: true,
-        okLabel: 'Force Push',
+        okLabel: "Force Push",
         danger: true,
       });
       return;
     }
     this.busy.set(true);
-    this.error.set('');
+    this.error.set("");
 
     const request =
-      action === 'fetch' || action === 'fetch-prune'
-        ? this.git.fetch(action === 'fetch-prune')
-        : action === 'pull'
+      action === "fetch" || action === "fetch-prune"
+        ? this.git.fetch(action === "fetch-prune")
+        : action === "pull"
           ? this.git.pull()
-          : action === 'pull-rebase'
+          : action === "pull-rebase"
             ? this.git.pull(true)
-            : action === 'push'
+            : action === "push"
               ? this.git.push()
               : this.git.sync();
 
@@ -779,17 +861,19 @@ export class App implements OnDestroy {
   private openRebaseFromDialog(): void {
     const names = new Set(this.branches().map((branch) => branch.name));
     // origin/main wins over origin/master; both float to the top as the default choice.
-    const preferred = ['origin/main', 'origin/master'].filter((name) => names.has(name));
+    const preferred = ["origin/main", "origin/master"].filter((name) =>
+      names.has(name),
+    );
     preferred.forEach((name) => names.delete(name));
     const options = [...preferred, ...names];
     if (options.length === 0) {
-      options.push('origin/main', 'origin/master');
+      options.push("origin/main", "origin/master");
     }
     this.promptState.set({
-      title: 'Rebase from branch',
-      label: 'Rebase the current branch onto:',
+      title: "Rebase from branch",
+      label: "Rebase the current branch onto:",
       options: options.map((name) => ({ value: name, label: name })),
-      okLabel: 'Rebase',
+      okLabel: "Rebase",
       searchable: true,
     });
   }
@@ -825,88 +909,143 @@ export class App implements OnDestroy {
   protected onContextMenu(event: { x: number; y: number; target: any }): void {
     // Sidebar tag rows only know the tag name; attach the tagged commit when
     // it is loaded so the shared menu behaves like commit-table tag badges.
-    if (event.target.kind === 'tag' && !event.target.commit) {
-      const commit = this.taggedCommit(event.target.branch?.name ?? '');
+    if (event.target.kind === "tag" && !event.target.commit) {
+      const commit = this.taggedCommit(event.target.branch?.name ?? "");
       if (commit) event.target = { ...event.target, commit };
     }
 
     const items: MenuItem[] = [];
 
-    if (event.target.kind === 'commit') {
-      items.push({ label: 'Add Tag...', action: 'add-tag' });
-      items.push({ label: 'Create Branch...', action: 'create-branch' });
+    if (event.target.kind === "commit") {
+      items.push({ label: "Add Tag...", action: "add-tag" });
+      items.push({ label: "Create Branch...", action: "create-branch" });
       items.push({ separator: true });
-      items.push({ label: 'Checkout...', action: 'checkout-commit' });
-      items.push({ label: 'Cherry Pick...', action: 'cherry-pick' });
-      items.push({ label: 'Revert...', action: 'revert-commit', danger: true });
-      items.push({ label: 'Drop...', action: 'drop-commit', danger: true });
+      items.push({ label: "Checkout...", action: "checkout-commit" });
+      items.push({ label: "Cherry Pick...", action: "cherry-pick" });
+      items.push({ label: "Revert...", action: "revert-commit", danger: true });
+      items.push({ label: "Drop...", action: "drop-commit", danger: true });
       items.push({ separator: true });
-      items.push({ label: 'Merge into current branch...', action: 'merge-commit' });
-      items.push({ label: 'Rebase current branch on this Commit...', action: 'rebase-commit' });
       items.push({
-        label: 'Reset current branch to this Commit...',
-        action: 'reset-commit',
+        label: "Merge into current branch...",
+        action: "merge-commit",
+      });
+      items.push({
+        label: "Rebase current branch on this Commit...",
+        action: "rebase-commit",
+      });
+      items.push({
+        label: "Reset current branch to this Commit...",
+        action: "reset-commit",
         danger: true,
       });
       items.push({ separator: true });
-      items.push({ label: 'Copy Commit Hash to Clipboard', action: 'copy-hash' });
-      items.push({ label: 'Copy Commit Subject to Clipboard', action: 'copy-subject' });
-    } else if (event.target.kind === 'tag') {
-      items.push({ label: 'View Details', action: 'tag-details' });
+      items.push({
+        label: "Copy Commit Hash to Clipboard",
+        action: "copy-hash",
+      });
+      items.push({
+        label: "Copy Commit Subject to Clipboard",
+        action: "copy-subject",
+      });
+    } else if (event.target.kind === "tag") {
+      items.push({ label: "View Details", action: "tag-details" });
       items.push({ separator: true });
-      items.push({ label: 'Delete Tag...', action: 'tag-delete', danger: true });
-      items.push({ label: 'Push Tag...', action: 'tag-push' });
+      items.push({
+        label: "Delete Tag...",
+        action: "tag-delete",
+        danger: true,
+      });
+      items.push({ label: "Push Tag...", action: "tag-push" });
       items.push({ separator: true });
-      items.push({ label: 'Create Archive', action: 'create-archive' });
-      items.push({ label: 'Copy Tag Name to Clipboard', action: 'copy-tag-name' });
-    } else if (event.target.kind === 'branch') {
+      items.push({ label: "Create Archive", action: "create-archive" });
+      items.push({
+        label: "Copy Tag Name to Clipboard",
+        action: "copy-tag-name",
+      });
+    } else if (event.target.kind === "branch") {
       const badgeType = event.target.branch.type;
-      const isLocal = badgeType === 'head' || badgeType === 'local';
-      items.push({ label: 'Checkout Branch...', action: 'checkout-branch' });
+      const isLocal = badgeType === "head" || badgeType === "local";
+      items.push({ label: "Checkout Branch...", action: "checkout-branch" });
       if (isLocal) {
-        items.push({ label: 'Rename Branch...', action: 'rename-branch' });
+        items.push({ label: "Rename Branch...", action: "rename-branch" });
         items.push({
-          label: 'Delete Branch...',
-          action: 'delete-branch',
+          label: "Delete Branch...",
+          action: "delete-branch",
           danger: true,
           // Git refuses to delete the checked-out branch.
-          disabled: badgeType === 'head',
+          disabled: badgeType === "head",
         });
       }
       items.push({
-        label: 'Delete Remote Branch...',
-        action: 'delete-remote-branch',
+        label: "Delete Remote Branch...",
+        action: "delete-remote-branch",
         danger: true,
       });
-      items.push({ label: 'Merge into current branch...', action: 'merge-branch' });
-      items.push({ label: 'Pull into current branch...', action: 'pull-branch' });
-      items.push({ separator: true });
-      items.push({ label: 'Create Archive', action: 'create-archive' });
-      items.push({ label: 'Unselect in Branches Dropdown', action: 'unselect-branch' });
-      items.push({ separator: true });
-      items.push({ label: 'Copy Branch Name to Clipboard', action: 'copy-branch-name' });
-    } else if (event.target.kind === 'stash') {
-      items.push({ label: 'Apply Stash', action: 'stash-apply' });
-      items.push({ label: 'Pop Stash', action: 'stash-pop' });
-      items.push({ separator: true });
-      items.push({ label: 'Drop Stash...', action: 'stash-drop', danger: true });
-      items.push({ separator: true });
-      items.push({ label: 'Copy Stash Name to Clipboard', action: 'copy-stash-name' });
-    } else if (event.target.kind === 'worktree') {
       items.push({
-        label: 'Delete Worktree...',
-        action: 'delete-worktree',
+        label: "Merge into current branch...",
+        action: "merge-branch",
+      });
+      items.push({
+        label: "Pull into current branch...",
+        action: "pull-branch",
+      });
+      items.push({ separator: true });
+      items.push({ label: "Create Archive", action: "create-archive" });
+      items.push({
+        label: "Unselect in Branches Dropdown",
+        action: "unselect-branch",
+      });
+      items.push({ separator: true });
+      items.push({
+        label: "Copy Branch Name to Clipboard",
+        action: "copy-branch-name",
+      });
+    } else if (event.target.kind === "stash") {
+      items.push({ label: "Apply Stash", action: "stash-apply" });
+      items.push({ label: "Pop Stash", action: "stash-pop" });
+      items.push({ separator: true });
+      items.push({
+        label: "Drop Stash...",
+        action: "stash-drop",
+        danger: true,
+      });
+      items.push({ separator: true });
+      items.push({
+        label: "Copy Stash Name to Clipboard",
+        action: "copy-stash-name",
+      });
+    } else if (event.target.kind === "worktree") {
+      items.push({
+        label: "Delete Worktree...",
+        action: "delete-worktree",
         danger: true,
         disabled: event.target.worktree?.current || event.target.worktree?.bare,
       });
       items.push({ separator: true });
-      items.push({ label: 'Copy Worktree Path to Clipboard', action: 'copy-worktree-path' });
+      items.push({
+        label: "Copy Worktree Path to Clipboard",
+        action: "copy-worktree-path",
+      });
     } else {
-      items.push({ label: 'Stash uncommitted changes...', action: 'stash-working' });
-      items.push({ label: 'Reset uncommitted changes...', action: 'reset-working', danger: true });
-      items.push({ label: 'Clean untracked files...', action: 'clean-untracked', danger: true });
+      items.push({
+        label: "Stash uncommitted changes...",
+        action: "stash-working",
+      });
+      items.push({
+        label: "Reset uncommitted changes...",
+        action: "reset-working",
+        danger: true,
+      });
+      items.push({
+        label: "Clean untracked files...",
+        action: "clean-untracked",
+        danger: true,
+      });
       items.push({ separator: true });
-      items.push({ label: 'Open Source Control View', action: 'open-source-control' });
+      items.push({
+        label: "Open Source Control View",
+        action: "open-source-control",
+      });
     }
 
     this.contextMenuTarget.set(event.target);
@@ -926,13 +1065,13 @@ export class App implements OnDestroy {
   }
 
   protected openWorktreeDialog(): void {
-    this.worktreeDialogError.set('');
+    this.worktreeDialogError.set("");
     this.worktreeDialogOpen.set(true);
   }
 
   protected createWorktree(request: { path: string; branch: string }): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
-    this.worktreeDialogError.set('');
+    this.worktreeDialogError.set("");
     this.git.createWorktree(request.path, request.branch).subscribe({
       next: () => {
         this.worktreeDialogOpen.set(false);
@@ -947,23 +1086,23 @@ export class App implements OnDestroy {
     const selected = this.contextMenuTarget()?.commit ?? this.selectedCommit();
 
     switch (action) {
-      case 'add-tag':
+      case "add-tag":
         this.promptState.set({
-          title: 'Add Tag',
-          label: 'Tag name',
-          placeholder: 'v1.0.0',
-          okLabel: 'Add Tag',
+          title: "Add Tag",
+          label: "Tag name",
+          placeholder: "v1.0.0",
+          okLabel: "Add Tag",
         });
         break;
-      case 'create-branch':
+      case "create-branch":
         this.promptState.set({
-          title: 'Create Branch',
-          label: 'Branch name',
-          placeholder: 'feature/my-branch',
-          okLabel: 'Create Branch',
+          title: "Create Branch",
+          label: "Branch name",
+          placeholder: "feature/my-branch",
+          okLabel: "Create Branch",
         });
         break;
-      case 'checkout-commit':
+      case "checkout-commit":
         if (selected) {
           this.git.checkout(selected.hash).subscribe({
             next: () => this.refresh(),
@@ -971,7 +1110,7 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'cherry-pick':
+      case "cherry-pick":
         if (selected) {
           this.git.cherryPick(selected.hash).subscribe({
             next: () => this.refresh(),
@@ -979,27 +1118,27 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'open-commit':
+      case "open-commit":
         if (this.selectedCommit() === null) {
           this.selectedCommit.set(this.commits()[0] ?? null);
         }
         break;
-      case 'copy-hash':
+      case "copy-hash":
         if (selected) {
           void navigator.clipboard?.writeText(selected.hash);
         }
         break;
-      case 'copy-subject':
+      case "copy-subject":
         if (selected) {
           void navigator.clipboard?.writeText(selected.message);
         }
         break;
-      case 'view-commit-diff':
+      case "view-commit-diff":
         if (selected) {
           this.selectedCommit.set(selected);
         }
         break;
-      case 'revert-commit':
+      case "revert-commit":
         if (selected) {
           this.git.revert(selected.hash).subscribe({
             next: () => this.refresh(),
@@ -1007,16 +1146,16 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'drop-commit':
+      case "drop-commit":
         this.promptState.set({
-          title: 'Drop commit?',
-          label: 'This will reset the current branch to the commit before it.',
+          title: "Drop commit?",
+          label: "This will reset the current branch to the commit before it.",
           confirmOnly: true,
-          okLabel: 'Drop',
+          okLabel: "Drop",
           danger: true,
         });
         break;
-      case 'merge-commit':
+      case "merge-commit":
         if (selected) {
           this.git.merge(selected.hash).subscribe({
             next: () => this.refresh(),
@@ -1024,7 +1163,7 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'rebase-commit':
+      case "rebase-commit":
         if (selected) {
           this.git.rebase(selected.hash).subscribe({
             next: () => this.refresh(),
@@ -1032,20 +1171,33 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'reset-commit':
+      case "reset-commit":
         this.promptState.set({
-          title: 'Reset current branch to this commit?',
-          label: 'Choose the reset type:',
+          title: "Reset current branch to this commit?",
+          label: "Choose the reset type:",
           options: [
-            { value: 'soft', label: 'Soft', description: 'Keep all changes staged' },
-            { value: 'mixed', label: 'Mixed', description: 'Keep changes, but unstage them' },
-            { value: 'hard', label: 'Hard', description: 'Discard all changes', danger: true },
+            {
+              value: "soft",
+              label: "Soft",
+              description: "Keep all changes staged",
+            },
+            {
+              value: "mixed",
+              label: "Mixed",
+              description: "Keep changes, but unstage them",
+            },
+            {
+              value: "hard",
+              label: "Hard",
+              description: "Discard all changes",
+              danger: true,
+            },
           ],
-          okLabel: 'Reset',
+          okLabel: "Reset",
           danger: true,
         });
         break;
-      case 'checkout-branch':
+      case "checkout-branch":
         if (this.contextMenuTarget()?.branch?.name) {
           this.git.checkout(this.contextMenuTarget().branch.name).subscribe({
             next: () => this.refresh(),
@@ -1053,12 +1205,15 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'delete-remote-branch': {
-        const branchName = this.contextMenuTarget()?.branch?.name ?? '';
-        const separator = branchName.indexOf('/');
+      case "delete-remote-branch": {
+        const branchName = this.contextMenuTarget()?.branch?.name ?? "";
+        const separator = branchName.indexOf("/");
         if (separator > 0) {
           this.git
-            .deleteRemoteBranch(branchName.slice(0, separator), branchName.slice(separator + 1))
+            .deleteRemoteBranch(
+              branchName.slice(0, separator),
+              branchName.slice(separator + 1),
+            )
             .subscribe({
               next: () => this.refresh(),
               error: (err) => this.error.set(this.errorMessage(err)),
@@ -1066,7 +1221,7 @@ export class App implements OnDestroy {
         }
         break;
       }
-      case 'merge-branch':
+      case "merge-branch":
         if (this.contextMenuTarget()?.branch?.name) {
           this.git.merge(this.contextMenuTarget().branch.name).subscribe({
             next: () => this.refresh(),
@@ -1074,55 +1229,61 @@ export class App implements OnDestroy {
           });
         }
         break;
-      case 'pull-branch':
+      case "pull-branch":
         this.git.pull().subscribe({
           next: () => this.refresh(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });
         break;
-      case 'create-archive': {
+      case "create-archive": {
         const target = this.contextMenuTarget();
-        const ref = target?.kind === 'tag' ? target.branch?.name : target?.commit?.hash;
+        const ref =
+          target?.kind === "tag" ? target.branch?.name : target?.commit?.hash;
         if (ref) {
-          window.open(authenticatedApiUrl(`/api/archive?ref=${encodeURIComponent(ref)}`), '_blank');
+          window.open(
+            authenticatedApiUrl(`/api/archive?ref=${encodeURIComponent(ref)}`),
+            "_blank",
+          );
         }
         break;
       }
-      case 'tag-details':
+      case "tag-details":
         if (this.contextMenuTarget()?.commit) {
           this.selectedCommit.set(this.contextMenuTarget().commit);
         }
         break;
-      case 'tag-delete': {
-        const name = this.contextMenuTarget()?.branch?.name ?? '';
+      case "tag-delete": {
+        const name = this.contextMenuTarget()?.branch?.name ?? "";
         this.promptState.set({
-          title: 'Delete tag?',
+          title: "Delete tag?",
           label: `This will delete the tag "${name}".`,
           confirmOnly: true,
-          okLabel: 'Delete',
+          okLabel: "Delete",
           danger: true,
         });
         break;
       }
-      case 'tag-push': {
-        const name = this.contextMenuTarget()?.branch?.name ?? '';
+      case "tag-push": {
+        const name = this.contextMenuTarget()?.branch?.name ?? "";
         this.promptState.set({
-          title: 'Push tag?',
+          title: "Push tag?",
           label: `This will push the tag "${name}" to the remote.`,
           confirmOnly: true,
-          okLabel: 'Push',
+          okLabel: "Push",
         });
         break;
       }
-      case 'copy-tag-name':
+      case "copy-tag-name":
         if (this.contextMenuTarget()?.branch?.name) {
-          void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
+          void navigator.clipboard?.writeText(
+            this.contextMenuTarget().branch.name,
+          );
         }
         break;
-      case 'unselect-branch':
-        this.selectedBranch.set('');
+      case "unselect-branch":
+        this.selectedBranch.set("");
         break;
-      case 'stash-apply': {
+      case "stash-apply": {
         const index = this.contextMenuTarget()?.stash?.index;
         if (index !== undefined) {
           this.git.stashApply(index).subscribe({
@@ -1132,7 +1293,7 @@ export class App implements OnDestroy {
         }
         break;
       }
-      case 'stash-pop': {
+      case "stash-pop": {
         const index = this.contextMenuTarget()?.stash?.index;
         if (index !== undefined) {
           this.git.stashPop(index).subscribe({
@@ -1142,112 +1303,118 @@ export class App implements OnDestroy {
         }
         break;
       }
-      case 'stash-drop': {
+      case "stash-drop": {
         const stash = this.contextMenuTarget()?.stash;
         if (stash) {
           this.promptState.set({
-            title: 'Drop stash?',
+            title: "Drop stash?",
             label: `This will permanently drop stash@{${stash.index}}.`,
             confirmOnly: true,
-            okLabel: 'Drop',
+            okLabel: "Drop",
             danger: true,
           });
         }
         break;
       }
-      case 'copy-stash-name': {
+      case "copy-stash-name": {
         const stash = this.contextMenuTarget()?.stash;
         if (stash) {
           void navigator.clipboard?.writeText(`stash@{${stash.index}}`);
         }
         break;
       }
-      case 'copy-worktree-path': {
+      case "copy-worktree-path": {
         const path = this.contextMenuTarget()?.worktree?.path;
         if (path) {
           void navigator.clipboard?.writeText(path);
         }
         break;
       }
-      case 'delete-worktree': {
+      case "delete-worktree": {
         const worktree = this.contextMenuTarget()?.worktree;
         if (worktree && !worktree.current && !worktree.bare) {
           this.promptState.set({
-            title: 'Delete worktree?',
+            title: "Delete worktree?",
             label: `This will remove the worktree folder "${worktree.path}". Git will refuse if it contains uncommitted changes.`,
             confirmOnly: true,
-            okLabel: 'Delete',
+            okLabel: "Delete",
             danger: true,
           });
         }
         break;
       }
-      case 'copy-branch-name':
+      case "copy-branch-name":
         if (this.contextMenuTarget()?.branch?.name) {
-          void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
+          void navigator.clipboard?.writeText(
+            this.contextMenuTarget().branch.name,
+          );
         }
         break;
-      case 'rename-branch':
+      case "rename-branch":
         this.promptState.set({
-          title: 'Rename branch',
-          label: 'New branch name',
-          placeholder: 'feature/my-branch',
+          title: "Rename branch",
+          label: "New branch name",
+          placeholder: "feature/my-branch",
           value: this.contextMenuTarget()?.branch?.name,
-          okLabel: 'Rename',
+          okLabel: "Rename",
         });
         break;
-      case 'delete-branch':
+      case "delete-branch":
         this.promptState.set({
-          title: 'Delete branch?',
-          label: 'This will delete the local branch.',
+          title: "Delete branch?",
+          label: "This will delete the local branch.",
           confirmOnly: true,
-          okLabel: 'Delete',
+          okLabel: "Delete",
           danger: true,
         });
         break;
-      case 'open-working':
+      case "open-working":
         this.selectedCommit.set({
           hash: WORKING_HASH,
           date: new Date().toISOString(),
-          message: 'Uncommitted changes',
-          refs: '',
-          body: '',
-          author_name: this.identity().name || 'You',
+          message: "Uncommitted changes",
+          refs: "",
+          body: "",
+          author_name: this.identity().name || "You",
           author_email: this.identity().email,
           parents: [],
         });
         break;
-      case 'stash-working':
+      case "stash-working":
         this.promptState.set({
-          title: 'Stash uncommitted changes',
-          label: 'Stash message (optional)',
-          placeholder: 'WIP',
+          title: "Stash uncommitted changes",
+          label: "Stash message (optional)",
+          placeholder: "WIP",
           allowEmpty: true,
-          okLabel: 'Stash',
+          okLabel: "Stash",
         });
         break;
-      case 'reset-working':
+      case "reset-working":
         this.promptState.set({
-          title: 'Reset uncommitted changes?',
-          label: 'Tracked changes will be discarded. Untracked files will remain.',
+          title: "Reset uncommitted changes?",
+          label:
+            "Tracked changes will be discarded. Untracked files will remain.",
           confirmOnly: true,
-          okLabel: 'Reset',
+          okLabel: "Reset",
           danger: true,
         });
         break;
-      case 'clean-untracked':
+      case "clean-untracked":
         this.promptState.set({
-          title: 'Clean untracked files?',
-          label: 'Untracked files will be permanently deleted.',
+          title: "Clean untracked files?",
+          label: "Untracked files will be permanently deleted.",
           confirmOnly: true,
-          okLabel: 'Clean',
+          okLabel: "Clean",
           danger: true,
         });
         break;
-      case 'discard-working':
+      case "discard-working":
         this.git.getWorkingChanges().subscribe({
           next: (changes) => {
-            const files = [...changes.files.map((f) => f.path), ...changes.untracked];
+            const files = [
+              ...changes.files.map((f) => f.path),
+              ...changes.untracked,
+            ];
             if (files.length > 0) {
               this.git.discard(files).subscribe({
                 next: () => this.refreshWorking(),
@@ -1258,11 +1425,11 @@ export class App implements OnDestroy {
           error: (err) => this.error.set(this.errorMessage(err)),
         });
         break;
-      case 'refresh-status':
+      case "refresh-status":
         this.refresh();
         break;
-      case 'open-source-control':
-        window.open('vscode://command/workbench.view.scm', '_blank');
+      case "open-source-control":
+        window.open("vscode://command/workbench.view.scm", "_blank");
         break;
       default:
         break;
@@ -1281,7 +1448,7 @@ export class App implements OnDestroy {
 
     const commit = this.contextMenuTarget()?.commit;
 
-    if (state.title === 'Add Tag' && commit) {
+    if (state.title === "Add Tag" && commit) {
       this.git.createTag(value, commit.hash).subscribe({
         next: () => this.refresh(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1289,7 +1456,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Create Branch' && commit) {
+    if (state.title === "Create Branch" && commit) {
       this.git.createBranch(value, commit.hash).subscribe({
         next: () => this.refresh(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1297,7 +1464,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Drop commit?' && commit) {
+    if (state.title === "Drop commit?" && commit) {
       this.git.dropCommit(commit.hash).subscribe({
         next: () => this.refresh(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1305,8 +1472,8 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Reset current branch to this commit?' && commit) {
-      const mode = value === 'soft' || value === 'mixed' ? value : 'hard';
+    if (state.title === "Reset current branch to this commit?" && commit) {
+      const mode = value === "soft" || value === "mixed" ? value : "hard";
       this.git.resetToCommit(commit.hash, mode).subscribe({
         next: () => this.refresh(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1314,7 +1481,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Delete tag?') {
+    if (state.title === "Delete tag?") {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
         this.git.deleteTag(name).subscribe({
@@ -1325,7 +1492,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Delete worktree?') {
+    if (state.title === "Delete worktree?") {
       const worktree = this.contextMenuTarget()?.worktree;
       if (worktree && !worktree.current && !worktree.bare) {
         this.git.removeWorktree(worktree.path).subscribe({
@@ -1336,7 +1503,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Push tag?') {
+    if (state.title === "Push tag?") {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
         this.git.pushTag(name).subscribe({
@@ -1347,7 +1514,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Force push?') {
+    if (state.title === "Force push?") {
       this.git.push(true).subscribe({
         next: () => this.refresh(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1355,11 +1522,11 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Discard unstaged changes?') {
+    if (state.title === "Discard unstaged changes?") {
       const files = this.pendingDiscard();
       this.pendingDiscard.set(null);
       if (files?.length) {
-        this.git.discard(files, 'unstaged').subscribe({
+        this.git.discard(files, "unstaged").subscribe({
           next: () => this.refreshWorking(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });
@@ -1367,7 +1534,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Stash uncommitted changes') {
+    if (state.title === "Stash uncommitted changes") {
       this.git.stashSave(value || undefined).subscribe({
         next: () => this.refresh(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1375,7 +1542,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Reset uncommitted changes?') {
+    if (state.title === "Reset uncommitted changes?") {
       this.git.resetWorking().subscribe({
         next: () => this.refreshWorking(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1383,7 +1550,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Clean untracked files?') {
+    if (state.title === "Clean untracked files?") {
       this.git.cleanUntracked().subscribe({
         next: () => this.refreshWorking(),
         error: (err) => this.error.set(this.errorMessage(err)),
@@ -1391,14 +1558,15 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Rename branch') {
+    if (state.title === "Rename branch") {
       const name = this.contextMenuTarget()?.branch?.name;
       const newName = value.trim();
       if (name && newName && newName !== name) {
         this.git.renameBranch(name, newName).subscribe({
           next: () => {
             // Keep the branches dropdown on the renamed branch.
-            if (this.selectedBranch() === name) this.selectedBranch.set(newName);
+            if (this.selectedBranch() === name)
+              this.selectedBranch.set(newName);
             this.refresh();
           },
           error: (err) => this.error.set(this.errorMessage(err)),
@@ -1407,13 +1575,13 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Delete branch?') {
+    if (state.title === "Delete branch?") {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
         this.git.deleteBranch(name).subscribe({
           next: () => {
             // Fall back to Show All when the selected branch is gone.
-            if (this.selectedBranch() === name) this.selectedBranch.set('');
+            if (this.selectedBranch() === name) this.selectedBranch.set("");
             this.refresh();
           },
           error: (err) => this.error.set(this.errorMessage(err)),
@@ -1422,7 +1590,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Drop stash?') {
+    if (state.title === "Drop stash?") {
       const index = this.contextMenuTarget()?.stash?.index;
       if (index !== undefined) {
         this.git.stashDrop(index).subscribe({
@@ -1433,7 +1601,7 @@ export class App implements OnDestroy {
       return;
     }
 
-    if (state.title === 'Rebase from branch') {
+    if (state.title === "Rebase from branch") {
       const branch = value.trim();
       if (branch) {
         this.git.rebase(branch).subscribe({
@@ -1443,7 +1611,6 @@ export class App implements OnDestroy {
       }
       return;
     }
-
   }
 
   private ancestorsOf(head: string): Set<string> {
@@ -1471,6 +1638,6 @@ export class App implements OnDestroy {
     if (response?.status === 400 && response.error?.error) {
       return response.error.error;
     }
-    return 'Failed to communicate with the Guito server.';
+    return "Failed to communicate with the Guito server.";
   }
 }

@@ -1,5 +1,11 @@
-import { ErrorBanner } from '../error-banner/error-banner';
-import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
+import { ErrorBanner } from "../error-banner/error-banner";
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  output,
+  signal,
+} from "@angular/core";
 
 /** A selectable suggestion behind a chip input. */
 export interface ChipSuggestion {
@@ -15,26 +21,33 @@ export interface ChipSuggestion {
  * focus (a click would blur it and close the list first).
  */
 @Component({
-  selector: 'app-chip-input',
+  selector: "app-chip-input",
   imports: [ErrorBanner],
-  templateUrl: './chip-input.html',
-  styleUrl: './chip-input.css',
+  templateUrl: "./chip-input.html",
+  styleUrl: "./chip-input.css",
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChipInput {
-  readonly placeholder = input('');
+  readonly placeholder = input("");
   readonly chips = input<ChipSuggestion[]>([]);
   readonly suggestions = input<ChipSuggestion[]>([]);
   readonly loading = input(false);
-  readonly query = input('');
+  readonly query = input("");
   readonly disabled = input(false);
   /** Enter adds the typed text as a chip when no suggestion matches (tags). */
   readonly allowFreeText = input(false);
-  readonly error = input('');
+  readonly error = input("");
+  /** Optional trailing icon button (empty string hides it), e.g. a toggle. */
+  readonly trailingIcon = input("");
+  /** Accessible label of the trailing button. */
+  readonly trailingLabel = input("");
+  /** Pressed state of the trailing toggle button. */
+  readonly trailingPressed = input(false);
 
   readonly queryChange = output<string>();
   readonly select = output<ChipSuggestion>();
   readonly remove = output<ChipSuggestion>();
+  readonly trailingAction = output<void>();
 
   protected readonly open = signal(false);
   protected readonly highlight = signal(0);
@@ -47,13 +60,13 @@ export class ChipInput {
 
   protected onKeydown(event: KeyboardEvent): void {
     const list = this.suggestions();
-    if (event.key === 'ArrowDown' && list.length) {
+    if (event.key === "ArrowDown" && list.length) {
       event.preventDefault();
       this.highlight.update((index) => Math.min(index + 1, list.length - 1));
-    } else if (event.key === 'ArrowUp' && list.length) {
+    } else if (event.key === "ArrowUp" && list.length) {
       event.preventDefault();
       this.highlight.update((index) => Math.max(index - 1, 0));
-    } else if (event.key === 'Enter') {
+    } else if (event.key === "Enter") {
       event.preventDefault();
       const choice = list[this.highlight()];
       if (choice) {
@@ -66,7 +79,7 @@ export class ChipInput {
         this.open.set(false);
         this.select.emit({ id: text.toLowerCase(), label: text });
       }
-    } else if (event.key === 'Escape') {
+    } else if (event.key === "Escape") {
       // Close only the suggestion list; stopPropagation keeps the dialog open.
       if (this.open()) {
         event.stopPropagation();
@@ -80,7 +93,10 @@ export class ChipInput {
     this.select.emit(choice);
   }
 
-  protected onSuggestionMouseDown(event: MouseEvent, choice: ChipSuggestion): void {
+  protected onSuggestionMouseDown(
+    event: MouseEvent,
+    choice: ChipSuggestion,
+  ): void {
     event.preventDefault();
     this.pick(choice);
   }

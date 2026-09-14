@@ -61,6 +61,26 @@
   padding: 2px;
 }
 
+.chip-trailing {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-trailing:hover:not(:disabled),
+.chip-trailing.on {
+  color: #dcb67a;
+  background: rgba(220, 182, 122, 0.12);
+}
+
 .suggestions {
   position: absolute;
   top: 100%;

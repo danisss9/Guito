@@ -97,7 +97,7 @@
             "Open file diffs in Guito's own dialog inside the Guito panel.",
             "Open file diffs in the native VS Code diff tab."
           ],
-          "default": "guito",
+          "default": "vscode",
           "scope": "window",
           "description": "Where file diffs opened from Guito are displayed."
         },
@@ -109,7 +109,7 @@
         },
         "guito.showStashes": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "scope": "window",
           "description": "Show stash entries above the commit history."
         },
@@ -152,6 +152,12 @@
           "default": false,
           "scope": "window",
           "description": "Match commit searches using the query's exact letter casing."
+        },
+        "guito.allowMerge": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Offer the \"No fast-forward (merge commit)\" and \"Semi-linear merge\" pull request completion strategies."
         },
         "guito.issueRegex": {
           "type": "string",

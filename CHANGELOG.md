@@ -2,6 +2,14 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Hide stash rows in the commit table by default. Repositories that never saved a stash choice now show them only after enabling "Show stashes" in the repository settings (or `guito.showStashes` in VS Code); repositories with a saved choice keep it.
+- Open file diffs in the native VS Code diff tab by default inside the VS Code extension: the `guito.diffViewer` setting now defaults to "vscode" instead of Guito's own dialog. Switch the setting back to "guito" to restore the diff dialog; binary files and the standalone browser app keep using Guito's dialog.
+- Slide the repository side panel and the commit details pane in and out instead of showing and hiding them instantly: opening a panel slides it in from its side while the commit history is pushed aside, and closing it slides back out before the layout reclaims the space. The slide is skipped when the operating system requests reduced motion.
+
 ## [1.0.0] - 2026-09-13
 
 ### Fixed
@@ -19,6 +27,7 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Added
 
+- Add a setting to disable pull request merge strategies: unchecking "Allow merge completion" in the repository settings (also available as `guito.allowMerge` in VS Code) removes the "No fast-forward (merge commit)" and "Semi-linear merge" choices from the completion and auto-complete dialogs, falling back to the first remaining strategy.
 - Create worktrees from the repository side panel with a folder path, a native VS Code folder picker, and an available local-branch selector. Right-click a linked worktree to remove it after confirmation; the current worktree and dirty worktrees remain protected.
 - Add an Azure DevOps Pull Requests section to the repository side panel for active pull requests created by or assigned to the signed-in user. A full review dialog provides Overview, Files, and Comments tabs with sanitized Markdown, title and description editing, reviewer and vote management, draft publishing, completion and auto-complete options, comment threads, lazy per-file diffs, and inline line comments.
 - List every repository tag in a collapsible Tags section of the side panel, below the branches. Clicking a tag opens the commit it points to in the history, loading older pages until that commit becomes visible, the tag whose commit is open in the details pane is highlighted, and right-clicking a tag keeps the existing tag actions: view details, delete tag, push tag, create archive, and copy tag name. Tags load together with the rest of the panel and refresh with the repository.

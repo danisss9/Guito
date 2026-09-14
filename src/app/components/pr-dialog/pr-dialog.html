@@ -1,184 +1,654 @@
 <div class="backdrop" (click)="onBackdropClick()"></div>
-<section class="pr-dialog" role="dialog" aria-modal="true" aria-label="Pull request details">
+<section
+  class="pr-dialog"
+  role="dialog"
+  aria-modal="true"
+  aria-label="Pull request details"
+>
   @if (loading()) {
-    <div class="state" role="status">Loading pull request...</div>
+  <div class="state" role="status">Loading pull request...</div>
   } @else if (pr(); as detail) {
-    <header class="dialog-header">
-      <div class="heading">
-        <div class="title-line">
-          <span class="pr-number">!{{ detail.id }}</span>
-          <h1>{{ detail.title }}</h1>
-          <span class="badge status">{{ detail.status }}</span>
-          @if (detail.isDraft) { <span class="badge draft">Draft</span> }
-        </div>
-        <div class="subtitle">
-          <app-author-avatar [name]="detail.author.name" [email]="detail.author.email || ''" />
-          <span>{{ detail.author.name }}</span>
-          <code>{{ detail.sourceBranch }}</code><span aria-hidden="true">→</span><code>{{ detail.targetBranch }}</code>
-        </div>
+  <header class="dialog-header">
+    <div class="heading">
+      <div class="title-line">
+        <span class="pr-number">!{{ detail.id }}</span>
+        <h1>{{ detail.title }}</h1>
+        <span class="badge status">{{ detail.status }}</span>
+        @if (detail.isDraft) { <span class="badge draft">Draft</span> }
       </div>
-      <div class="header-actions">
-        <button type="button" class="btn" (click)="openInBrowser()">Open in Azure DevOps</button>
-        <div class="menu-wrap">
-          <button type="button" class="btn" (click)="reviewMenuOpen.set(!reviewMenuOpen())" [disabled]="busy()">
-            Review ▾
+      <div class="subtitle">
+        <app-author-avatar
+          [name]="detail.author.name"
+          [email]="detail.author.email || ''"
+        />
+        <span>{{ detail.author.name }}</span>
+        <code>{{ detail.sourceBranch }}</code><span aria-hidden="true">→</span
+        ><code>{{ detail.targetBranch }}</code>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn" (click)="openInBrowser()">
+        Open in Azure DevOps
+      </button>
+      @if (detail.isDraft) {
+      <button
+        type="button"
+        class="btn primary"
+        (click)="publishPr()"
+        [disabled]="busy()"
+      >
+        Publish
+      </button>
+      <button
+        type="button"
+        class="btn"
+        (click)="openAbandonConfirm()"
+        [disabled]="busy()"
+      >
+        Abandon
+      </button>
+      } @else {
+      <div class="menu-wrap">
+        <button
+          type="button"
+          class="btn"
+          (click)="reviewMenuOpen.set(!reviewMenuOpen())"
+          [disabled]="busy()"
+        >
+          Review ▾
+        </button>
+        @if (reviewMenuOpen()) {
+        <div class="menu" role="menu">
+          @for (option of voteOptions; track option.value) {
+          <button
+            type="button"
+            role="menuitem"
+            [class.current]="voteMeta(detail.myVote).cls === 'vote-' + option.icon"
+            (click)="vote(option.value)"
+          >
+            <span [class]="'vote-dot vote-' + option.icon"></span>{{
+            option.label }}
           </button>
-          @if (reviewMenuOpen()) {
-            <div class="menu" role="menu">
-              @for (option of voteOptions; track option.value) {
-                <button type="button" role="menuitem" [class.current]="voteMeta(detail.myVote).cls === 'vote-' + option.icon" (click)="vote(option.value)">
-                  <span [class]="'vote-dot vote-' + option.icon"></span>{{ option.label }}
-                </button>
-              }
-            </div>
           }
         </div>
-        @if (detail.autoCompleteSetBy) {
-          <button type="button" class="btn" (click)="cancelAutoComplete()" [disabled]="busy()">Cancel auto-complete</button>
-        } @else {
-          <button type="button" class="btn" (click)="openAutoComplete()" [disabled]="busy()">Set auto-complete</button>
         }
-        <button type="button" class="btn primary" (click)="openComplete()" [disabled]="busy()">Complete</button>
-        <button type="button" class="icon-btn close" aria-label="Close pull request" title="Close" (click)="closed.emit()" [disabled]="busy()">×</button>
       </div>
-    </header>
-
-    <nav class="tabs" aria-label="Pull request sections">
-      <button type="button" [class.active]="tab() === 'overview'" (click)="tab.set('overview')">Overview</button>
-      <button type="button" [class.active]="tab() === 'files'" (click)="tab.set('files')">Files <span>{{ files().length }}</span></button>
-      <button type="button" [class.active]="tab() === 'comments'" (click)="tab.set('comments')">Comments <span>{{ threads().length }}</span></button>
-    </nav>
-
-    @if (error()) { <div class="error-banner" role="alert">{{ error() }}</div> }
-
-    <div class="dialog-body">
-      @if (tab() === 'overview') {
-        <div class="overview content-pane">
-          <main class="overview-main">
-            <section class="card description-card">
-              <div class="card-head"><h2>Details</h2>
-                @if (!editing()) { <button type="button" class="btn small" (click)="startEditing()">Edit</button> }
-              </div>
-              @if (editing()) {
-                <label>Title<input type="text" [value]="editTitle()" (input)="editTitle.set($any($event.target).value)" /></label>
-                <label>Description<textarea rows="12" [value]="editDescription()" (input)="editDescription.set($any($event.target).value)"></textarea></label>
-                <div class="form-actions">
-                  <button type="button" class="btn" (click)="editing.set(false)" [disabled]="busy()">Cancel</button>
-                  <button type="button" class="btn primary" (click)="saveEdit()" [disabled]="busy() || !editTitle().trim()">Save</button>
-                </div>
-              } @else {
-                <h2 class="detail-title">{{ detail.title }}</h2>
-                @if (detail.description) { <app-markdown-text [markdown]="detail.description" /> }
-                @else { <p class="empty">No description provided.</p> }
-                <div class="labels">
-                  @for (label of detail.labels; track label) { <span class="label-chip">{{ label }}</span> }
-                </div>
-              }
-            </section>
-          </main>
-          <aside class="reviewers card">
-            <div class="card-head"><h2>Reviewers</h2></div>
-            <app-chip-input
-              placeholder="Add reviewer"
-              [chips]="[]"
-              [suggestions]="reviewerSuggestions()"
-              [loading]="reviewersLoading()"
-              [query]="reviewerQuery()"
-              [error]="reviewersError()"
-              [disabled]="busy()"
-              (queryChange)="reviewerQuery.set($event)"
-              (select)="addReviewer($event)"
-            />
-            @if (requiredReviewers().length) {
-              <h3>Required</h3>
-              @for (reviewer of requiredReviewers(); track reviewer.id) {
-                <ng-container [ngTemplateOutlet]="reviewerRow" [ngTemplateOutletContext]="{ $implicit: reviewer }" />
-              }
-            }
-            @if (otherReviewers().length) {
-              <h3>Other</h3>
-              @for (reviewer of otherReviewers(); track reviewer.id) {
-                <ng-container [ngTemplateOutlet]="reviewerRow" [ngTemplateOutletContext]="{ $implicit: reviewer }" />
-              }
-            }
-            @if (!detail.reviewers.length) { <p class="empty">No reviewers.</p> }
-            <button type="button" class="btn full" (click)="toggleDraft()" [disabled]="busy()">
-              {{ detail.isDraft ? 'Publish pull request' : 'Convert to draft' }}
-            </button>
-          </aside>
-        </div>
-      } @else if (tab() === 'comments') {
-        <div class="comments content-pane">
-          <section class="new-comment card">
-            <h2>Add comment</h2>
-            <textarea rows="4" placeholder="Leave a comment (markdown supported)" [value]="newComment()" (input)="newComment.set($any($event.target).value)"></textarea>
-            <div class="form-actions"><button type="button" class="btn primary" (click)="addGeneralComment()" [disabled]="busy() || !newComment().trim()">Comment</button></div>
-          </section>
-          @for (thread of threads(); track thread.id) {
-            <article class="thread-card card">
-              <header>
-                <span [class]="'thread-status status-' + thread.status">{{ statusLabel(thread.status) }}</span>
-                @if (thread.filePath) { <button type="button" class="path-chip" (click)="jumpToThread(thread)">{{ thread.filePath }}:{{ thread.line }}</button> }
-                <select aria-label="Thread status" [value]="thread.status" (change)="setThreadStatus(thread.id, $any($event.target).value)" [disabled]="busy()">
-                  @for (status of threadStatuses; track status) { <option [value]="status">{{ statusLabel(status) }}</option> }
-                </select>
-              </header>
-              @for (comment of thread.comments; track comment.id) {
-                <div class="comment">
-                  <app-author-avatar [name]="comment.author.name" [email]="comment.author.email || ''" />
-                  <div><div class="comment-meta"><strong>{{ comment.author.name }}</strong> · {{ formatDate(comment.createdAt) }}</div><app-markdown-text [markdown]="comment.content" /></div>
-                </div>
-              }
-              <div class="reply"><input #reply type="text" placeholder="Reply..." (keydown.enter)="replyToThread(thread.id, reply.value); reply.value = ''" /><button type="button" class="btn small" (click)="replyToThread(thread.id, reply.value); reply.value = ''" [disabled]="busy()">Reply</button></div>
-            </article>
-          } @empty { <div class="state inline">No comments yet.</div> }
-        </div>
+      @if (detail.autoCompleteSetBy) {
+      <button
+        type="button"
+        class="btn"
+        (click)="cancelAutoComplete()"
+        [disabled]="busy()"
+      >
+        Cancel auto-complete
+      </button>
       } @else {
-        <div class="files-pane">
-          <aside class="file-list">
-            @for (file of files(); track file.path) {
-              <button type="button" [class.active]="selectedFile()?.path === file.path" (click)="selectFile(file)" [title]="file.path">
-                <span [class]="'file-status status-' + file.changeType">{{ file.changeType[0].toUpperCase() }}</span>
-                <span>{{ file.path }}</span>
-              </button>
-            } @empty { <div class="state inline">No changed files.</div> }
-          </aside>
-          <app-pr-file-diff
-            [diff]="selectedFile() ? (fileDiffs()[selectedFile()!.path] ?? null) : null"
-            [threads]="selectedFileThreads()"
-            [loading]="fileDiffLoading()"
-            [error]="fileDiffError()"
-            [posting]="busy()"
-            [focus]="fileFocus()"
-            (commentSubmit)="addInlineComment($event)"
-            (replySubmit)="replyFromDiff($event)"
-            (statusSubmit)="setStatusFromDiff($event)"
-          />
+      <button
+        type="button"
+        class="btn"
+        (click)="openAutoComplete()"
+        [disabled]="busy()"
+      >
+        Set auto-complete
+      </button>
+      }
+      <button
+        type="button"
+        class="btn primary"
+        (click)="openComplete()"
+        [disabled]="busy()"
+      >
+        Complete
+      </button>
+      }
+      <button
+        type="button"
+        class="icon-btn close"
+        aria-label="Close pull request"
+        title="Close"
+        (click)="closed.emit()"
+        [disabled]="busy()"
+      >
+        ×
+      </button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Pull request sections">
+    <button
+      type="button"
+      [class.active]="tab() === 'overview'"
+      (click)="tab.set('overview')"
+    >
+      Overview
+    </button>
+    <button
+      type="button"
+      [class.active]="tab() === 'files'"
+      (click)="tab.set('files')"
+    >
+      Files <span>{{ files().length }}</span>
+    </button>
+    <button
+      type="button"
+      [class.active]="tab() === 'comments'"
+      (click)="tab.set('comments')"
+    >
+      Comments <span>{{ threads().length }}</span>
+    </button>
+  </nav>
+
+  @if (error()) {
+  <div class="error-banner" role="alert">{{ error() }}</div>
+  }
+
+  <div class="dialog-body">
+    @if (tab() === 'overview') {
+    <div class="overview content-pane">
+      <main class="overview-main">
+        @if (detail.mergeStatus === 'conflicts') {
+        <div class="merge-banner conflict" role="alert">
+          <div>
+            <strong>Merge conflicts</strong>
+            <p>
+              This pull request has conflicts with
+              <code>{{ detail.targetBranch }}</code>. Resolve them before it can
+              be completed.
+            </p>
+          </div>
+          <button type="button" class="btn small" (click)="openInBrowser()">
+            Resolve in Azure DevOps
+          </button>
         </div>
+        } @else if (detail.mergeStatus === 'rejectedByPolicy') {
+        <div class="merge-banner blocked" role="alert">
+          <div>
+            <strong>Blocked by policy</strong>
+            <p>
+              One or more merge policies reject this pull request. Check the
+              checks below.
+            </p>
+          </div>
+        </div>
+        } @else if (detail.mergeStatus === 'failure') {
+        <div class="merge-banner blocked" role="alert">
+          <div>
+            <strong>Merge failed</strong>
+            <p>
+              The last merge attempt failed. Check Azure DevOps for details.
+            </p>
+          </div>
+        </div>
+        } @else if (detail.mergeStatus === 'queued') {
+        <div class="merge-banner queued">
+          <div>
+            <strong>Queued for merge</strong>
+            <p>The merge is in progress.</p>
+          </div>
+        </div>
+        }
+        <section class="card checks-card">
+          <div class="card-head">
+            <h2>Checks</h2>
+            <button
+              type="button"
+              class="btn small"
+              (click)="loadChecks()"
+              [disabled]="checksLoading()"
+            >
+              Refresh
+            </button>
+          </div>
+          @if (checksLoading()) {
+          <div class="state inline" role="status">Loading checks...</div>
+          } @else if (checksError()) {
+          <div class="section-error" role="alert">
+            <span>{{ checksError() }}</span>
+            <button
+              type="button"
+              class="btn small"
+              (click)="loadChecks()"
+              [disabled]="checksLoading()"
+            >
+              Retry
+            </button>
+          </div>
+          } @else { @for (warning of checksWarnings(); track warning) {
+          <div class="section-warning">{{ warning }}</div>
+          } @if (checks().length) {
+          <ul class="check-list">
+            @for (check of checks(); track check.id) {
+            <li class="check-row">
+              <span [class]="'check-state state-' + check.state"
+                >{{ checkStateLabel(check.state) }}</span
+              >
+              <div class="check-info">
+                <div class="check-name">
+                  {{ check.name }} @if (check.required) {
+                  <span class="required-chip">Required</span> }
+                </div>
+                @if (check.detail) {
+                <small>{{ check.detail }}</small>
+                }
+              </div>
+              @if (check.url) {
+              <button
+                type="button"
+                class="btn small"
+                (click)="openExternalLink(check.url)"
+              >
+                Open
+              </button>
+              }
+            </li>
+            }
+          </ul>
+          } @else {
+          <p class="empty">No checks reported.</p>
+          } }
+        </section>
+        <section class="card description-card">
+          <div class="card-head">
+            <h2>Details</h2>
+            @if (!editing()) {
+            <button type="button" class="btn small" (click)="startEditing()">
+              Edit
+            </button>
+            }
+          </div>
+          @if (editing()) {
+          <label
+            >Title<input
+              type="text"
+              [value]="editTitle()"
+              (input)="editTitle.set($any($event.target).value)"
+          /></label>
+          <label
+            >Description<textarea
+              rows="12"
+              [value]="editDescription()"
+              (input)="editDescription.set($any($event.target).value)"
+            ></textarea>
+          </label>
+          <div class="form-actions">
+            <button
+              type="button"
+              class="btn"
+              (click)="editing.set(false)"
+              [disabled]="busy()"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn primary"
+              (click)="saveEdit()"
+              [disabled]="busy() || !editTitle().trim()"
+            >
+              Save
+            </button>
+          </div>
+          } @else {
+          <h2 class="detail-title">{{ detail.title }}</h2>
+          @if (detail.description) {
+          <app-markdown-text [markdown]="detail.description" /> } @else {
+          <p class="empty">No description provided.</p>
+          } }
+        </section>
+      </main>
+      <aside class="reviewers card">
+        <div class="card-head"><h2>Reviewers</h2></div>
+        <app-chip-input
+          placeholder="Add reviewer"
+          [chips]="[]"
+          [suggestions]="reviewerSuggestions()"
+          [loading]="reviewersLoading()"
+          [query]="reviewerQuery()"
+          [error]="reviewersError()"
+          [disabled]="busy()"
+          trailingIcon="★"
+          [trailingPressed]="reviewerRequired()"
+          trailingLabel="Toggle between adding reviewers as required and optional"
+          (trailingAction)="reviewerRequired.set(!reviewerRequired())"
+          (queryChange)="reviewerQuery.set($event)"
+          (select)="addReviewer($event)"
+        />
+        @if (requiredReviewers().length) {
+        <h3>Required</h3>
+        @for (reviewer of requiredReviewers(); track reviewer.id) {
+        <ng-container
+          [ngTemplateOutlet]="reviewerRow"
+          [ngTemplateOutletContext]="{ $implicit: reviewer }"
+        />
+        } } @if (otherReviewers().length) {
+        <h3>Other</h3>
+        @for (reviewer of otherReviewers(); track reviewer.id) {
+        <ng-container
+          [ngTemplateOutlet]="reviewerRow"
+          [ngTemplateOutletContext]="{ $implicit: reviewer }"
+        />
+        } } @if (!detail.reviewers.length) {
+        <p class="empty">No reviewers.</p>
+        } @if (!detail.isDraft) {
+        <button
+          type="button"
+          class="btn full"
+          (click)="toggleDraft()"
+          [disabled]="busy()"
+        >
+          Convert to draft
+        </button>
+        }
+        <h3>Tags</h3>
+        @if (detail.labels.length) {
+        <div class="labels">
+          @for (label of detail.labels; track label) {
+          <span class="label-chip">{{ label }}</span> }
+        </div>
+        } @else {
+        <p class="empty">No tags.</p>
+        }
+        <h3>Related work items</h3>
+        @if (workItemsLoading()) {
+        <div class="state inline" role="status">Loading work items...</div>
+        } @else if (workItemsError()) {
+        <div class="section-error" role="alert">
+          <span>{{ workItemsError() }}</span>
+          <button
+            type="button"
+            class="btn small"
+            (click)="loadWorkItems()"
+            [disabled]="workItemsLoading()"
+          >
+            Retry
+          </button>
+        </div>
+        } @else if (workItems().length) {
+        <ul class="work-item-list">
+          @for (item of workItems(); track item.id) {
+          <li>
+            <button
+              type="button"
+              class="work-item-link"
+              (click)="openExternalLink(item.url)"
+            >
+              <span class="work-item-id">#{{ item.id }}</span>
+              <span class="work-item-title">{{ item.title }}</span>
+            </button>
+            @if (item.state) {
+            <small>{{ item.state }}</small>
+            }
+          </li>
+          }
+        </ul>
+        } @else {
+        <p class="empty">No related work items.</p>
+        }
+      </aside>
+    </div>
+    } @else if (tab() === 'comments') {
+    <div class="comments content-pane">
+      <section class="new-comment card">
+        <h2>Add comment</h2>
+        <textarea
+          rows="4"
+          placeholder="Leave a comment (markdown supported)"
+          [value]="newComment()"
+          (input)="newComment.set($any($event.target).value)"
+        ></textarea>
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn primary"
+            (click)="addGeneralComment()"
+            [disabled]="busy() || !newComment().trim()"
+          >
+            Comment
+          </button>
+        </div>
+      </section>
+      @for (thread of threads(); track thread.id) {
+      <article class="thread-card card">
+        <header>
+          <span [class]="'thread-status status-' + thread.status"
+            >{{ statusLabel(thread.status) }}</span
+          >
+          @if (thread.filePath) {
+          <button
+            type="button"
+            class="path-chip"
+            (click)="jumpToThread(thread)"
+          >
+            {{ thread.filePath }}:{{ thread.line }}
+          </button>
+          }
+          <select
+            aria-label="Thread status"
+            [value]="thread.status"
+            (change)="setThreadStatus(thread.id, $any($event.target).value)"
+            [disabled]="busy()"
+          >
+            @for (status of threadStatuses; track status) {
+            <option [value]="status">{{ statusLabel(status) }}</option>
+            }
+          </select>
+        </header>
+        @for (comment of thread.comments; track comment.id) {
+        <div class="comment">
+          <app-author-avatar
+            [name]="comment.author.name"
+            [email]="comment.author.email || ''"
+          />
+          <div>
+            <div class="comment-meta">
+              <strong>{{ comment.author.name }}</strong> · {{
+              formatDate(comment.createdAt) }}
+            </div>
+            <app-markdown-text [markdown]="comment.content" />
+          </div>
+        </div>
+        }
+        <div class="reply">
+          <input
+            #reply
+            type="text"
+            placeholder="Reply..."
+            (keydown.enter)="replyToThread(thread.id, reply.value); reply.value = ''"
+          /><button
+            type="button"
+            class="btn small"
+            (click)="replyToThread(thread.id, reply.value); reply.value = ''"
+            [disabled]="busy()"
+          >
+            Reply
+          </button>
+        </div>
+      </article>
+      } @empty {
+      <div class="state inline">No comments yet.</div>
       }
     </div>
-
-    <ng-template #reviewerRow let-reviewer>
-      <div class="reviewer-row">
-        <app-author-avatar [name]="reviewer.name" [email]="reviewer.email || ''" />
-        <div class="reviewer-name"><span>{{ reviewer.name }}</span><small [class]="voteMeta(reviewer.vote).cls">{{ voteMeta(reviewer.vote).label }}</small></div>
-        <button type="button" class="required-toggle" [class.on]="reviewer.isRequired" (click)="toggleReviewerRequired(reviewer)" [title]="reviewer.isRequired ? 'Make optional' : 'Make required'">Required</button>
-        <button type="button" class="icon-btn" (click)="removeReviewer(reviewer)" [attr.aria-label]="'Remove ' + reviewer.name">×</button>
-      </div>
-    </ng-template>
-
-    @if (completeOpen() || autoCompleteOpen()) {
-      <div class="sub-backdrop" (click)="completeOpen.set(false); autoCompleteOpen.set(false)"></div>
-      <section class="sub-dialog" role="dialog" aria-modal="true" [attr.aria-label]="completeOpen() ? 'Complete pull request' : 'Set auto-complete'">
-        <h2>{{ completeOpen() ? 'Complete pull request' : 'Set auto-complete' }}</h2>
-        <label>Merge strategy<select [value]="mergeStrategy()" (change)="mergeStrategy.set($any($event.target).value)">@for (strategy of mergeStrategies; track strategy.value) { <option [value]="strategy.value">{{ strategy.label }}</option> }</select></label>
-        <label class="check"><input type="checkbox" [checked]="deleteSourceBranch()" (change)="deleteSourceBranch.set($any($event.target).checked)" />Delete source branch</label>
-        <label class="check"><input type="checkbox" [checked]="completeWorkItems()" (change)="completeWorkItems.set($any($event.target).checked)" />Complete associated work items</label>
-        <label class="check nested"><input type="checkbox" [checked]="transitionWorkItems()" (change)="transitionWorkItems.set($any($event.target).checked)" [disabled]="!completeWorkItems()" />Transition linked work items</label>
-        <div class="form-actions"><button type="button" class="btn" (click)="completeOpen.set(false); autoCompleteOpen.set(false)">Cancel</button><button type="button" class="btn primary" (click)="completeOpen() ? applyComplete() : applyAutoComplete()" [disabled]="busy()">{{ completeOpen() ? 'Complete' : 'Enable' }}</button></div>
-      </section>
+    } @else {
+    <div class="files-pane">
+      <aside class="file-list">
+        @if (filesError()) {
+        <div class="section-error block" role="alert">
+          <span>{{ filesError() }}</span>
+          <button
+            type="button"
+            class="btn small"
+            (click)="loadFiles()"
+            [disabled]="filesLoading()"
+          >
+            Retry
+          </button>
+        </div>
+        } @else if (filesLoading()) {
+        <div class="state inline" role="status">Loading changed files...</div>
+        } @else { @for (file of files(); track file.path) {
+        <button
+          type="button"
+          [class.active]="selectedFile()?.path === file.path"
+          (click)="selectFile(file)"
+          [title]="file.path"
+        >
+          <span [class]="'file-status status-' + file.changeType"
+            >{{ file.changeType[0].toUpperCase() }}</span
+          >
+          <span>{{ file.path }}</span>
+        </button>
+        } @empty {
+        <div class="state inline">No changed files.</div>
+        } }
+      </aside>
+      <app-pr-file-diff
+        [diff]="selectedFile() ? (fileDiffs()[selectedFile()!.path] ?? null) : null"
+        [threads]="selectedFileThreads()"
+        [loading]="fileDiffLoading()"
+        [error]="fileDiffError()"
+        [posting]="busy()"
+        [focus]="fileFocus()"
+        (commentSubmit)="addInlineComment($event)"
+        (replySubmit)="replyFromDiff($event)"
+        (statusSubmit)="setStatusFromDiff($event)"
+      />
+    </div>
     }
-  } @else {
-    <div class="state"><div>{{ error() || 'Pull request could not be loaded.' }}</div><button type="button" class="btn" (click)="load()">Retry</button></div>
+  </div>
+
+  <ng-template #reviewerRow let-reviewer>
+    <div class="reviewer-row">
+      <app-author-avatar
+        [name]="reviewer.name"
+        [email]="reviewer.email || ''"
+      />
+      <div class="reviewer-name">
+        <span>{{ reviewer.name }}</span
+        ><small [class]="voteMeta(reviewer.vote).cls"
+          >{{ voteMeta(reviewer.vote).label }}</small
+        >
+      </div>
+      <button
+        type="button"
+        class="required-toggle"
+        [class.on]="reviewer.isRequired"
+        (click)="toggleReviewerRequired(reviewer)"
+        [title]="reviewer.isRequired ? 'Make optional' : 'Make required'"
+      >
+        Required
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        (click)="removeReviewer(reviewer)"
+        [attr.aria-label]="'Remove ' + reviewer.name"
+      >
+        ×
+      </button>
+    </div>
+  </ng-template>
+
+  @if (completeOpen() || autoCompleteOpen() || abandonOpen()) {
+  <div
+    class="sub-backdrop"
+    (click)="
+      completeOpen.set(false); autoCompleteOpen.set(false); abandonOpen.set(false)
+    "
+  ></div>
+  <section
+    class="sub-dialog"
+    role="dialog"
+    aria-modal="true"
+    [attr.aria-label]="
+      abandonOpen()
+        ? 'Abandon pull request'
+        : completeOpen()
+          ? 'Complete pull request'
+          : 'Set auto-complete'
+    "
+  >
+    @if (abandonOpen()) {
+    <h2>Abandon pull request</h2>
+    <p class="confirm-text">
+      This closes pull request !{{ pr()?.id }} without merging it. The source
+      branch is kept.
+    </p>
+    <div class="form-actions">
+      <button
+        type="button"
+        class="btn"
+        (click)="abandonOpen.set(false)"
+        [disabled]="busy()"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="btn danger"
+        (click)="abandonPr()"
+        [disabled]="busy()"
+      >
+        Abandon
+      </button>
+    </div>
+    } @else {
+    <h2>
+      {{ completeOpen() ? 'Complete pull request' : 'Set auto-complete' }}
+    </h2>
+    <label
+      >Merge strategy<select
+        [value]="mergeStrategy()"
+        (change)="mergeStrategy.set($any($event.target).value)"
+      >
+        @for (strategy of mergeStrategies(); track strategy.value) {
+        <option [value]="strategy.value">{{ strategy.label }}</option>
+        }
+      </select></label
+    >
+    <label class="check"
+      ><input
+        type="checkbox"
+        [checked]="deleteSourceBranch()"
+        (change)="deleteSourceBranch.set($any($event.target).checked)"
+      />Delete source branch</label
+    >
+    <label class="check"
+      ><input
+        type="checkbox"
+        [checked]="completeWorkItems()"
+        (change)="completeWorkItems.set($any($event.target).checked)"
+      />Complete associated work items</label
+    >
+    <label class="check nested"
+      ><input
+        type="checkbox"
+        [checked]="transitionWorkItems()"
+        (change)="transitionWorkItems.set($any($event.target).checked)"
+        [disabled]="!completeWorkItems()"
+      />Transition linked work items</label
+    >
+    <div class="form-actions">
+      <button
+        type="button"
+        class="btn"
+        (click)="completeOpen.set(false); autoCompleteOpen.set(false)"
+      >
+        Cancel</button
+      ><button
+        type="button"
+        class="btn primary"
+        (click)="completeOpen() ? applyComplete() : applyAutoComplete()"
+        [disabled]="busy()"
+      >
+        {{ completeOpen() ? 'Complete' : 'Enable' }}
+      </button>
+    </div>
+    }
+  </section>
+  } } @else {
+  <div class="state">
+    <div>{{ error() || 'Pull request could not be loaded.' }}</div>
+    <button type="button" class="btn" (click)="load()">Retry</button>
+  </div>
   }
 </section>

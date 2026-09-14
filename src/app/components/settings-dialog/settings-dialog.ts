@@ -14,6 +14,7 @@ export interface GuitoSettingsUpdate {
   fileListView: 'flat' | 'tree';
   searchMode: 'navigate' | 'filter';
   searchCaseSensitive: boolean;
+  allowMerge: boolean;
 }
 
 type EditorMode = 'main' | 'identity' | 'remote' | 'issue';
@@ -39,12 +40,13 @@ export class SettingsDialog {
   protected readonly prBranchNameTemplate = signal('pr/${randomstring}');
   protected readonly autoReload = signal(true);
   protected readonly showGraph = signal(true);
-  protected readonly showStashes = signal(true);
+  protected readonly showStashes = signal(false);
   protected readonly showTags = signal(true);
   protected readonly showRemoteBranches = signal(true);
   protected readonly fileListView = signal<'flat' | 'tree'>('flat');
   protected readonly searchMode = signal<'navigate' | 'filter'>('navigate');
   protected readonly searchCaseSensitive = signal(false);
+  protected readonly allowMerge = signal(true);
   protected readonly remotes = signal<GitRemote[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
@@ -67,12 +69,13 @@ export class SettingsDialog {
       this.prBranchNameTemplate.set(settings.prBranchNameTemplate ?? 'pr/${randomstring}');
       this.autoReload.set(settings.autoReload !== false);
       this.showGraph.set(settings.showGraph !== false);
-      this.showStashes.set(settings.showStashes !== false);
+      this.showStashes.set(settings.showStashes === true);
       this.showTags.set(settings.showTags !== false);
       this.showRemoteBranches.set(settings.showRemoteBranches !== false);
       this.fileListView.set(settings.fileListView === 'tree' ? 'tree' : 'flat');
       this.searchMode.set(settings.searchMode === 'filter' ? 'filter' : 'navigate');
       this.searchCaseSensitive.set(settings.searchCaseSensitive === true);
+      this.allowMerge.set(settings.allowMerge !== false);
       if (!this.remotesLoaded) {
         this.remotesLoaded = true;
         this.loadRemotes();
@@ -87,12 +90,12 @@ export class SettingsDialog {
     else this.mode.set('main');
   }
 
-  protected setChecked(target: EventTarget | null, setting: 'autoReload' | 'showGraph' | 'showStashes' | 'showTags' | 'showRemoteBranches' | 'searchCaseSensitive'): void {
+  protected setChecked(target: EventTarget | null, setting: 'autoReload' | 'showGraph' | 'showStashes' | 'showTags' | 'showRemoteBranches' | 'searchCaseSensitive' | 'allowMerge'): void {
     this[setting].set((target as HTMLInputElement).checked);
   }
 
   protected save(): void {
-    this.saved.emit({ azureDevOpsUrl: this.azureDevOpsUrl().trim(), prBranchNameTemplate: this.prBranchNameTemplate().trim(), autoReload: this.autoReload(), showGraph: this.showGraph(), showStashes: this.showStashes(), showTags: this.showTags(), showRemoteBranches: this.showRemoteBranches(), fileListView: this.fileListView(), searchMode: this.searchMode(), searchCaseSensitive: this.searchCaseSensitive() });
+    this.saved.emit({ azureDevOpsUrl: this.azureDevOpsUrl().trim(), prBranchNameTemplate: this.prBranchNameTemplate().trim(), autoReload: this.autoReload(), showGraph: this.showGraph(), showStashes: this.showStashes(), showTags: this.showTags(), showRemoteBranches: this.showRemoteBranches(), fileListView: this.fileListView(), searchMode: this.searchMode(), searchCaseSensitive: this.searchCaseSensitive(), allowMerge: this.allowMerge() });
   }
 
   protected changeSearchMode(target: EventTarget | null): void {

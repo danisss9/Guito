@@ -1,16 +1,58 @@
 :host {
+  /* Panel width; also used as the target of the slide-in/out animation below. */
+  --panel-width: 260px;
   display: block;
-  width: 260px;
+  position: relative;
+  width: var(--panel-width);
   flex: none;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--bg-alt);
+}
+
+/* Keeps its full width while the host collapses, so the panel slides out instead of reflowing.
+   The host is borderless so the right border slides away with the content. */
+.side-panel {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: var(--panel-width);
+  overflow-y: auto;
   border-right: 1px solid var(--border);
 }
 
-/* Stretch to the full column so the background and border never stop short. */
-.side-panel {
-  min-height: 100%;
+@keyframes panel-enter {
+  from {
+    width: 0;
+  }
+
+  to {
+    width: var(--panel-width);
+  }
+}
+
+@keyframes panel-leave {
+  from {
+    width: var(--panel-width);
+  }
+
+  to {
+    width: 0;
+  }
+}
+
+:host(.panel-enter) {
+  animation: panel-enter 180ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+:host(.panel-leave) {
+  animation: panel-leave 150ms cubic-bezier(0.3, 0, 0.8, 0.15) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host(.panel-enter),
+  :host(.panel-leave) {
+    animation: none;
+  }
 }
 
 .tree {

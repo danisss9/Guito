@@ -1,5 +1,11 @@
-:host { display: flex; flex: none; width: min(480px, 60vw); min-width: 320px; min-height: 0; }
-.detail { display: flex; flex-direction: column; width: 100%; min-height: 0; background: var(--bg-alt); border-left: 1px solid var(--border); color: var(--text); }
+/* Panel width; also used as the target of the slide-in/out animation below. */
+:host { --panel-width: max(320px, min(480px, 60vw)); display: block; position: relative; flex: none; width: var(--panel-width); min-height: 0; overflow: hidden; }
+/* Keeps its full width while the host collapses, so the panel slides out instead of reflowing. */
+.detail { position: absolute; inset: 0 auto 0 0; width: var(--panel-width); display: flex; flex-direction: column; min-height: 0; background: var(--bg-alt); border-left: 1px solid var(--border); color: var(--text); }
+@keyframes panel-enter { from { width: 0; } to { width: var(--panel-width); } }
+@keyframes panel-leave { from { width: var(--panel-width); } to { width: 0; } }
+:host(.panel-enter) { animation: panel-enter 180ms cubic-bezier(0.05, 0.7, 0.1, 1); }
+:host(.panel-leave) { animation: panel-leave 150ms cubic-bezier(0.3, 0, 0.8, 0.15) forwards; }
 header { display: flex; align-items: center; justify-content: space-between; padding: 12px; gap: 12px; }
 h2 { font-size: 15px; margin: 0; }
 h3 { font-size: 13px; margin: 0 0 8px; }
@@ -38,4 +44,4 @@ textarea { resize: vertical; min-height: 50px; }
 .state { display: flex; gap: 8px; align-items: center; }
 .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } :host(.panel-enter), :host(.panel-leave) { animation: none; } }

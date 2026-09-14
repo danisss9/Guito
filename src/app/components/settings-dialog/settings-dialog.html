@@ -48,6 +48,7 @@
       <fieldset><legend>Azure DevOps</legend>
         <label class="text-setting" for="azure-devops-url"><span><strong>Server URL</strong><small>Enables pull request creation for an on-prem Azure DevOps Server.</small></span><input id="azure-devops-url" type="url" placeholder="https://server/DefaultCollection" [value]="azureDevOpsUrl()" (input)="azureDevOpsUrl.set($any($event.target).value)" /></label>
         <label class="text-setting" for="pr-branch-name-template"><span><strong>Automatic PR branch name</strong><small>Used when creating a new branch for a pull request. Variables: username, randomstring, branch, targetbranch, title, repository, date, time, and timestamp (wrapped as dollar-brace placeholders).</small></span><input id="pr-branch-name-template" type="text" maxlength="200" [value]="prBranchNameTemplate()" (input)="prBranchNameTemplate.set($any($event.target).value)" /></label>
+        <label class="setting-row"><span><strong>Allow merge completion</strong><small>Offer the "No fast-forward (merge commit)" and "Semi-linear merge" pull request completion strategies.</small></span><input type="checkbox" [checked]="allowMerge()" (change)="setChecked($event.target, 'allowMerge')" /></label>
       </fieldset>
     </div>
     <footer><button class="btn" type="button" [disabled]="saving()" (click)="closed.emit()">Cancel</button><button class="btn primary" type="button" [disabled]="saving() || busy()" (click)="save()">{{ saving() ? 'Saving...' : 'Save settings' }}</button></footer>

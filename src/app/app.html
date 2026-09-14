@@ -15,36 +15,48 @@
   />
 
   @if (error()) {
-    <app-error-banner [message]="error()" retryLabel="Retry" [busy]="loading()" (retry)="refresh()" />
-  }
-  @if (statusError() && selectedCommit()?.hash !== workingHash) {
-    <app-error-banner [message]="statusError()" retryLabel="Retry status" [busy]="statusLoading()" (retry)="refreshWorking()" />
+  <app-error-banner
+    [message]="error()"
+    retryLabel="Retry"
+    [busy]="loading()"
+    (retry)="refresh()"
+  />
+  } @if (statusError() && selectedCommit()?.hash !== workingHash) {
+  <app-error-banner
+    [message]="statusError()"
+    retryLabel="Retry status"
+    [busy]="statusLoading()"
+    (retry)="refreshWorking()"
+  />
   }
 
   <div class="content-row">
     @if (panelOpen()) {
-      <app-side-panel
-        [branches]="branches()"
-        [selectedBranch]="selectedBranch()"
-        [showRemote]="showRemote()"
-        [stashes]="stashes()"
-        [worktrees]="worktrees()"
-        [tags]="tags()"
-        [selectedCommitHash]="selectedCommit()?.hash ?? ''"
-        [loading]="panelLoading()"
-        [azureEnabled]="hasAzureUrl()"
-        [pullRequests]="pullRequests()"
-        [prError]="pullRequestsError()"
-        (branchChange)="selectedBranch.set($event)"
-        (tagSelect)="selectTag($event)"
-        (contextMenu)="onContextMenu($event)"
-        (worktreeCreate)="openWorktreeDialog()"
-        (prSelect)="openPrDetail($event)"
-        (prRefresh)="loadPullRequests()"
-      />
+    <app-side-panel
+      animate.enter="panel-enter"
+      animate.leave="panel-leave"
+      [branches]="branches()"
+      [selectedBranch]="selectedBranch()"
+      [showRemote]="showRemote()"
+      [stashes]="stashes()"
+      [worktrees]="worktrees()"
+      [tags]="tags()"
+      [selectedCommitHash]="selectedCommit()?.hash ?? ''"
+      [loading]="panelLoading()"
+      [azureEnabled]="hasAzureUrl()"
+      [pullRequests]="pullRequests()"
+      [prError]="pullRequestsError()"
+      (branchChange)="selectedBranch.set($event)"
+      (tagSelect)="selectTag($event)"
+      (contextMenu)="onContextMenu($event)"
+      (worktreeCreate)="openWorktreeDialog()"
+      (prSelect)="openPrDetail($event)"
+      (prRefresh)="loadPullRequests()"
+    />
     }
     <main class="content">
-      <app-commit-table [identity]="identity()"
+      <app-commit-table
+        [identity]="identity()"
         [commits]="displayedCommits()"
         [loadingLabel]="tableLoading()"
         [selectedHash]="selectedCommit()?.hash ?? ''"
@@ -65,56 +77,81 @@
         (loadMoreRequested)="loadMoreCommits()"
         (loadAllRequested)="loadAllCommits()"
       />
-      @if (selectedCommit(); as commit) {
-        @if (commit.hash === workingHash) {
-          <app-working-panel [changes]="workingChanges()" [busy]="busy() || mutationBusy() || statusLoading()"
-            [statusLoading]="statusLoading()" [statusError]="statusError()"
-            [subject]="commitSubject()" [description]="commitDescription()"
-            [fileListView]="fileListView()"
-            (subjectChange)="commitSubject.set($event)" (descriptionChange)="commitDescription.set($event)"
-            (stageChange)="changeStage($event)" (stashChange)="stashChanges($event)"
-            (discardRequest)="discardUnstaged($event)" (commitRequested)="commitChanges()"
-            (retry)="refreshWorking()" (closed)="selectedCommit.set(null)" />
-        } @else {
-          <app-commit-detail [commit]="commit" [fileListView]="fileListView()" [issueLinking]="issueLinking()" (closed)="selectedCommit.set(null)" />
-        }
-      }
+      @if (selectedCommit(); as commit) { @if (commit.hash === workingHash) {
+      <app-working-panel
+        animate.enter="panel-enter"
+        animate.leave="panel-leave"
+        [changes]="workingChanges()"
+        [busy]="busy() || mutationBusy() || statusLoading()"
+        [statusLoading]="statusLoading()"
+        [statusError]="statusError()"
+        [subject]="commitSubject()"
+        [description]="commitDescription()"
+        [fileListView]="fileListView()"
+        (subjectChange)="commitSubject.set($event)"
+        (descriptionChange)="commitDescription.set($event)"
+        (stageChange)="changeStage($event)"
+        (stashChange)="stashChanges($event)"
+        (discardRequest)="discardUnstaged($event)"
+        (commitRequested)="commitChanges()"
+        (retry)="refreshWorking()"
+        (closed)="selectedCommit.set(null)"
+      />
+      } @else {
+      <app-commit-detail
+        animate.enter="panel-enter"
+        animate.leave="panel-leave"
+        [commit]="commit"
+        [fileListView]="fileListView()"
+        [issueLinking]="issueLinking()"
+        (closed)="selectedCommit.set(null)"
+      />
+      } }
     </main>
   </div>
 
-  <app-context-menu [menu]="contextMenuState()" (select)="onContextAction($event)" (closed)="contextMenuState.set(null)" />
-  <app-prompt-dialog [state]="promptState()" (confirmed)="onPromptConfirm($event)" (cancelled)="onPromptCancel()" />
+  <app-context-menu
+    [menu]="contextMenuState()"
+    (select)="onContextAction($event)"
+    (closed)="contextMenuState.set(null)"
+  />
+  <app-prompt-dialog
+    [state]="promptState()"
+    (confirmed)="onPromptConfirm($event)"
+    (cancelled)="onPromptCancel()"
+  />
   @if (worktreeDialogOpen()) {
-    <app-worktree-dialog
-      [branches]="branches()"
-      [worktrees]="worktrees()"
-      [busy]="mutationBusy()"
-      [error]="worktreeDialogError()"
-      (created)="createWorktree($event)"
-      (closed)="worktreeDialogOpen.set(false)"
-    />
+  <app-worktree-dialog
+    [branches]="branches()"
+    [worktrees]="worktrees()"
+    [busy]="mutationBusy()"
+    [error]="worktreeDialogError()"
+    (created)="createWorktree($event)"
+    (closed)="worktreeDialogOpen.set(false)"
+  />
+  } @if (prDialogOpen()) {
+  <app-create-pr-dialog
+    [branches]="branches()"
+    (closed)="prDialogOpen.set(false)"
+    (created)="onPrCreated()"
+  />
+  } @if (prDetailId(); as prId) {
+  <app-pr-dialog
+    [prId]="prId"
+    [settings]="azureSettings()"
+    (changed)="loadPullRequests()"
+    (closed)="closePrDetail()"
+  />
+  } @if (settingsDialogOpen() && azureSettings(); as settings) {
+  <app-settings-dialog
+    [settings]="settings"
+    [identity]="identity()"
+    [saving]="settingsSaving()"
+    (saved)="saveSettings($event)"
+    (settingsUpdated)="azureSettings.set($event); showRemote.set($event.showRemoteBranches !== false)"
+    (identityChanged)="identity.set($event)"
+    (repositoryChanged)="refresh()"
+    (closed)="settingsDialogOpen.set(false)"
+  />
   }
-  @if (prDialogOpen()) {
-    <app-create-pr-dialog
-      [branches]="branches()"
-      (closed)="prDialogOpen.set(false)"
-      (created)="onPrCreated()"
-    />
-  }
-  @if (prDetailId(); as prId) {
-    <app-pr-dialog [prId]="prId" (changed)="loadPullRequests()" (closed)="closePrDetail()" />
-  }
-  @if (settingsDialogOpen() && azureSettings(); as settings) {
-    <app-settings-dialog
-      [settings]="settings"
-      [identity]="identity()"
-      [saving]="settingsSaving()"
-      (saved)="saveSettings($event)"
-      (settingsUpdated)="azureSettings.set($event); showRemote.set($event.showRemoteBranches !== false)"
-      (identityChanged)="identity.set($event)"
-      (repositoryChanged)="refresh()"
-      (closed)="settingsDialogOpen.set(false)"
-    />
-  }
-
 </div>

@@ -24,7 +24,7 @@ export interface CommitSearchResponse {
   indices: Record<string, number>;
 }
 
-export type RefType = 'head' | 'local' | 'remote' | 'tag';
+export type RefType = "head" | "local" | "remote" | "tag";
 
 export interface RefBadge {
   type: RefType;
@@ -44,7 +44,7 @@ export interface TagInfo {
   hash: string;
 }
 
-export type DiffLineType = 'add' | 'del' | 'context' | 'hunk';
+export type DiffLineType = "add" | "del" | "context" | "hunk";
 
 export interface DiffLine {
   type: DiffLineType;
@@ -53,7 +53,12 @@ export interface DiffLine {
   text: string;
 }
 
-export type FileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'binary';
+export type FileStatus =
+  | "added"
+  | "deleted"
+  | "modified"
+  | "renamed"
+  | "binary";
 
 export interface FileDiff {
   path: string;
@@ -71,7 +76,7 @@ export interface CommitDiff {
   files: FileDiff[];
 }
 
-export type StashScope = 'all' | 'staged' | 'unstaged';
+export type StashScope = "all" | "staged" | "unstaged";
 
 /** One entry of the stash stack, listed newest first. */
 export interface StashEntry {
@@ -139,10 +144,10 @@ export interface RepoInfo {
 }
 
 /** Sentinel hash used to represent the working tree (uncommitted changes). */
-export const WORKING_HASH = '__working__';
+export const WORKING_HASH = "__working__";
 
 export interface ContextMenuTarget {
-  kind: 'commit' | 'branch' | 'tag' | 'working' | 'stash' | 'worktree';
+  kind: "commit" | "branch" | "tag" | "working" | "stash" | "worktree";
   commit?: GitCommit;
   branch?: RefBadge;
   stash?: StashEntry;
@@ -198,11 +203,11 @@ export interface AzureSettings {
   /** Template used for remote-only branches created for pull requests. */
   prBranchNameTemplate?: string;
   /** Where the effective URL comes from: the VS Code setting or the server-side file. */
-  source: 'vscode' | 'file' | '';
+  source: "vscode" | "file" | "";
   /** Whether Guito polls the repository and refreshes automatically; defaults to true. */
   autoReload?: boolean;
   /** Where file diffs open; 'vscode' only inside the VS Code extension. */
-  diffViewer?: 'guito' | 'vscode';
+  diffViewer?: "guito" | "vscode";
   /** Whether the commit table shows the graph column; defaults to true. */
   showGraph?: boolean;
   /** Whether the commit table shows stash rows; defaults to true. */
@@ -212,13 +217,15 @@ export interface AzureSettings {
   /** Whether remote branches are shown in the repository panel and history filter. */
   showRemoteBranches?: boolean;
   /** How changed-file lists (staged, unstaged, commit) are shown; defaults to flat. */
-  fileListView?: 'flat' | 'tree';
+  fileListView?: "flat" | "tree";
   /** Whether commit search navigates through history or filters it; defaults to navigate. */
-  searchMode?: 'navigate' | 'filter';
+  searchMode?: "navigate" | "filter";
   /** Whether commit search matches letter casing; defaults to false. */
   searchCaseSensitive?: boolean;
   /** Optional conversion of issue references in commit messages to links. */
   issueLinking?: IssueLinkingSettings | null;
+  /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; defaults to true. */
+  allowMerge?: boolean;
 }
 
 export interface CreatePrRequest {
@@ -296,19 +303,72 @@ export interface PrSummary {
   requiresMe: boolean;
 }
 
-export type PrVote = 'approve' | 'approveWithSuggestions' | 'waitForAuthor' | 'reject' | 'reset';
+export type PrVote =
+  | "approve"
+  | "approveWithSuggestions"
+  | "waitForAuthor"
+  | "reject"
+  | "reset";
 
 /** Full pull request served to the PR detail dialog. */
 export interface PrDetail extends PrSummary {
   description: string;
   autoCompleteSetBy: PrIdentity | null;
-  completionOptions: { mergeStrategy?: string; deleteSourceBranch?: boolean } | null;
+  completionOptions: {
+    mergeStrategy?: string;
+    deleteSourceBranch?: boolean;
+  } | null;
   lastMergeSourceCommit: string;
   lastMergeTargetCommit: string;
   labels: string[];
+  /** Azure's merge state (conflicts, queued, policy-rejected, ...). */
+  mergeStatus: PrMergeStatus;
 }
 
-export type PrMergeStrategy = 'noFastForward' | 'squash' | 'rebase' | 'rebaseMerge';
+/** Azure DevOps pull request merge state, normalized for the dialog. */
+export type PrMergeStatus =
+  | "notSet"
+  | "queued"
+  | "conflicts"
+  | "succeeded"
+  | "rejectedByPolicy"
+  | "failure";
+
+/** Azure Boards work item linked to a pull request. */
+export interface PrLinkedWorkItem {
+  id: number;
+  title: string;
+  state: string;
+  /** Azure Boards web page of the work item. */
+  url: string;
+}
+
+/** One merge gate: an Azure policy evaluation or a native PR status. */
+export interface PrCheck {
+  /** Stable key for list tracking ("policy:3", "status:genre:name"). */
+  id: string;
+  name: string;
+  kind: "build" | "reviewer" | "policy" | "status";
+  state: "pending" | "succeeded" | "failed" | "notApplicable";
+  required: boolean;
+  /** Evaluation/status message shown under the name. */
+  detail?: string;
+  /** Optional deep link (e.g. the build result page). */
+  url?: string;
+}
+
+/** Checks of one pull request, with non-fatal source warnings. */
+export interface PrCheckReport {
+  checks: PrCheck[];
+  /** One source failed while the other succeeded (e.g. older Server). */
+  warnings: string[];
+}
+
+export type PrMergeStrategy =
+  | "noFastForward"
+  | "squash"
+  | "rebase"
+  | "rebaseMerge";
 
 /** Options for completing a pull request or enabling auto-complete. */
 export interface PrCompletionOptions {
@@ -319,12 +379,12 @@ export interface PrCompletionOptions {
 }
 
 export type PrThreadStatus =
-  | 'active'
-  | 'fixed'
-  | 'wontFix'
-  | 'closed'
-  | 'byDesign'
-  | 'pending';
+  | "active"
+  | "fixed"
+  | "wontFix"
+  | "closed"
+  | "byDesign"
+  | "pending";
 
 /** One comment inside a pull request thread. */
 export interface PrComment {
@@ -342,7 +402,7 @@ export interface PrThread {
   isDeleted: boolean;
   filePath: string | null;
   line: number | null;
-  side: 'right' | 'left' | null;
+  side: "right" | "left" | null;
   comments: PrComment[];
 }
 
@@ -359,5 +419,5 @@ export interface PrCommentRequest {
   threadId?: number;
   filePath?: string;
   line?: number;
-  side?: 'left' | 'right';
+  side?: "left" | "right";
 }

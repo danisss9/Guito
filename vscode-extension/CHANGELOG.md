@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Make the native VS Code diff tab the default diff viewer by defaulting `guito.diffViewer` to "vscode"; switch the setting to "guito" to keep opening diffs in Guito's own dialog.
+- Default `guito.showStashes` to disabled so stash rows in the commit table appear only after enabling "Show stashes" in the settings.
+- Add the `guito.allowMerge` setting that removes the "No fast-forward (merge commit)" and "Semi-linear merge" choices from the pull request completion and auto-complete dialogs.
+
 ## 1.0.0
 
 - Add native VS Code commands for managing repository user details and Git remotes with Quick Pick and Input Box prompts.

@@ -1,7 +1,7 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
-import { Injectable, inject, signal } from '@angular/core';
-import { Observable, defer, throwError, finalize } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { HttpClient, HttpParams } from "@angular/common/http";
+import { Injectable, inject, signal } from "@angular/core";
+import { Observable, defer, throwError, finalize } from "rxjs";
+import { map } from "rxjs/operators";
 import {
   AzureSettings,
   BranchInfo,
@@ -17,10 +17,12 @@ import {
   GitRemote,
   IssueLinkingSettings,
   PrCommentRequest,
+  PrCheckReport,
   PrCompletionOptions,
   PrDetail,
   PrFileChange,
   PrIdentity,
+  PrLinkedWorkItem,
   PrReviewerSuggestion,
   PrSummary,
   PrTagSuggestion,
@@ -35,12 +37,12 @@ import {
   TagInfo,
   WorkingChanges,
   WorktreeInfo,
-} from '../models/git.models';
+} from "../models/git.models";
 
-@Injectable({ providedIn: 'root' })
+@Injectable({ providedIn: "root" })
 export class GitService {
   private readonly http = inject(HttpClient);
-  private readonly base = '/api';
+  private readonly base = "/api";
   readonly mutating = signal(false);
 
   private mutate<T>(request: () => Observable<T>): Observable<T> {
@@ -48,7 +50,7 @@ export class GitService {
       if (this.mutating())
         return throwError(() => ({
           status: 400,
-          error: { error: 'Another Git operation is in progress.' },
+          error: { error: "Another Git operation is in progress." },
         }));
       this.mutating.set(true);
       return request().pipe(finalize(() => this.mutating.set(false)));
@@ -66,19 +68,24 @@ export class GitService {
   getCommits(limit?: number, skip = 0): Observable<CommitsResponse> {
     let params = new HttpParams();
     if (limit !== undefined) {
-      params = params.set('limit', String(limit));
+      params = params.set("limit", String(limit));
     }
     if (skip > 0) {
-      params = params.set('skip', String(skip));
+      params = params.set("skip", String(skip));
     }
     return this.http.get<CommitsResponse>(`${this.base}/commits`, { params });
   }
 
   /** Hashes of commits whose message (subject or body) contains the query. */
-  searchCommits(query: string, caseSensitive = false): Observable<CommitSearchResponse> {
-    let params = new HttpParams().set('query', query);
-    if (caseSensitive) params = params.set('caseSensitive', '1');
-    return this.http.get<CommitSearchResponse>(`${this.base}/commits/search`, { params });
+  searchCommits(
+    query: string,
+    caseSensitive = false,
+  ): Observable<CommitSearchResponse> {
+    let params = new HttpParams().set("query", query);
+    if (caseSensitive) params = params.set("caseSensitive", "1");
+    return this.http.get<CommitSearchResponse>(`${this.base}/commits/search`, {
+      params,
+    });
   }
 
   /** Full commit including the body, which the list endpoint omits. */
@@ -99,12 +106,15 @@ export class GitService {
   }
 
   getFileContent(path: string, ref: string): Observable<FileContent> {
-    return this.http.post<FileContent>(`${this.base}/file-content`, { path, ref });
+    return this.http.post<FileContent>(`${this.base}/file-content`, {
+      path,
+      ref,
+    });
   }
 
   /** Fetches the remote; with prune it also deletes stale remote-tracking branches. */
   fetch(prune = false): Observable<unknown> {
-    const params = prune ? new HttpParams().set('prune', '1') : undefined;
+    const params = prune ? new HttpParams().set("prune", "1") : undefined;
     return this.mutate(() => this.http.get(`${this.base}/fetch`, { params }));
   }
 
@@ -125,23 +135,36 @@ export class GitService {
   }
 
   revert(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/revert`, { commit: hash }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/revert`, { commit: hash }),
+    );
   }
 
   cherryPick(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/cherry-pick`, { commit: hash }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/cherry-pick`, { commit: hash }),
+    );
   }
 
   dropCommit(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/commit/drop`, { commit: hash }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/commit/drop`, { commit: hash }),
+    );
   }
 
-  resetToCommit(hash: string, mode: 'soft' | 'mixed' | 'hard' = 'hard'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/reset-commit`, { commit: hash, mode }));
+  resetToCommit(
+    hash: string,
+    mode: "soft" | "mixed" | "hard" = "hard",
+  ): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/reset-commit`, { commit: hash, mode }),
+    );
   }
 
   commit(message: string, description?: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/commit`, { message, description }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/commit`, { message, description }),
+    );
   }
 
   stage(files: string[]): Observable<unknown> {
@@ -152,8 +175,10 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/unstage`, { files }));
   }
 
-  discard(files: string[], mode?: 'unstaged'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/discard`, { files, mode }));
+  discard(files: string[], mode?: "unstaged"): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/discard`, { files, mode }),
+    );
   }
 
   resetWorking(): Observable<unknown> {
@@ -164,15 +189,23 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/clean`, {}));
   }
 
-  stashSave(message?: string, scope: StashScope = 'all'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/save`, { message, scope }));
+  stashSave(message?: string, scope: StashScope = "all"): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/stash/save`, { message, scope }),
+    );
   }
 
   /** Stash stack, newest first; index is the position used by stash@{index}. */
   getStashes(): Observable<StashEntry[]> {
     return this.http
       .get<{
-        all?: { hash: string; message: string; date?: string; author_name?: string; author_email?: string }[];
+        all?: {
+          hash: string;
+          message: string;
+          date?: string;
+          author_name?: string;
+          author_email?: string;
+        }[];
       }>(`${this.base}/stash/list`)
       .pipe(
         map((result) =>
@@ -189,15 +222,21 @@ export class GitService {
   }
 
   stashApply(index: number): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/apply`, { index }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/stash/apply`, { index }),
+    );
   }
 
   stashPop(index: number): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/pop`, { index }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/stash/pop`, { index }),
+    );
   }
 
   stashDrop(index: number): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/drop`, { index }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/stash/drop`, { index }),
+    );
   }
 
   /** Worktrees linked to the repository, main worktree first. */
@@ -206,11 +245,15 @@ export class GitService {
   }
 
   createWorktree(path: string, branch: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/worktrees`, { path, branch }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/worktrees`, { path, branch }),
+    );
   }
 
   removeWorktree(path: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/worktrees/remove`, { path }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/worktrees/remove`, { path }),
+    );
   }
 
   /** All repository tags, sorted by name, each with the commit it points to. */
@@ -219,11 +262,15 @@ export class GitService {
   }
 
   createBranch(name: string, startPoint?: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/create`, { name, startPoint }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/branch/create`, { name, startPoint }),
+    );
   }
 
   deleteBranch(name: string, force = false): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/delete`, { name, force }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/branch/delete`, { name, force }),
+    );
   }
 
   deleteRemoteBranch(remote: string, branch: string): Observable<unknown> {
@@ -233,7 +280,9 @@ export class GitService {
   }
 
   renameBranch(oldName: string, newName: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/rename`, { oldName, newName }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/branch/rename`, { oldName, newName }),
+    );
   }
 
   merge(branch: string): Observable<unknown> {
@@ -245,15 +294,21 @@ export class GitService {
   }
 
   createTag(name: string, commit?: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/tag/create`, { name, commit }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/tag/create`, { name, commit }),
+    );
   }
 
   deleteTag(name: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/tag/delete`, { name }));
+    return this.mutate(() =>
+      this.http.post(`${this.base}/tag/delete`, { name }),
+    );
   }
 
-  pushTag(name: string, remote = 'origin'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/tag/push`, { name, remote }));
+  pushTag(name: string, remote = "origin"): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/tag/push`, { name, remote }),
+    );
   }
 
   getSettings(): Observable<AzureSettings> {
@@ -269,9 +324,10 @@ export class GitService {
     showStashes?: boolean;
     showTags?: boolean;
     showRemoteBranches?: boolean;
-    fileListView?: 'flat' | 'tree';
-    searchMode?: 'navigate' | 'filter';
+    fileListView?: "flat" | "tree";
+    searchMode?: "navigate" | "filter";
     searchCaseSensitive?: boolean;
+    allowMerge?: boolean;
     issueLinking?: IssueLinkingSettings | null;
     issueLinkingGlobal?: boolean;
   }): Observable<AzureSettings> {
@@ -290,36 +346,49 @@ export class GitService {
     return this.http.delete<GitIdentity>(`${this.base}/identity`);
   }
 
-  saveRemote(remote: GitRemote & { originalName?: string }): Observable<GitRemote[]> {
+  saveRemote(
+    remote: GitRemote & { originalName?: string },
+  ): Observable<GitRemote[]> {
     return this.http.post<GitRemote[]>(`${this.base}/remotes`, remote);
   }
 
   removeRemote(name: string): Observable<GitRemote[]> {
-    return this.http.delete<GitRemote[]>(`${this.base}/remotes/${encodeURIComponent(name)}`);
+    return this.http.delete<GitRemote[]>(
+      `${this.base}/remotes/${encodeURIComponent(name)}`,
+    );
   }
 
   /** Creates an Azure DevOps pull request; may push the source branch first. */
   createPr(request: CreatePrRequest): Observable<CreatePrResult> {
     return this.mutate(() =>
-      this.http.post<CreatePrResult>(`${this.base}/azure-devops/pullrequest`, request),
+      this.http.post<CreatePrResult>(
+        `${this.base}/azure-devops/pullrequest`,
+        request,
+      ),
     );
   }
 
   /** Identity picker search for pull request reviewers. */
   searchReviewers(query: string): Observable<PrReviewerSuggestion[]> {
     return this.http
-      .get<{ reviewers: PrReviewerSuggestion[] }>(`${this.base}/azure-devops/reviewers`, {
-        params: new HttpParams().set('query', query),
-      })
+      .get<{ reviewers: PrReviewerSuggestion[] }>(
+        `${this.base}/azure-devops/reviewers`,
+        {
+          params: new HttpParams().set("query", query),
+        },
+      )
       .pipe(map((response) => response.reviewers));
   }
 
   /** Work item search (by id or title) for pull request linking. */
   searchWorkItems(query: string): Observable<PrWorkItemSuggestion[]> {
     return this.http
-      .get<{ workItems: PrWorkItemSuggestion[] }>(`${this.base}/azure-devops/workitems`, {
-        params: new HttpParams().set('query', query),
-      })
+      .get<{ workItems: PrWorkItemSuggestion[] }>(
+        `${this.base}/azure-devops/workitems`,
+        {
+          params: new HttpParams().set("query", query),
+        },
+      )
       .pipe(map((response) => response.workItems));
   }
 
@@ -341,16 +410,20 @@ export class GitService {
   }
 
   /** Pull requests created by or assigned to the current user. */
-  getMyPullRequests(status = 'active'): Observable<PrSummary[]> {
-    const params = new HttpParams().set('status', status);
+  getMyPullRequests(status = "active"): Observable<PrSummary[]> {
+    const params = new HttpParams().set("status", status);
     return this.http
-      .get<{ pullRequests: PrSummary[] }>(`${this.base}/azure-devops/pullrequests`, { params })
+      .get<{
+        pullRequests: PrSummary[];
+      }>(`${this.base}/azure-devops/pullrequests`, { params })
       .pipe(map((response) => response.pullRequests));
   }
 
   /** Full pull request detail for the PR dialog. */
   getPrDetail(id: number): Observable<PrDetail> {
-    return this.http.get<PrDetail>(`${this.base}/azure-devops/pullrequests/${id}`);
+    return this.http.get<PrDetail>(
+      `${this.base}/azure-devops/pullrequests/${id}`,
+    );
   }
 
   /** Edits the title/description or flips the draft flag. */
@@ -366,17 +439,27 @@ export class GitService {
   /** Records the current user's vote on a pull request. */
   votePr(id: number, vote: PrVote): Observable<unknown> {
     return this.mutate(() =>
-      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/vote`, { vote }),
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/vote`, {
+        vote,
+      }),
     );
   }
 
   /** Adds, updates (required flag), or removes a reviewer. */
   updatePrReviewer(
     id: number,
-    reviewer: { id: string; required?: boolean; vote?: number; remove?: boolean },
+    reviewer: {
+      id: string;
+      required?: boolean;
+      vote?: number;
+      remove?: boolean;
+    },
   ): Observable<unknown> {
     return this.mutate(() =>
-      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/reviewers`, reviewer),
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/reviewers`,
+        reviewer,
+      ),
     );
   }
 
@@ -387,36 +470,51 @@ export class GitService {
     options?: PrCompletionOptions,
   ): Observable<unknown> {
     return this.mutate(() =>
-      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/autocomplete`, {
-        enabled,
-        ...options,
-      }),
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/autocomplete`,
+        {
+          enabled,
+          ...options,
+        },
+      ),
     );
   }
 
   /** Completes (merges) the pull request. */
   completePr(id: number, options?: PrCompletionOptions): Observable<unknown> {
     return this.mutate(() =>
-      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/complete`, options ?? {}),
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/complete`,
+        options ?? {},
+      ),
     );
   }
 
   /** Comment threads of a pull request, general and inline. */
   getPrThreads(id: number): Observable<PrThread[]> {
     return this.http
-      .get<{ threads: PrThread[] }>(`${this.base}/azure-devops/pullrequests/${id}/threads`)
+      .get<{
+        threads: PrThread[];
+      }>(`${this.base}/azure-devops/pullrequests/${id}/threads`)
       .pipe(map((response) => response.threads));
   }
 
   /** Adds a reply, general comment, or inline line comment. */
   addPrComment(id: number, comment: PrCommentRequest): Observable<unknown> {
     return this.mutate(() =>
-      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/threads`, comment),
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/threads`,
+        comment,
+      ),
     );
   }
 
   /** Resolves, reactivates, or closes a thread. */
-  setPrThreadStatus(id: number, threadId: number, status: PrThreadStatus): Observable<unknown> {
+  setPrThreadStatus(
+    id: number,
+    threadId: number,
+    status: PrThreadStatus,
+  ): Observable<unknown> {
     return this.mutate(() =>
       this.http.post(
         `${this.base}/azure-devops/pullrequests/${id}/threads/${threadId}/status`,
@@ -428,18 +526,49 @@ export class GitService {
   /** Changed files of the latest pull request iteration. */
   getPrChanges(id: number): Observable<PrFileChange[]> {
     return this.http
-      .get<{ files: PrFileChange[] }>(`${this.base}/azure-devops/pullrequests/${id}/changes`)
+      .get<{
+        files: PrFileChange[];
+      }>(`${this.base}/azure-devops/pullrequests/${id}/changes`)
       .pipe(map((response) => response.files));
   }
 
   /** Unified diff of one pull request file (fetched on demand). */
   getPrFileDiff(id: number, file: PrFileChange): Observable<FileDiff> {
     const params = new HttpParams()
-      .set('path', file.path)
-      .set('oldPath', file.oldPath || '')
-      .set('changeType', file.changeType);
-    return this.http.get<FileDiff>(`${this.base}/azure-devops/pullrequests/${id}/file-diff`, {
-      params,
-    });
+      .set("path", file.path)
+      .set("oldPath", file.oldPath || "")
+      .set("changeType", file.changeType);
+    return this.http.get<FileDiff>(
+      `${this.base}/azure-devops/pullrequests/${id}/file-diff`,
+      {
+        params,
+      },
+    );
+  }
+
+  /** Azure Boards work items linked to the pull request. */
+  getPrWorkItems(id: number): Observable<PrLinkedWorkItem[]> {
+    return this.http
+      .get<{
+        workItems: PrLinkedWorkItem[];
+      }>(`${this.base}/azure-devops/pullrequests/${id}/workitems`)
+      .pipe(map((response) => response.workItems));
+  }
+
+  /** Merge checks: Azure policy evaluations plus native PR statuses. */
+  getPrChecks(id: number): Observable<PrCheckReport> {
+    return this.http.get<PrCheckReport>(
+      `${this.base}/azure-devops/pullrequests/${id}/checks`,
+    );
+  }
+
+  /** Abandons the pull request (closes it without merging). */
+  abandonPr(id: number): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/abandon`,
+        {},
+      ),
+    );
   }
 }
