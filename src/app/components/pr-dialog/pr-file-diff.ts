@@ -74,6 +74,8 @@ const THREAD_STATUS_LABELS: Record<string, string> = {
 export class PrFileDiff implements AfterViewInit, OnDestroy {
   private readonly monacoService = inject(MonacoService);
   private readonly host = viewChild<ElementRef<HTMLElement>>("host");
+  private readonly composerInput =
+    viewChild<ElementRef<HTMLTextAreaElement>>("composerInput");
 
   readonly diff = input<FileDiff | null>(null);
   readonly threads = input<PrThread[]>([]);
@@ -173,6 +175,19 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
     if (!this.selection()) return;
     this.composerOpen.set(true);
     this.composerText.set("");
+    setTimeout(() => this.composerInput()?.nativeElement.focus());
+  }
+
+  /** Ctrl/Cmd+Enter posts the comment, Escape discards it. */
+  protected onComposerKeydown(event: KeyboardEvent): void {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      this.submitComposer();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeComposer();
+    }
   }
 
   protected submitComposer(): void {

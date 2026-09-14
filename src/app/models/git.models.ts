@@ -358,6 +358,8 @@ export interface PrCheck {
   detail?: string;
   /** Optional deep link (e.g. the build result page). */
   url?: string;
+  /** Policy evaluation id of a build gate; set when the build can be requeued. */
+  evaluationId?: string;
 }
 
 /** Checks of one pull request, with non-fatal source warnings. */

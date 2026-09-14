@@ -14,6 +14,7 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Changed
 
+- Redesign the inline comment box in pull request file diffs. The composer now has a titled header, a comfortable text area in the UI font with a visible focus ring, and a footer that pairs a keyboard hint with properly styled Cancel and Comment buttons instead of the browser's default ones. The text area is focused as soon as the box opens, `Ctrl`/`Cmd`+`Enter` posts the comment, and `Escape` discards it without closing the pull request dialog.
 - Hide stash rows in the commit table by default. Repositories that never saved a stash choice now show them only after enabling "Show stashes" in the repository settings (or `guito.showStashes` in VS Code); repositories with a saved choice keep it.
 - Open file diffs in the native VS Code diff tab by default inside the VS Code extension: the `guito.diffViewer` setting now defaults to "vscode" instead of Guito's own dialog. Switch the setting back to "guito" to restore the diff dialog; binary files and the standalone browser app keep using Guito's dialog.
 - Slide the repository side panel and the commit details pane in and out instead of showing and hiding them instantly: opening a panel slides it in from its side while the commit history is pushed aside, and closing it slides back out before the layout reclaims the space. The slide is skipped when the operating system requests reduced motion.

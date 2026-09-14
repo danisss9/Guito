@@ -3032,6 +3032,7 @@ export async function startGuitoServer({
     required: boolean;
     detail?: string;
     url?: string;
+    evaluationId?: string;
   };
 
   /** Maps a policy evaluation status state onto the four UI states. */
@@ -3155,8 +3156,11 @@ export async function startGuitoServer({
     }
     const gate = `${typeName} ${name}`;
     const buildId = Number(context?.buildId ?? settings?.buildId);
+    const evaluationId = String(
+      evaluation?.evaluationId ?? status?.evaluationId ?? "",
+    ).trim();
     const check: AzureCheck = {
-      id: `policy:${evaluation?.evaluationId ?? status?.evaluationId ?? index}`,
+      id: `policy:${evaluationId || index}`,
       name,
       kind: /build/i.test(gate)
         ? "build"
@@ -3177,6 +3181,10 @@ export async function startGuitoServer({
     }
     if (Number.isInteger(buildId) && buildId > 0) {
       check.url = `${prefix}/_build/results?buildId=${buildId}`;
+    }
+    // Only build gates can be re-run, and only through their evaluation id.
+    if (check.kind === "build" && evaluationId) {
+      check.evaluationId = evaluationId;
     }
     return check;
   };
@@ -3468,6 +3476,33 @@ export async function startGuitoServer({
         return resp
           .type("application/json")
           .send({ checks: [...checks.values()], warnings });
+      } catch (err: any) {
+        return resp
+          .status(400)
+          .type("application/json")
+          .send({ error: err.message });
+      }
+    },
+  );
+
+  // Re-queues the build behind one build policy evaluation, the same action
+  // the Azure DevOps checks list offers. The evaluation id comes from the
+  // checks endpoint above; Azure answers the refreshed evaluation.
+  app.post(
+    "/api/azure-devops/pullrequests/:id/checks/:evaluationId/requeue",
+    async (req: any, resp) => {
+      try {
+        const evaluationId = String(req.params?.evaluationId ?? "").trim();
+        if (!evaluationId) {
+          throw new Error("A policy evaluation id is required.");
+        }
+        const { prefix } = await azurePrApiBase(Number(req.params?.id));
+        await azureJson<any>(
+          "POST",
+          `${prefix}/_apis/policy/evaluations/${encodeURIComponent(evaluationId)}` +
+            `?api-version=5.0-preview.1`,
+        );
+        return resp.type("application/json").send({ ok: true });
       } catch (err: any) {
         return resp
           .status(400)

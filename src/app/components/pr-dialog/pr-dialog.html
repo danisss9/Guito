@@ -215,34 +215,30 @@
           </div>
           } @else { @for (warning of checksWarnings(); track warning) {
           <div class="section-warning">{{ warning }}</div>
+          } @if (requeueError()) {
+          <div class="section-warning" role="alert">{{ requeueError() }}</div>
           } @if (checks().length) {
+          @if (requiredChecks().length) {
           <ul class="check-list">
-            @for (check of checks(); track check.id) {
-            <li class="check-row">
-              <span [class]="'check-state state-' + check.state"
-                >{{ checkStateLabel(check.state) }}</span
-              >
-              <div class="check-info">
-                <div class="check-name">
-                  {{ check.name }} @if (check.required) {
-                  <span class="required-chip">Required</span> }
-                </div>
-                @if (check.detail) {
-                <small>{{ check.detail }}</small>
-                }
-              </div>
-              @if (check.url) {
-              <button
-                type="button"
-                class="btn small"
-                (click)="openExternalLink(check.url)"
-              >
-                Open
-              </button>
-              }
-            </li>
+            @for (check of requiredChecks(); track check.id) {
+            <ng-container
+              [ngTemplateOutlet]="checkRow"
+              [ngTemplateOutletContext]="{ $implicit: check }"
+            />
             }
           </ul>
+          } @if (requiredChecks().length && optionalChecks().length) {
+          <hr class="check-divider" />
+          } @if (optionalChecks().length) {
+          <ul class="check-list">
+            @for (check of optionalChecks(); track check.id) {
+            <ng-container
+              [ngTemplateOutlet]="checkRow"
+              [ngTemplateOutletContext]="{ $implicit: check }"
+            />
+            }
+          </ul>
+          }
           } @else {
           <p class="empty">No checks reported.</p>
           } }
@@ -606,6 +602,41 @@
     </div>
     }
   </div>
+
+  <ng-template #checkRow let-check>
+    <li class="check-row">
+      <span [class]="'check-state state-' + check.state"
+        >{{ checkStateLabel(check.state) }}</span
+      >
+      <div class="check-info">
+        <div class="check-name">
+          {{ check.name }} @if (check.required) {
+          <span class="required-chip">Required</span> }
+        </div>
+        @if (check.detail) {
+        <small>{{ check.detail }}</small>
+        }
+      </div>
+      @if (check.evaluationId) {
+      <button
+        type="button"
+        class="btn small"
+        [disabled]="!!requeuing() || checksLoading()"
+        (click)="requeueCheck(check)"
+      >
+        {{ requeuing() === check.evaluationId ? "Requeuing..." : "Requeue" }}
+      </button>
+      } @if (check.url) {
+      <button
+        type="button"
+        class="btn small"
+        (click)="openExternalLink(check.url)"
+      >
+        Open
+      </button>
+      }
+    </li>
+  </ng-template>
 
   <ng-template #reviewerRow let-reviewer>
     <div class="reviewer-row">

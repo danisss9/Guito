@@ -91,23 +91,36 @@
 
           @if (composerOpen()) {
             <div class="composer">
-              <textarea
-                class="composer-text"
-                rows="3"
-                placeholder="Leave a comment (markdown supported)"
-                [value]="composerText()"
-                (input)="composerText.set($any($event.target).value)"
-              ></textarea>
-              <div class="composer-actions">
-                <button type="button" class="btn small" (click)="closeComposer()">Cancel</button>
-                <button
-                  type="button"
-                  class="btn primary"
-                  (click)="submitComposer()"
-                  [disabled]="posting() || !composerText().trim()"
-                >
-                  Comment
-                </button>
+              <header class="composer-head">
+                <span class="composer-title">New comment</span>
+                <span class="composer-target">Markdown supported</span>
+              </header>
+              <div class="composer-body">
+                <textarea
+                  #composerInput
+                  class="composer-text"
+                  rows="3"
+                  placeholder="Leave a comment..."
+                  [value]="composerText()"
+                  (input)="composerText.set($any($event.target).value)"
+                  (keydown)="onComposerKeydown($event)"
+                ></textarea>
+                <div class="composer-actions">
+                  <span class="composer-hint">
+                    <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to comment
+                  </span>
+                  <span class="composer-buttons">
+                    <button type="button" class="btn small" (click)="closeComposer()">Cancel</button>
+                    <button
+                      type="button"
+                      class="btn small primary"
+                      (click)="submitComposer()"
+                      [disabled]="posting() || !composerText().trim()"
+                    >
+                      Comment
+                    </button>
+                  </span>
+                </div>
               </div>
             </div>
           }

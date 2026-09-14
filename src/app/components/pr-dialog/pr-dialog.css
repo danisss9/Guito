@@ -115,6 +115,7 @@ app-pr-file-diff { min-width: 0; overflow: auto; }
 .check-list { margin: 0; padding: 0; list-style: none; }
 .check-row { display: flex; align-items: center; gap: 9px; min-height: 34px; border-bottom: 1px solid rgba(255,255,255,.05); }
 .check-row:last-child { border-bottom: none; }
+.check-divider { margin: 6px 0; border: none; border-top: 1px solid rgba(255,255,255,.12); }
 .check-info { flex: 1; min-width: 0; }
 .check-name { color: var(--text); font-size: 12px; }
 .check-info small { display: block; overflow: hidden; color: var(--text-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }

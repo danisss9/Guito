@@ -598,6 +598,18 @@ export class GitService {
     );
   }
 
+  /** Re-queues the build behind one build check's policy evaluation. */
+  requeuePrCheck(id: number, evaluationId: string): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(
+        `${this.base}/azure-devops/pullrequests/${id}/checks/${encodeURIComponent(
+          evaluationId,
+        )}/requeue`,
+        {},
+      ),
+    );
+  }
+
   /** Abandons the pull request (closes it without merging). */
   abandonPr(id: number): Observable<unknown> {
     return this.mutate(() =>

@@ -175,6 +175,14 @@ async function setup(page, count = 700, overrides = {}) {
           ? send({ error: "Policy evaluations are unavailable" }, 400)
           : send({
               checks: [
+                // Reported optional-first so the dialog has to regroup them.
+                {
+                  id: "status:lint",
+                  name: "lint-check",
+                  kind: "status",
+                  state: "failed",
+                  required: false,
+                },
                 {
                   id: "policy:e1",
                   name: "CI Build",
@@ -182,13 +190,6 @@ async function setup(page, count = 700, overrides = {}) {
                   state: "succeeded",
                   required: true,
                   detail: "Build OK",
-                },
-                {
-                  id: "status:lint",
-                  name: "lint-check",
-                  kind: "status",
-                  state: "failed",
-                  required: false,
                 },
               ],
               warnings: [],
@@ -1612,6 +1613,13 @@ test("pull request panel reviews, edits, comments, diffs, and completes a PR", a
   await expect(dialog).toContainText("Checks");
   await expect(dialog).toContainText("CI Build");
   await expect(dialog).toContainText("lint-check");
+  // Required checks are grouped above the divider, optional ones below.
+  const checkLists = dialog.locator(".checks-card .check-list");
+  await expect(checkLists).toHaveCount(2);
+  await expect(checkLists.nth(0)).toContainText("CI Build");
+  await expect(checkLists.nth(0)).not.toContainText("lint-check");
+  await expect(checkLists.nth(1)).toContainText("lint-check");
+  await expect(dialog.locator(".checks-card .check-divider")).toHaveCount(1);
   await expect(dialog).toContainText("Fix login");
   await expect(dialog).toContainText("ui");
   await dialog.getByRole("button", { name: "Review ▾", exact: true }).click();
@@ -1659,11 +1667,14 @@ test("pull request panel reviews, edits, comments, diffs, and completes a PR", a
     .filter({ hasText: "new login" })
     .click();
   await dialog.getByRole("button", { name: "Add comment" }).click();
+  await expect(dialog.locator(".composer textarea")).toBeFocused();
+  await dialog.locator(".composer textarea").press("Escape");
+  await expect(dialog.locator(".composer")).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Add comment" }).click();
   await dialog.locator(".composer textarea").fill("Inline feedback");
-  await dialog
-    .locator(".composer")
-    .getByRole("button", { name: "Comment" })
-    .click();
+  await dialog.locator(".composer textarea").press("Control+Enter");
+  await expect(dialog.locator(".composer")).toHaveCount(0);
   await expect
     .poll(() =>
       state.prMutations.some(

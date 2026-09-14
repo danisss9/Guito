@@ -1076,6 +1076,7 @@ test("serves policy evaluations and statuses as merge checks", async (context) =
       required: true,
       detail: "Build OK",
       url: "https://azure.example/DefaultCollection/Project/_build/results?buildId=42",
+      evaluationId: "e1",
     },
     {
       id: "policy:e2",
@@ -1158,6 +1159,7 @@ test("parses the live count/value policy envelope with string statuses", async (
       required: true,
       detail: "Build expired",
       url: "https://azure.example/DefaultCollection/Project/_build/results?buildId=198146",
+      evaluationId: "b1",
     },
     {
       id: "policy:b2",
@@ -1216,6 +1218,30 @@ test("degrades one failed checks source to a warning and errors when both fail",
   assert.equal(bothResponse.status, 400);
   const { error } = await bothResponse.json();
   assert.match(error, /down/);
+});
+
+test("requeues a build check through its policy evaluation", async (context) => {
+  const { server, calls } = await startAzureReviewServer(context, () => ({
+    status: 200,
+    body: {},
+  }));
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/checks/eval%201/requeue`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    },
+  );
+  assert.equal(response.status, 200);
+  const requeue = calls.find(
+    (call) => call.method === "POST" && call.url.includes("policy/evaluations"),
+  );
+  assert.match(
+    requeue.url,
+    /\/_apis\/policy\/evaluations\/eval%201\?api-version=5\.0-preview\.1$/,
+  );
 });
 
 test("abandons pull requests with the Azure status change", async (context) => {

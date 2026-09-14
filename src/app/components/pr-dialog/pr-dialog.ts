@@ -116,6 +116,18 @@ export class PrDialog implements OnInit {
   protected readonly checksLoading = signal(false);
   protected readonly checksError = signal("");
   protected readonly checksWarnings = signal<string[]>([]);
+  // Evaluation id of the build being requeued (empty when none is in flight),
+  // plus its own error line so a failed requeue never blanks the check list.
+  protected readonly requeuing = signal("");
+  protected readonly requeueError = signal("");
+  // Required checks gate the merge, so they are listed first, separated from
+  // the informational ones. Both keep the order Azure reported them in.
+  protected readonly requiredChecks = computed(() =>
+    this.checks().filter((check) => check.required),
+  );
+  protected readonly optionalChecks = computed(() =>
+    this.checks().filter((check) => !check.required),
+  );
   protected readonly filesLoading = signal(false);
   protected readonly filesError = signal("");
 
@@ -405,6 +417,7 @@ export class PrDialog implements OnInit {
     this.checksLoading.set(true);
     this.checksError.set("");
     this.checksWarnings.set([]);
+    this.requeueError.set("");
     this.git
       .getPrChecks(this.prId())
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -417,6 +430,30 @@ export class PrDialog implements OnInit {
         error: (err) => {
           this.checksLoading.set(false);
           this.checksError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  /** Re-queues the build behind one build check, then refreshes the list. */
+  protected requeueCheck(check: PrCheck): void {
+    const evaluationId = check.evaluationId ?? "";
+    if (!evaluationId || this.requeuing()) {
+      return;
+    }
+    this.requeuing.set(evaluationId);
+    this.requeueError.set("");
+    this.git
+      .requeuePrCheck(this.prId(), evaluationId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.requeuing.set("");
+          // Azure re-queues asynchronously; the reload shows the new state.
+          this.loadChecks();
+        },
+        error: (err) => {
+          this.requeuing.set("");
+          this.requeueError.set(this.errorMessage(err));
         },
       });
   }
