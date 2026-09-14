@@ -217,6 +217,8 @@ async function setup(page, count = 700, overrides = {}) {
           status: "modified",
           additions: 1,
           deletions: 1,
+          originalContent: "old login\nunchanged",
+          modifiedContent: "new login\nunchanged",
           lines: [
             { type: "hunk", text: "@@ -1,2 +1,2 @@" },
             { type: "del", oldLine: 1, text: "old login" },
@@ -1583,7 +1585,14 @@ test("repository panel shows branches, stashes and worktrees and filters on sele
 test("pull request panel reviews, edits, comments, diffs, and completes a PR", async ({
   page,
 }) => {
-  const { state, errors } = await setup(page);
+  const { state, errors } = await setup(page, 700, {
+    settings: {
+      azureDevOpsUrl: "https://azure.example/collection",
+      prBranchNameTemplate: "pr/${randomstring}",
+      fileListView: "tree",
+      source: "file",
+    },
+  });
   await page.getByRole("button", { name: "Toggle repository panel" }).click();
   await expect(page.locator(".side-panel .tree-title")).toHaveText([
     "Branches",
@@ -1642,13 +1651,14 @@ test("pull request panel reviews, edits, comments, diffs, and completes a PR", a
     .toBe(true);
 
   await dialog.getByRole("button", { name: /^Files/ }).click();
-  await dialog.getByRole("button", { name: /src\/login\.ts/ }).click();
+  await expect(dialog.locator(".file-list .dir-row")).toContainText("src");
+  await dialog.getByRole("button", { name: /login\.ts/ }).click();
   await expect(dialog).toContainText("new login");
-  await dialog.locator(".diff-line.add").hover();
   await dialog
-    .locator(".diff-line.add")
-    .getByRole("button", { name: "Comment on this line" })
+    .locator(".editor.modified .view-line")
+    .filter({ hasText: "new login" })
     .click();
+  await dialog.getByRole("button", { name: "Add comment" }).click();
   await dialog.locator(".composer textarea").fill("Inline feedback");
   await dialog
     .locator(".composer")
@@ -1818,6 +1828,76 @@ test("pull request file changes report load failures with retry", async ({
     dialog.getByRole("button", { name: /src\/login\.ts/ }),
   ).toBeVisible();
   await expect(dialog).toContainText("new login");
+});
+
+test("pull request tags and related work items support add and remove", async ({
+  page,
+}) => {
+  const { state } = await setup(page, 700, {});
+  await page.getByRole("button", { name: "Toggle repository panel" }).click();
+  const prSection = page.locator(".tree").filter({ hasText: "Pull Requests" });
+  await prSection.locator(".pr-row").click();
+  const dialog = page.getByRole("dialog", { name: "Pull request details" });
+
+  // The "+" beside Tags opens an inline picker fed by the project's tags.
+  await dialog.getByRole("button", { name: "Add tag" }).click();
+  const tagInput = dialog.getByRole("textbox", { name: "Add tag" });
+  await expect(tagInput).toBeVisible();
+  await tagInput.fill("rel");
+  await dialog.getByRole("option", { name: "release" }).click();
+  await expect
+    .poll(() =>
+      state.prMutations.some(
+        (item) =>
+          item.method === "POST" &&
+          item.action === "labels" &&
+          item.body.name === "release",
+      ),
+    )
+    .toBe(true);
+
+  // Every tag chip offers an "x" to remove it.
+  await dialog.getByRole("button", { name: "Remove tag ui" }).click();
+  await expect
+    .poll(() =>
+      state.prMutations.some(
+        (item) => item.method === "DELETE" && item.action === "labels/ui",
+      ),
+    )
+    .toBe(true);
+
+  // Clicking "+" again closes the picker.
+  await dialog.getByRole("button", { name: "Add tag" }).click();
+  await expect(dialog.getByRole("textbox", { name: "Add tag" })).toHaveCount(0);
+
+  // The "+" beside Related work items opens a search picker.
+  await dialog.getByRole("button", { name: "Relate work item" }).click();
+  const workItemInput = dialog.getByRole("textbox", {
+    name: "Search work item by title or ID",
+  });
+  await expect(workItemInput).toBeVisible();
+  await workItemInput.fill("Fix");
+  await dialog.getByRole("option", { name: "#64 Fix login" }).click();
+  await expect
+    .poll(() =>
+      state.prMutations.some(
+        (item) =>
+          item.method === "POST" &&
+          item.action === "workitems" &&
+          item.body.id === 64,
+      ),
+    )
+    .toBe(true);
+
+  // Each work item row offers an "x" to unlink it.
+  await dialog.getByRole("button", { name: "Unlink work item #64" }).click();
+  await expect
+    .poll(() =>
+      state.prMutations.some(
+        (item) => item.method === "DELETE" && item.action === "workitems/64",
+      ),
+    )
+    .toBe(true);
 });
 
 test("pull request section stays hidden when Azure DevOps is not configured", async ({

@@ -1,7 +1,13 @@
 import { FileDiff } from '../models/git.models';
 
+interface TreeFile {
+  path: string;
+  additions?: number;
+  deletions?: number;
+}
+
 /** One rendered row of a file tree: a collapsible folder or a changed file. */
-export type FileTreeRow =
+export type FileTreeRow<T extends TreeFile = FileDiff> =
   | {
       kind: 'dir';
       /** Full directory path ("src/app"); keys the collapsed set. */
@@ -22,13 +28,13 @@ export type FileTreeRow =
       /** Display label: the file name in tree view, the full path in flat view. */
       name: string;
       depth: number;
-      file: FileDiff;
+      file: T;
     };
 
-interface Directory {
+interface Directory<T extends TreeFile> {
   name: string;
-  dirs: Map<string, Directory>;
-  files: FileDiff[];
+  dirs: Map<string, Directory<T>>;
+  files: T[];
   additions: number;
   deletions: number;
 }
@@ -38,7 +44,7 @@ const byName = (a: { name: string }, b: { name: string }) =>
 
 const baseName = (path: string): string => path.split('/').pop() ?? path;
 
-const byFileName = (a: FileDiff, b: FileDiff): number =>
+const byFileName = (a: TreeFile, b: TreeFile): number =>
   baseName(a.path).toLowerCase().localeCompare(baseName(b.path).toLowerCase());
 
 /**
@@ -46,10 +52,10 @@ const byFileName = (a: FileDiff, b: FileDiff): number =>
  * files (case-insensitive by name), collapsed folders hide their children,
  * and folder rows sum the additions and deletions below them.
  */
-export function buildFileTreeRows(files: FileDiff[], collapsed: Set<string>): FileTreeRow[] {
-  const root: Directory = { name: '', dirs: new Map(), files: [], additions: 0, deletions: 0 };
+export function buildFileTreeRows<T extends TreeFile>(files: T[], collapsed: Set<string>): FileTreeRow<T>[] {
+  const root: Directory<T> = { name: '', dirs: new Map(), files: [], additions: 0, deletions: 0 };
   for (const file of files) {
-    const segments = file.path.split('/');
+    const segments = file.path.split('/').filter(Boolean);
     let dir = root;
     for (const segment of segments.slice(0, -1)) {
       let child = dir.dirs.get(segment);
@@ -57,15 +63,15 @@ export function buildFileTreeRows(files: FileDiff[], collapsed: Set<string>): Fi
         child = { name: segment, dirs: new Map(), files: [], additions: 0, deletions: 0 };
         dir.dirs.set(segment, child);
       }
-      child.additions += file.additions;
-      child.deletions += file.deletions;
+      child.additions += file.additions ?? 0;
+      child.deletions += file.deletions ?? 0;
       dir = child;
     }
     dir.files.push(file);
   }
 
-  const rows: FileTreeRow[] = [];
-  const visit = (dir: Directory, path: string, depth: number): void => {
+  const rows: FileTreeRow<T>[] = [];
+  const visit = (dir: Directory<T>, path: string, depth: number): void => {
     for (const child of [...dir.dirs.values()].sort(byName)) {
       const childPath = path ? `${path}/${child.name}` : child.name;
       const isCollapsed = collapsed.has(childPath);

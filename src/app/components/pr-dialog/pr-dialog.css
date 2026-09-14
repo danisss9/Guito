@@ -55,9 +55,15 @@ textarea { width: 100%; padding: 8px; resize: vertical; font-family: var(--mono)
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
 .form-actions { justify-content: flex-end; gap: 7px; }
 .empty { color: var(--text-dim); font-style: italic; }
-.labels { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 16px; }
-.label-chip { background: rgba(55,148,255,.14); color: var(--accent); }
+.labels { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+.label-chip { display: inline-flex; align-items: center; gap: 3px; background: rgba(55,148,255,.14); color: var(--accent); }
+.label-chip .chip-x { padding: 0; border: none; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 11px; line-height: 1; }
+.label-chip .chip-x:hover:not(:disabled) { color: var(--text-bright); }
 .reviewers h3 { margin: 16px 0 5px; color: var(--text-dim); font-size: 10px; letter-spacing: .5px; text-transform: uppercase; }
+.side-head { display: flex; align-items: center; gap: 4px; margin: 16px 0 7px; }
+.side-head h3 { margin: 0; color: var(--text-dim); font-size: 10px; letter-spacing: .5px; text-transform: uppercase; }
+.side-head .icon-btn.add { flex: none; width: 20px; height: 20px; margin-left: auto; border-color: transparent; background: transparent; color: var(--text-dim); font-size: 15px; font-weight: 600; }
+.side-head .icon-btn.add:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-bright); }
 .reviewer-row { gap: 8px; min-height: 42px; border-bottom: 1px solid rgba(255,255,255,.05); }
 .reviewer-name { display: flex; flex: 1; min-width: 0; flex-direction: column; }
 .reviewer-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -82,6 +88,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .file-list button { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 9px; overflow: hidden; border-width: 0 0 1px; border-radius: 0; text-align: left; }
 .file-list button.active { background: rgba(55,148,255,.14); color: var(--text-bright); }
 .file-list button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-list .dir-row { color: var(--text-dim); font-weight: 600; }
+.file-chevron { flex: none; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .file-status { flex: none; width: 19px; padding: 1px 0; text-align: center; }
 .file-status.status-added { color: #89d185; }.file-status.status-deleted { color: #f48771; }.file-status.status-renamed { color: #c586c0; }.file-status.status-modified { color: var(--accent); }
 app-pr-file-diff { min-width: 0; overflow: auto; }
@@ -127,4 +135,6 @@ app-pr-file-diff { min-width: 0; overflow: auto; }
 .work-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-item-link:hover .work-item-title { text-decoration: underline; }
 .work-item-list small { flex: none; color: var(--text-dim); font-size: 10px; text-transform: uppercase; }
+.work-item-list .icon-btn { flex: none; width: 18px; height: 18px; border: none; background: transparent; color: var(--text-dim); font-size: 13px; }
+.work-item-list .icon-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-bright); }
 @media (max-width: 900px) { .pr-dialog { inset: 1vh 1vw; min-width: 620px; }.dialog-header { align-items: flex-start; }.header-actions { flex-wrap: wrap; justify-content: flex-end; }.overview { grid-template-columns: 1fr; }.reviewers { order: -1; }.files-pane { grid-template-columns: 220px minmax(0,1fr); } }

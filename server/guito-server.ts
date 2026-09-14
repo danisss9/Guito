@@ -51,6 +51,8 @@ export type AzureRequestImpl = (
   method: AzureRequestMethod,
   url: string,
   body: string,
+  /** Request content type; the WIT relation patch needs JSON patch. */
+  contentType?: string,
 ) => Promise<AzureRequestResult>;
 
 export interface GuitoServerOptions {
@@ -257,6 +259,7 @@ function defaultAzureRequest(
   method: AzureRequestMethod,
   url: string,
   body: string,
+  contentType = "application/json",
 ): Promise<AzureRequestResult> {
   return new Promise((resolveRequest, rejectRequest) => {
     const args = [
@@ -272,7 +275,7 @@ function defaultAzureRequest(
       method,
     ];
     if (method === "POST" || method === "PUT" || method === "PATCH") {
-      args.push("-H", "Content-Type: application/json", "--data-binary", "@-");
+      args.push("-H", `Content-Type: ${contentType}`, "--data-binary", "@-");
     }
     args.push(url);
     const child = spawn("curl.exe", args, { windowsHide: true });
@@ -809,8 +812,9 @@ export async function startGuitoServer({
     method: AzureRequestMethod,
     url: string,
     body = "",
+    contentType = "application/json",
   ): Promise<T> => {
-    const result = await azureRequest(method, url, body);
+    const result = await azureRequest(method, url, body, contentType);
     if (result.status < 200 || result.status >= 300) {
       throw new Error(
         azureErrorMessage(result) ||
@@ -820,6 +824,61 @@ export async function startGuitoServer({
     return (result.body ? JSON.parse(result.body) : {}) as T;
   };
 
+  /** vstfs artifact URI of a pull request; work item ArtifactLink relations point at it. */
+  const azurePrArtifactUrl = (
+    projectId: string,
+    repositoryId: string,
+    id: number,
+  ): string =>
+    `vstfs:///Git/PullRequestId/${encodeURIComponent(projectId)}%2F${encodeURIComponent(repositoryId)}%2F${id}`;
+
+  /** Reads one work item's relations from the WIT API. */
+  const azureWorkItemRelations = async (
+    prefix: string,
+    workItemId: number,
+  ): Promise<any[]> => {
+    const item = await azureJson<any>(
+      "GET",
+      `${prefix}/_apis/wit/workitems/${workItemId}?$expand=relations&api-version=${AZURE_API_VERSION}`,
+    );
+    return Array.isArray(item?.relations) ? item.relations : [];
+  };
+
+  /** Patches a work item's relations (the WIT API wants the patch content type). */
+  const azurePatchWorkItemRelations = async (
+    prefix: string,
+    workItemId: number,
+    patch: unknown[],
+  ): Promise<void> => {
+    await azureJson(
+      "PATCH",
+      `${prefix}/_apis/wit/workitems/${workItemId}?api-version=${AZURE_API_VERSION}`,
+      JSON.stringify(patch),
+      "application/json-patch+json",
+    );
+  };
+
+  /** Project prefix plus artifact URI of one pull request (work item links). */
+  const azurePrArtifactOf = async (
+    id: number,
+  ): Promise<{ prefix: string; artifactUrl: string }> => {
+    const { base, prefix } = await azurePrApiBase(id);
+    const pr = await azureJson<any>(
+      "GET",
+      `${base}?api-version=${AZURE_API_VERSION}`,
+    );
+    const projectId = String(pr?.repository?.project?.id ?? "");
+    const repositoryId = String(pr?.repository?.id ?? "");
+    if (!projectId || !repositoryId) {
+      throw new Error(
+        "Azure DevOps did not report the pull request's project and repository.",
+      );
+    }
+    return {
+      prefix,
+      artifactUrl: azurePrArtifactUrl(projectId, repositoryId, id),
+    };
+  };
   /** Merges the VS Code settings with the server-side settings file. */
   const effectiveSettings = async (): Promise<{
     azureDevOpsUrl: string;
@@ -2821,6 +2880,11 @@ export async function startGuitoServer({
         };
         const filePath = String(req.body?.filePath ?? "").trim();
         const line = Number(req.body?.line ?? 0);
+        const requestedEndLine = Number(req.body?.endLine ?? line);
+        const endLine =
+          Number.isInteger(requestedEndLine) && requestedEndLine >= line
+            ? requestedEndLine
+            : line;
         const left = req.body?.side === "left";
         if (filePath && Number.isInteger(line) && line > 0) {
           // Azure anchors a whole-line comment from offset 1 to "end of line".
@@ -2828,7 +2892,7 @@ export async function startGuitoServer({
             filePath: `/${filePath.replace(/^\//, "")}`,
             [left ? "leftFileStart" : "rightFileStart"]: { line, offset: 1 },
             [left ? "leftFileEnd" : "rightFileEnd"]: {
-              line,
+              line: endLine,
               offset: 2147483647,
             },
           };
@@ -2978,7 +3042,7 @@ export async function startGuitoServer({
       case "rejected":
       case "broken":
         return "failed";
-      case "skipped":
+      case "notapplicable":
         return "notApplicable";
       default:
         // pending, deferred, queued and unknown states all still gate merges.
@@ -3009,24 +3073,48 @@ export async function startGuitoServer({
     if (!projectId || !prId) {
       throw new Error("The pull request does not expose its project identity.");
     }
-    // The Code Review artifact id Azure's policy evaluations are keyed by.
-    const artifactId = `vstfs:///CodeReview/CodeReviewIdentity/${projectId}/${prId}`;
+    // The artifact id Azure keys policy evaluations by. The documented
+    // template is "CodeReviewId"; the "CodeReviewIdentity" spelling is
+    // rejected with an artifact-not-found 404 (verified against TFS).
+    const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}/${prId}`;
     const evaluations: any[] = [];
     let skip = 0;
     for (;;) {
       const data = await azureJson<any>(
         "GET",
         `${prefix}/_apis/policy/evaluations?artifactId=${encodeURIComponent(artifactId)}` +
-          `&skip=${skip}&top=1000&api-version=5.0-preview.1`,
+          `&$skip=${skip}&$top=1000&api-version=5.0-preview.1`,
       );
-      const page = Array.isArray(data?.evaluations) ? data.evaluations : [];
-      evaluations.push(...page);
-      const nextSkip = Number(data?.nextSkip);
-      if (Number.isInteger(nextSkip) && nextSkip > skip && page.length) {
-        skip = nextSkip;
-        continue;
+      // Versions disagree on the envelope: "evaluations" (preview shape), the
+      // generic "count"/"value" list (seen live on TFS 5.0-preview.1) or a
+      // bare array.
+      let page: any[] = [];
+      if (Array.isArray(data)) {
+        page = data;
+      } else if (Array.isArray(data?.evaluations)) {
+        page = data.evaluations;
+      } else if (Array.isArray(data?.value)) {
+        page = data.value;
       }
-      break;
+      const before = evaluations.length;
+      evaluations.push(...page);
+      const total = Number(data?.count);
+      const nextSkip = Number(data?.nextSkip);
+      const moreByCount = Number.isInteger(total) && total > evaluations.length;
+      const moreBySkip =
+        Number.isInteger(nextSkip) && nextSkip > skip && page.length > 0;
+      // Stop when complete, when a page added nothing new (the server ignored
+      // our skip) or after a safety-capped number of pages.
+      if (!(moreByCount || moreBySkip) || evaluations.length === before) {
+        break;
+      }
+      skip =
+        Number.isInteger(nextSkip) && nextSkip > skip
+          ? nextSkip
+          : evaluations.length;
+      if (skip > 20000) {
+        break;
+      }
     }
     return evaluations;
   };
@@ -3046,31 +3134,46 @@ export async function startGuitoServer({
     evaluation: any,
     index: number,
   ): AzureCheck | null => {
-    const type = evaluation?.configuration?.type ?? {};
-    const settings = evaluation?.configuration?.settings ?? {};
-    const status = evaluation?.status ?? {};
+    const configuration = evaluation?.configuration ?? {};
+    const type = configuration.type ?? {};
+    const settings = configuration.settings ?? {};
+    const context = evaluation?.context ?? {};
+    const status = evaluation?.status;
+    // 5.0-preview answers status as a plain state string; newer versions may
+    // answer a { state, message } object. Support both.
+    const state = typeof status === "string" ? status : status?.state;
+    const message = typeof status === "string" ? "" : status?.message;
     const typeName = String(type?.displayName ?? "").trim();
+    const isBuild = /build/i.test(typeName);
     const name =
-      String(settings?.displayName ?? "").trim() || typeName || "Policy";
+      String(settings?.displayName ?? "").trim() ||
+      (isBuild ? String(context?.buildDefinitionName ?? "").trim() : "") ||
+      typeName ||
+      "Policy";
     if (!name) {
       return null;
     }
     const gate = `${typeName} ${name}`;
-    const buildId = Number(settings?.buildId);
+    const buildId = Number(context?.buildId ?? settings?.buildId);
     const check: AzureCheck = {
-      id: `policy:${status?.evaluationId ?? index}`,
+      id: `policy:${evaluation?.evaluationId ?? status?.evaluationId ?? index}`,
       name,
       kind: /build/i.test(gate)
         ? "build"
         : /reviewer/i.test(gate)
           ? "reviewer"
           : "policy",
-      state: azurePolicyState(status?.state),
-      required: evaluation?.configuration?.isRequired === true,
+      state: azurePolicyState(state),
+      required:
+        configuration?.isBlocking === true ||
+        configuration?.isRequired === true,
     };
-    const message = String(status?.message ?? "").trim();
-    if (message) {
-      check.detail = message;
+    const detail = String(message ?? "").trim();
+    if (detail) {
+      check.detail = detail;
+    }
+    if (context?.isExpired === true) {
+      check.detail = detail ? `${detail} (build expired)` : "Build expired";
     }
     if (Number.isInteger(buildId) && buildId > 0) {
       check.url = `${prefix}/_build/results?buildId=${buildId}`;
@@ -3122,6 +3225,153 @@ export async function startGuitoServer({
           url: `${prefix}/_workitems/edit/${id}`,
         }));
         return resp.type("application/json").send({ workItems });
+      } catch (err: any) {
+        return resp
+          .status(400)
+          .type("application/json")
+          .send({ error: err.message });
+      }
+    },
+  );
+
+  // Tags are the PR labels resource; the side panel adds and removes them
+  // directly, so both directions are served here.
+  app.post(
+    "/api/azure-devops/pullrequests/:id/labels",
+    async (req: any, resp) => {
+      try {
+        const name = String(req.body?.name ?? "").trim();
+        if (!name) {
+          return resp
+            .status(400)
+            .type("application/json")
+            .send({ error: "A tag name is required." });
+        }
+        const { base } = await azurePrApiBase(Number(req.params?.id));
+        await azureJson(
+          "POST",
+          `${base}/labels?api-version=${AZURE_API_VERSION}`,
+          JSON.stringify({ name }),
+        );
+        return resp.type("application/json").send({ success: true });
+      } catch (err: any) {
+        return resp
+          .status(400)
+          .type("application/json")
+          .send({ error: err.message });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/azure-devops/pullrequests/:id/labels/:name",
+    async (req: any, resp) => {
+      try {
+        const name = String(req.params?.name ?? "");
+        if (!name) {
+          return resp
+            .status(400)
+            .type("application/json")
+            .send({ error: "A tag name is required." });
+        }
+        const { base } = await azurePrApiBase(Number(req.params?.id));
+        await azureJson(
+          "DELETE",
+          `${base}/labels/${encodeURIComponent(name)}?api-version=${AZURE_API_VERSION}`,
+          "",
+        );
+        return resp.type("application/json").send({ success: true });
+      } catch (err: any) {
+        return resp
+          .status(400)
+          .type("application/json")
+          .send({ error: err.message });
+      }
+    },
+  );
+
+  // Work items are linked from the work item side: the link lives on the work
+  // item as an ArtifactLink relation pointing at the PR's artifact URI, so
+  // linking and unlinking both patch the work item rather than the PR.
+  app.post(
+    "/api/azure-devops/pullrequests/:id/workitems",
+    async (req: any, resp) => {
+      try {
+        const workItemId = Number(req.body?.id);
+        if (!Number.isInteger(workItemId) || workItemId <= 0) {
+          return resp
+            .status(400)
+            .type("application/json")
+            .send({ error: "A work item id is required." });
+        }
+        const { prefix, artifactUrl } = await azurePrArtifactOf(
+          Number(req.params?.id),
+        );
+        const alreadyLinked = (
+          await azureWorkItemRelations(prefix, workItemId)
+        ).some(
+          (relation: any) =>
+            String(relation?.url ?? "").toLowerCase() ===
+            artifactUrl.toLowerCase(),
+        );
+        if (!alreadyLinked) {
+          await azurePatchWorkItemRelations(prefix, workItemId, [
+            {
+              op: "add",
+              path: "/relations/-",
+              value: {
+                rel: "ArtifactLink",
+                url: artifactUrl,
+                attributes: { name: "Pull Request" },
+              },
+            },
+          ]);
+        }
+        return resp.type("application/json").send({ success: true });
+      } catch (err: any) {
+        return resp
+          .status(400)
+          .type("application/json")
+          .send({ error: err.message });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/azure-devops/pullrequests/:id/workitems/:workItemId",
+    async (req: any, resp) => {
+      try {
+        const workItemId = Number(req.params?.workItemId);
+        if (!Number.isInteger(workItemId) || workItemId <= 0) {
+          return resp
+            .status(400)
+            .type("application/json")
+            .send({ error: "A work item id is required." });
+        }
+        const { prefix, artifactUrl } = await azurePrArtifactOf(
+          Number(req.params?.id),
+        );
+        // Relations are removed by index, so confirm the link and its index in
+        // the same read, then assert that url at the index before removing:
+        // Azure applies the patch atomically, so a relation list that moved
+        // underneath this call is rejected instead of removing a neighbour.
+        const relations = await azureWorkItemRelations(prefix, workItemId);
+        const index = relations.findIndex(
+          (relation: any) =>
+            String(relation?.url ?? "").toLowerCase() ===
+            artifactUrl.toLowerCase(),
+        );
+        if (index >= 0) {
+          await azurePatchWorkItemRelations(prefix, workItemId, [
+            {
+              op: "test",
+              path: `/relations/${index}/url`,
+              value: String(relations[index]?.url ?? ""),
+            },
+            { op: "remove", path: `/relations/${index}` },
+          ]);
+        }
+        return resp.type("application/json").send({ success: true });
       } catch (err: any) {
         return resp
           .status(400)
@@ -3300,10 +3550,25 @@ export async function startGuitoServer({
                 `Azure DevOps returned HTTP ${result.status}.`,
             );
           }
-          const data = JSON.parse(result.body);
+          let data: any = null;
+          try {
+            data = JSON.parse(result.body);
+          } catch {
+            // Depending on the Azure deployment and file type, the Items API
+            // may return the file body directly instead of a JSON envelope.
+          }
+          const hasContentEnvelope =
+            data !== null &&
+            typeof data === "object" &&
+            (Object.prototype.hasOwnProperty.call(data, "content") ||
+              Object.prototype.hasOwnProperty.call(data, "isBinary"));
           return {
-            content: typeof data?.content === "string" ? data.content : "",
-            binary: data?.isBinary === true,
+            content: hasContentEnvelope
+              ? typeof data.content === "string"
+                ? data.content
+                : ""
+              : result.body,
+            binary: hasContentEnvelope && data.isBinary === true,
           };
         };
         const [oldFile, newFile] = await Promise.all([
@@ -3354,6 +3619,8 @@ export async function startGuitoServer({
           binary: false,
           additions: file?.additions ?? 0,
           deletions: file?.deletions ?? 0,
+          originalContent: oldFile.content,
+          modifiedContent: newFile.content,
           lines,
         });
       } catch (err: any) {

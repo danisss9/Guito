@@ -1,7 +1,32 @@
-.file-diff {
+:host {
+  display: block;
+  min-width: 0;
   min-height: 0;
-  overflow: auto;
+}
+
+.file-diff {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   background: var(--bg-alt);
+}
+
+.editor-host {
+  flex: 1;
+  min-height: 220px;
+}
+
+.editor-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-alt);
+  color: var(--text-dim);
+  font-size: 13px;
 }
 
 .diff-status {
@@ -14,113 +39,31 @@
   color: var(--red);
 }
 
-.diff-table {
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 18px;
-  padding-bottom: 24px;
-}
-
-.hunk-row {
-  background: rgba(55, 148, 255, 0.08);
-  color: var(--text-dim);
-  padding: 2px 8px;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.diff-line {
-  display: flex;
-  align-items: flex-start;
-  white-space: pre;
-}
-
-.diff-line.add {
-  background: rgba(137, 209, 133, 0.12);
-}
-
-.diff-line.del {
-  background: rgba(244, 135, 113, 0.12);
-}
-
-.diff-line .num {
+.review-panel {
   flex: none;
-  width: 46px;
-  text-align: right;
-  padding-right: 8px;
-  color: var(--text-dim);
-  -webkit-user-select: none;
-  user-select: none;
+  max-height: 42%;
+  overflow: auto;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 
-.diff-line .marker {
-  flex: none;
-  width: 16px;
-  text-align: center;
-  color: var(--text-dim);
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.diff-line.add .marker {
-  color: #89d185;
-}
-
-.diff-line.del .marker {
-  color: #f48771;
-}
-
-.diff-line .text {
-  flex: 1;
-  min-width: 0;
-  color: var(--text);
-  overflow-wrap: normal;
-}
-
-.diff-line .line-comment-btn {
-  flex: none;
+.selection-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 18px;
-  margin-right: 8px;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
   color: var(--text-dim);
-  cursor: pointer;
-  visibility: hidden;
+  font-size: 11px;
 }
-
-.diff-line:hover .line-comment-btn {
-  visibility: visible;
-}
-
-.line-comment-btn:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
-}
-
-.line-comment-btn svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* ---- threads and composer (font switches back to the UI face) ---- */
 
 .thread,
 .composer {
-  font-family: initial;
-  margin: 2px 12px 2px 54px;
+  margin-top: 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--bg);
+  background: var(--bg-alt);
   overflow: hidden;
 }
 
@@ -136,7 +79,6 @@
   font-size: 12px;
   text-align: left;
   cursor: pointer;
-  min-width: 0;
 }
 
 .thread-head:hover {
@@ -146,9 +88,9 @@
 .thread-status {
   flex: none;
   border-radius: 3px;
+  padding: 1px 5px;
   font-size: 10px;
   font-weight: 600;
-  padding: 1px 5px;
   text-transform: uppercase;
 }
 
@@ -174,9 +116,9 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  color: var(--text-dim);
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-dim);
 }
 
 .thread-count {
@@ -185,23 +127,12 @@
   font-size: 11px;
 }
 
-.chevron {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  fill: none;
-  stroke: var(--text-dim);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .thread-body {
-  border-top: 1px solid var(--border);
-  padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .comment {
@@ -212,9 +143,6 @@
 .comment-main {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
 }
 
 .comment-meta {
@@ -239,19 +167,21 @@
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 3px;
-  background: var(--bg-alt);
+  background: var(--bg);
   color: var(--text);
-  font-size: 12px;
 }
 
-.reply-input:focus {
+.reply-input:focus,
+.composer-text:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.thread-actions {
+.thread-actions,
+.composer-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
 }
 
 .status-label {
@@ -264,12 +194,32 @@
 
 .status-label select {
   height: 24px;
-  padding: 0 4px;
   border: 1px solid var(--border);
   border-radius: 3px;
-  background: var(--bg-alt);
+  background: var(--bg);
   color: var(--text);
-  font-size: 12px;
+}
+
+.composer {
+  padding: 8px;
+  border-color: var(--accent);
+}
+
+.composer-text {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  resize: vertical;
+}
+
+.composer-actions {
+  margin-top: 6px;
 }
 
 .btn.small {
@@ -278,42 +228,8 @@
   font-size: 12px;
 }
 
-.composer {
-  border-color: var(--accent);
-}
-
-.composer-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 8px;
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.composer-text {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 0 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-alt);
-  color: var(--text);
-  font-size: 12px;
-  font-family: var(--mono);
-  resize: vertical;
-  box-sizing: border-box;
-}
-
-.composer-text:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.composer-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 8px;
+:host ::ng-deep .pr-thread-glyph {
+  background: var(--accent);
+  border: 3px solid var(--bg-alt);
+  border-radius: 50%;
 }

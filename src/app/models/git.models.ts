@@ -67,6 +67,9 @@ export interface FileDiff {
   lines: DiffLine[];
   additions: number;
   deletions: number;
+  /** Complete documents when the diff source can provide them (for Monaco). */
+  originalContent?: string;
+  modifiedContent?: string;
   /** True when Azure or Git reports content that cannot be rendered as text. */
   binary?: boolean;
 }
@@ -419,5 +422,6 @@ export interface PrCommentRequest {
   threadId?: number;
   filePath?: string;
   line?: number;
+  endLine?: number;
   side?: "left" | "right";
 }

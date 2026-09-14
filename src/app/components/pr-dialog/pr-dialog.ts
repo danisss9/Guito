@@ -19,6 +19,7 @@ import { VscodeService } from "../../services/vscode.service";
 import { AuthorAvatar } from "../author-avatar/author-avatar";
 import { ChipInput, ChipSuggestion } from "../create-pr-dialog/chip-input";
 import { MarkdownText } from "../markdown-text/markdown-text";
+import { FileTreeRow, buildFileTreeRows } from "../../utils/file-tree";
 import {
   DiffFocus,
   LineCommentRequest,
@@ -38,6 +39,7 @@ import {
   PrThread,
   PrThreadStatus,
   PrVote,
+  PrWorkItemSuggestion,
 } from "../../models/git.models";
 
 type PrTab = "overview" | "files" | "comments";
@@ -132,6 +134,27 @@ export class PrDialog implements OnInit {
   protected readonly reviewersError = signal("");
   protected readonly reviewerRequired = signal(false);
 
+  // Sidebar tag picker: the project's existing PR labels, filtered while
+  // typing; free text also accepts a brand-new tag name.
+  protected readonly tagsPickerOpen = signal(false);
+  protected readonly tagQuery = signal("");
+  protected readonly allTags = signal<ChipSuggestion[]>([]);
+  protected readonly tagsLoading = signal(false);
+  protected readonly tagSuggestions = computed(() => {
+    const needle = this.tagQuery().trim().toLowerCase();
+    const tags = this.allTags();
+    return needle
+      ? tags.filter((tag) => tag.label.toLowerCase().includes(needle))
+      : tags;
+  });
+
+  // Related work item picker: debounced Azure Boards search (title or id).
+  protected readonly workItemPickerOpen = signal(false);
+  protected readonly workItemQuery = signal("");
+  protected readonly workItemSuggestions = signal<ChipSuggestion[]>([]);
+  protected readonly workItemsSearchLoading = signal(false);
+  protected readonly workItemsSearchError = signal("");
+
   // Vote dropdown.
   protected readonly reviewMenuOpen = signal(false);
 
@@ -153,6 +176,20 @@ export class PrDialog implements OnInit {
   protected readonly fileDiffLoading = signal(false);
   protected readonly fileDiffError = signal("");
   protected readonly fileFocus = signal<DiffFocus | null>(null);
+  protected readonly collapsedFiles = signal<Set<string>>(new Set());
+  protected readonly fileRows = computed<FileTreeRow<PrFileChange>[]>(() => {
+    const files = this.files();
+    if (this.settings()?.fileListView !== "tree") {
+      return files.map((file) => ({
+        kind: "file",
+        path: file.path,
+        name: file.path,
+        depth: 0,
+        file,
+      }));
+    }
+    return buildFileTreeRows(files, this.collapsedFiles());
+  });
 
   protected readonly mergeStrategies = computed(() =>
     PrDialog.allMergeStrategies.filter((strategy) => {
@@ -242,6 +279,37 @@ export class PrDialog implements OnInit {
       .subscribe((reviewers) => {
         this.reviewerSuggestions.set(reviewers);
         this.reviewersLoading.set(false);
+      });
+
+    // Debounced work item search for the related-items picker.
+    toObservable(this.workItemQuery)
+      .pipe(
+        switchMap((value) => {
+          const query = value.trim();
+          this.workItemSuggestions.set([]);
+          this.workItemsSearchError.set("");
+          this.workItemsSearchLoading.set(query.length > 0);
+          if (!query) {
+            return of([] as PrWorkItemSuggestion[]);
+          }
+          return this.git.searchWorkItems(query).pipe(
+            catchError(() => {
+              this.workItemsSearchError.set("Unable to load suggestions.");
+              return of([] as PrWorkItemSuggestion[]);
+            }),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((workItems) => {
+        this.workItemSuggestions.set(
+          workItems.map((item) => ({
+            id: String(item.id),
+            label: `#${item.id} ${item.title}`.trim(),
+            description: item.state,
+          })),
+        );
+        this.workItemsSearchLoading.set(false);
       });
   }
 
@@ -474,6 +542,87 @@ export class PrDialog implements OnInit {
     );
   }
 
+  // ---- Sidebar tags and related work items ----
+
+  /** Opens or closes the tag picker, loading the project's tags once. */
+  protected toggleTagsPicker(): void {
+    const open = !this.tagsPickerOpen();
+    this.tagsPickerOpen.set(open);
+    this.tagQuery.set("");
+    if (!open || this.allTags().length || this.tagsLoading()) {
+      return;
+    }
+    this.tagsLoading.set(true);
+    this.git
+      .getPrTags()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (tags) => {
+          this.allTags.set(
+            tags.map((tag) => ({ id: tag.name, label: tag.name })),
+          );
+          this.tagsLoading.set(false);
+        },
+        error: () => this.tagsLoading.set(false),
+      });
+  }
+
+  /** Adds a picked or typed tag unless the PR already carries it. */
+  protected addTag(choice: ChipSuggestion): void {
+    const name = choice.label.trim();
+    if (!name) {
+      return;
+    }
+    this.tagQuery.set("");
+    if (
+      (this.pr()?.labels ?? []).some(
+        (label) => label.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      return;
+    }
+    this.run(
+      () => this.git.addPrTag(this.prId(), name),
+      () => this.reload(),
+    );
+  }
+
+  protected removeTag(label: string): void {
+    this.run(
+      () => this.git.removePrTag(this.prId(), label),
+      () => this.reload(),
+    );
+  }
+
+  /** Opens or closes the related work item picker. */
+  protected toggleWorkItemPicker(): void {
+    const open = !this.workItemPickerOpen();
+    this.workItemPickerOpen.set(open);
+    this.workItemQuery.set("");
+    this.workItemSuggestions.set([]);
+  }
+
+  /** Links the picked work item and refreshes only the related list. */
+  protected linkWorkItem(choice: ChipSuggestion): void {
+    const workItemId = Number(choice.id);
+    if (!Number.isInteger(workItemId) || workItemId <= 0) {
+      return;
+    }
+    this.workItemQuery.set("");
+    this.workItemSuggestions.set([]);
+    this.run(
+      () => this.git.linkPrWorkItem(this.prId(), workItemId),
+      () => this.loadWorkItems(),
+    );
+  }
+
+  protected unlinkWorkItem(workItemId: number): void {
+    this.run(
+      () => this.git.unlinkPrWorkItem(this.prId(), workItemId),
+      () => this.loadWorkItems(),
+    );
+  }
+
   protected openComplete(): void {
     this.mergeStrategy.set(this.defaultMergeStrategy());
     this.deleteSourceBranch.set(false);
@@ -596,6 +745,15 @@ export class PrDialog implements OnInit {
   }
 
   // ---- Files tab ----
+
+  protected toggleFileDirectory(path: string): void {
+    this.collapsedFiles.update((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
 
   protected selectFile(file: PrFileChange): void {
     this.selectedFile.set(file);

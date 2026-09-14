@@ -555,6 +555,42 @@ export class GitService {
       .pipe(map((response) => response.workItems));
   }
 
+  /** Adds a tag (label) to the pull request. */
+  addPrTag(id: number, name: string): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/labels`, {
+        name,
+      }),
+    );
+  }
+
+  /** Removes a tag (label) from the pull request. */
+  removePrTag(id: number, name: string): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.delete(
+        `${this.base}/azure-devops/pullrequests/${id}/labels/${encodeURIComponent(name)}`,
+      ),
+    );
+  }
+
+  /** Links a work item to the pull request. */
+  linkPrWorkItem(id: number, workItemId: number): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/workitems`, {
+        id: workItemId,
+      }),
+    );
+  }
+
+  /** Unlinks a work item from the pull request. */
+  unlinkPrWorkItem(id: number, workItemId: number): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.delete(
+        `${this.base}/azure-devops/pullrequests/${id}/workitems/${workItemId}`,
+      ),
+    );
+  }
+
   /** Merge checks: Azure policy evaluations plus native PR statuses. */
   getPrChecks(id: number): Observable<PrCheckReport> {
     return this.http.get<PrCheckReport>(

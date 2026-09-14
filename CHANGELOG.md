@@ -4,6 +4,14 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Fixed
+
+- Load Azure DevOps pull request policy evaluations again in the merge checks card. The checks request used the undocumented `CodeReviewIdentity` artifact id, which Azure rejects with "Artifact id ... does not exist" and degraded the card to pull request statuses only; it now builds the documented `vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}` id and parses the live response shape (generic `count`/`value` list, plain string evaluation statuses, `isBlocking` for required gates, and build links/expiry from the evaluation context).
+
+### Added
+
+- Manage pull request tags and related work items directly from the review dialog's sidebar. A "+" button beside each heading opens an inline picker — tags search the project's existing PR labels and also accept a new name, while related work items search Azure Boards by title or ID — and every tag chip and work item row gets an "×" button that removes it again. Adding and removing tags goes through the PR labels resource; linking and unlinking work items patches the work item's artifact-link relation pointing at the pull request, mirroring Azure DevOps' own behavior.
+
 ### Changed
 
 - Hide stash rows in the commit table by default. Repositories that never saved a stash choice now show them only after enabling "Show stashes" in the repository settings (or `guito.showStashes` in VS Code); repositories with a saved choice keep it.

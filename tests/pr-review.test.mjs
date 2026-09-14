@@ -41,11 +41,17 @@ async function startAzureReviewServer(context, respond) {
     host: "127.0.0.1",
     port: 0,
     azureDevOpsUrl: "https://azure.example/DefaultCollection",
-    azureRequestImpl: async (method, url, body = "") => {
+    azureRequestImpl: async (method, url, body = "", contentType = "") => {
       const payload = body ? JSON.parse(body) : null;
-      calls.push({ method, url, payload });
+      calls.push({ method, url, payload, contentType });
       const result = respond(method, url, payload) ?? { status: 404, body: {} };
-      return { status: result.status, body: JSON.stringify(result.body ?? {}) };
+      return {
+        status: result.status,
+        body:
+          result.rawBody !== undefined
+            ? result.rawBody
+            : JSON.stringify(result.body ?? {}),
+      };
     },
   });
   context.after(() => server.close());
@@ -415,6 +421,7 @@ test("serves comment threads and posts replies, inline comments, and statuses", 
       content: "Line note",
       filePath: "src/app.ts",
       line: 12,
+      endLine: 14,
     }),
   });
   assert.equal(inline.status, 200);
@@ -425,7 +432,7 @@ test("serves comment threads and posts replies, inline comments, and statuses", 
     threadContext: {
       filePath: "/src/app.ts",
       rightFileStart: { line: 12, offset: 1 },
-      rightFileEnd: { line: 12, offset: 2147483647 },
+      rightFileEnd: { line: 14, offset: 2147483647 },
     },
   });
 
@@ -458,7 +465,7 @@ test("serves PR iteration changes and per-file diffs", async (context) => {
   });
   const items = new Map([
     ["src/a.ts|tgt-sha", { content: "one\ntwo\nthree\n" }],
-    ["src/a.ts|src-sha", { content: "one\nTWO\nthree\n" }],
+    ["src/a.ts|src-sha", { rawBody: "one\nTWO\nthree\n" }],
     ["new.txt|src-sha", { content: "brand new\n" }],
     ["logo.png|tgt-sha", { isBinary: true }],
     ["logo.png|src-sha", { isBinary: true }],
@@ -500,7 +507,9 @@ test("serves PR iteration changes and per-file diffs", async (context) => {
       const version = parsed.searchParams.get("versionDescriptor.version");
       const item = items.get(`${path.slice(1)}|${version}`);
       if (!item) return { status: 404, body: {} };
-      return { status: 200, body: item };
+      return item.rawBody !== undefined
+        ? { status: 200, rawBody: item.rawBody }
+        : { status: 200, body: item };
     }
     return { status: 404, body: { message: `unexpected ${method} ${url}` } };
   });
@@ -520,6 +529,8 @@ test("serves PR iteration changes and per-file diffs", async (context) => {
   assert.equal(diff.status, "modified");
   assert.equal(diff.additions, 1);
   assert.equal(diff.deletions, 1);
+  assert.equal(diff.originalContent, "one\ntwo\nthree\n");
+  assert.equal(diff.modifiedContent, "one\nTWO\nthree\n");
   const changed = diff.lines.filter(
     (line) => line.type !== "context" && line.type !== "hunk",
   );
@@ -705,14 +716,288 @@ test("serves related work items resolved through the batch API", async (context)
   );
 });
 
+test("adds and removes pull request tags through the labels resource", async (context) => {
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url, payload) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\/labels\?/.test(url) && method === "POST") {
+        return { status: 200, body: { id: 7, name: payload.name } };
+      }
+      if (/\/pullrequests\/\d+\/labels\/bug\?/.test(url)) {
+        return { status: 200, body: {} };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+
+  const added = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/labels`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "  bug  " }),
+    },
+  );
+  assert.equal(added.status, 200);
+  const addCall = calls.find(
+    (call) => call.method === "POST" && call.url.includes("/labels?"),
+  );
+  assert.equal(addCall.payload.name, "bug");
+
+  const removed = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/labels/${encodeURIComponent("bug")}`,
+    { method: "DELETE" },
+  );
+  assert.equal(removed.status, 200);
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.method === "DELETE" &&
+        call.url.includes("/pullrequests/101/labels/bug?"),
+    ),
+  );
+
+  // A blank tag name is refused before anything is sent to Azure.
+  const blank = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/labels`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "   " }),
+    },
+  );
+  assert.equal(blank.status, 400);
+
+  // Azure failures surface as a 400 with the Azure message.
+  const failing = await startAzureReviewServer(context, (method, url) => {
+    if (url.includes("/_apis/connectionData")) return connectionDataResponse();
+    if (/\/pullrequests\/\d+\/labels\?/.test(url)) {
+      return { status: 400, body: { message: "labels not allowed" } };
+    }
+    return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+  });
+  const failed = await fetch(
+    `${failing.server.address}/api/azure-devops/pullrequests/101/labels`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "bug" }),
+    },
+  );
+  assert.equal(failed.status, 400);
+  const { error } = await failed.json();
+  assert.match(error, /labels not allowed/);
+});
+
+test("links a work item through an artifact relation on the work item", async (context) => {
+  const detail = prRecord(101, {
+    repository: { id: "repo-guid", project: { id: "proj-guid" } },
+  });
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\?/.test(url)) {
+        return { status: 200, body: detail };
+      }
+      if (/wit\/workitems\/42\?/.test(url) && method === "GET") {
+        return {
+          status: 200,
+          body: {
+            id: 42,
+            relations: [{ rel: "Hyperlink", url: "https://example.test" }],
+          },
+        };
+      }
+      if (/wit\/workitems\/42\?/.test(url) && method === "PATCH") {
+        return { status: 200, body: { id: 42 } };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/workitems`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: 42 }),
+    },
+  );
+  assert.equal(response.status, 200);
+  const patch = calls.find(
+    (call) => call.method === "PATCH" && call.url.includes("wit/workitems"),
+  );
+  assert.equal(patch.contentType, "application/json-patch+json");
+  assert.deepEqual(patch.payload, [
+    {
+      op: "add",
+      path: "/relations/-",
+      value: {
+        rel: "ArtifactLink",
+        url: "vstfs:///Git/PullRequestId/proj-guid%2Frepo-guid%2F101",
+        attributes: { name: "Pull Request" },
+      },
+    },
+  ]);
+
+  // Invalid work item ids are refused without touching Azure.
+  const invalid = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/workitems`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: 0 }),
+    },
+  );
+  assert.equal(invalid.status, 400);
+});
+
+test("linking an already-linked work item writes nothing", async (context) => {
+  const detail = prRecord(101, {
+    repository: { id: "repo-guid", project: { id: "proj-guid" } },
+  });
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\?/.test(url)) {
+        return { status: 200, body: detail };
+      }
+      if (/wit\/workitems\/42\?/.test(url) && method === "GET") {
+        return {
+          status: 200,
+          body: {
+            id: 42,
+            relations: [
+              {
+                rel: "ArtifactLink",
+                url: "vstfs:///Git/PullRequestId/proj-guid%2Frepo-guid%2F101",
+              },
+            ],
+          },
+        };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/workitems`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: 42 }),
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(
+    calls.some(
+      (call) => call.method === "PATCH" && call.url.includes("wit/workitems"),
+    ),
+    false,
+  );
+});
+
+test("unlinks a work item by asserting the relation at its index", async (context) => {
+  const detail = prRecord(101, {
+    repository: { id: "repo-guid", project: { id: "proj-guid" } },
+  });
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\?/.test(url)) {
+        return { status: 200, body: detail };
+      }
+      if (/wit\/workitems\/42\?/.test(url) && method === "GET") {
+        return {
+          status: 200,
+          body: {
+            id: 42,
+            relations: [
+              { rel: "Related", url: "https://example.test/other" },
+              {
+                rel: "ArtifactLink",
+                url: "vstfs:///Git/PullRequestId/proj-guid%2Frepo-guid%2F101",
+              },
+            ],
+          },
+        };
+      }
+      if (/wit\/workitems\/42\?/.test(url) && method === "PATCH") {
+        return { status: 200, body: { id: 42 } };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/workitems/42`,
+    { method: "DELETE" },
+  );
+  assert.equal(response.status, 200);
+  const patch = calls.find(
+    (call) => call.method === "PATCH" && call.url.includes("wit/workitems"),
+  );
+  assert.equal(patch.contentType, "application/json-patch+json");
+  assert.deepEqual(patch.payload, [
+    {
+      op: "test",
+      path: "/relations/1/url",
+      value: "vstfs:///Git/PullRequestId/proj-guid%2Frepo-guid%2F101",
+    },
+    { op: "remove", path: "/relations/1" },
+  ]);
+});
+
+test("unlinking a work item that is not linked writes nothing", async (context) => {
+  const detail = prRecord(101, {
+    repository: { id: "repo-guid", project: { id: "proj-guid" } },
+  });
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\?/.test(url)) {
+        return { status: 200, body: detail };
+      }
+      if (/wit\/workitems\/42\?/.test(url) && method === "GET") {
+        return { status: 200, body: { id: 42, relations: [] } };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/workitems/42`,
+    { method: "DELETE" },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(
+    calls.some(
+      (call) => call.method === "PATCH" && call.url.includes("wit/workitems"),
+    ),
+    false,
+  );
+});
+
 test("serves policy evaluations and statuses as merge checks", async (context) => {
   const detail = prRecord(101, {
     repository: { project: { id: "proj-guid" } },
   });
+  const evaluationUrls = [];
   const { server } = await startAzureReviewServer(context, (method, url) => {
     if (url.includes("/_apis/connectionData")) return connectionDataResponse();
     if (/\/pullrequests\/\d+\?/.test(url)) return { status: 200, body: detail };
     if (/policy\/evaluations/.test(url)) {
+      evaluationUrls.push(url);
       return {
         status: 200,
         body: {
@@ -772,6 +1057,14 @@ test("serves policy evaluations and statuses as merge checks", async (context) =
     `${server.address}/api/azure-devops/pullrequests/101/checks`,
   );
   assert.equal(response.status, 200);
+  // The artifact id must follow the documented CodeReviewId template; the
+  // CodeReviewIdentity spelling is rejected by Azure with a 404.
+  const evaluationQuery = evaluationUrls.join("\n");
+  assert.match(
+    evaluationQuery,
+    /artifactId=vstfs%3A%2F%2F%2FCodeReview%2FCodeReviewId%2Fproj-guid%2F101/,
+  );
+  assert.match(evaluationQuery, /api-version=5\.0-preview\.1/);
   const { checks, warnings } = await response.json();
   assert.deepEqual(warnings, []);
   assert.deepEqual(checks, [
@@ -798,6 +1091,80 @@ test("serves policy evaluations and statuses as merge checks", async (context) =
       state: "succeeded",
       required: false,
       detail: "Lint fixed",
+    },
+  ]);
+});
+
+test("parses the live count/value policy envelope with string statuses", async (context) => {
+  // TFS 5.0-preview.1 answers { count, value }, status as a plain string,
+  // "isBlocking" instead of "isRequired" and the build id in context.
+  const detail = prRecord(101, {
+    repository: { project: { id: "proj-guid" } },
+  });
+  const { server } = await startAzureReviewServer(context, (method, url) => {
+    if (url.includes("/_apis/connectionData")) return connectionDataResponse();
+    if (/\/pullrequests\/\d+\?/.test(url)) return { status: 200, body: detail };
+    if (/policy\/evaluations/.test(url)) {
+      return {
+        status: 200,
+        body: {
+          count: 2,
+          value: [
+            {
+              evaluationId: "b1",
+              status: "approved",
+              context: {
+                buildId: 198146,
+                buildDefinitionName: "digital-ci",
+                isExpired: true,
+              },
+              configuration: {
+                isBlocking: true,
+                type: { displayName: "Build" },
+                settings: { displayName: null, buildDefinitionId: 518 },
+              },
+            },
+            {
+              evaluationId: "b2",
+              status: "queued",
+              configuration: {
+                isBlocking: false,
+                type: { displayName: "Comment requirements" },
+                settings: {},
+              },
+            },
+          ],
+        },
+      };
+    }
+    if (/\/pullrequests\/\d+\/statuses\?/.test(url)) {
+      return { status: 200, body: { value: [] } };
+    }
+    return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+  });
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101/checks`,
+  );
+  assert.equal(response.status, 200);
+  const { checks, warnings } = await response.json();
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(checks, [
+    {
+      id: "policy:b1",
+      name: "digital-ci",
+      kind: "build",
+      state: "succeeded",
+      required: true,
+      detail: "Build expired",
+      url: "https://azure.example/DefaultCollection/Project/_build/results?buildId=198146",
+    },
+    {
+      id: "policy:b2",
+      name: "Comment requirements",
+      kind: "policy",
+      state: "pending",
+      required: false,
     },
   ]);
 });

@@ -321,7 +321,7 @@
           [ngTemplateOutletContext]="{ $implicit: reviewer }"
         />
         } } @if (otherReviewers().length) {
-        <h3>Other</h3>
+        <h3>Optional</h3>
         @for (reviewer of otherReviewers(); track reviewer.id) {
         <ng-container
           [ngTemplateOutlet]="reviewerRow"
@@ -339,16 +339,65 @@
           Convert to draft
         </button>
         }
-        <h3>Tags</h3>
+        <div class="side-head">
+          <h3>Tags</h3>
+          <button
+            type="button"
+            class="icon-btn add"
+            aria-label="Add tag"
+            title="Add tag"
+            (click)="toggleTagsPicker()"
+            [disabled]="busy()"
+          >
+            +
+          </button>
+        </div>
         @if (detail.labels.length) {
         <div class="labels">
           @for (label of detail.labels; track label) {
-          <span class="label-chip">{{ label }}</span> }
+          <span class="label-chip">
+            <span>{{ label }}</span>
+            <button
+              type="button"
+              class="chip-x"
+              [attr.aria-label]="'Remove tag ' + label"
+              title="Remove tag"
+              [disabled]="busy()"
+              (click)="removeTag(label)"
+            >
+              ×
+            </button>
+          </span>
+          }
         </div>
         } @else {
         <p class="empty">No tags.</p>
+        } @if (tagsPickerOpen()) {
+        <app-chip-input
+          placeholder="Add tag"
+          [chips]="[]"
+          [suggestions]="tagSuggestions()"
+          [loading]="tagsLoading()"
+          [query]="tagQuery()"
+          [disabled]="busy()"
+          [allowFreeText]="true"
+          (queryChange)="tagQuery.set($event)"
+          (select)="addTag($event)"
+        />
         }
-        <h3>Related work items</h3>
+        <div class="side-head">
+          <h3>Related work items</h3>
+          <button
+            type="button"
+            class="icon-btn add"
+            aria-label="Relate work item"
+            title="Relate work item"
+            (click)="toggleWorkItemPicker()"
+            [disabled]="busy()"
+          >
+            +
+          </button>
+        </div>
         @if (workItemsLoading()) {
         <div class="state inline" role="status">Loading work items...</div>
         } @else if (workItemsError()) {
@@ -378,11 +427,33 @@
             @if (item.state) {
             <small>{{ item.state }}</small>
             }
+            <button
+              type="button"
+              class="icon-btn"
+              [attr.aria-label]="'Unlink work item #' + item.id"
+              title="Unlink work item"
+              [disabled]="busy()"
+              (click)="unlinkWorkItem(item.id)"
+            >
+              ×
+            </button>
           </li>
           }
         </ul>
         } @else {
         <p class="empty">No related work items.</p>
+        } @if (workItemPickerOpen()) {
+        <app-chip-input
+          placeholder="Search work item by title or ID"
+          [chips]="[]"
+          [suggestions]="workItemSuggestions()"
+          [loading]="workItemsSearchLoading()"
+          [query]="workItemQuery()"
+          [error]="workItemsSearchError()"
+          [disabled]="busy()"
+          (queryChange)="workItemQuery.set($event)"
+          (select)="linkWorkItem($event)"
+        />
         }
       </aside>
     </div>
@@ -485,19 +556,39 @@
         </div>
         } @else if (filesLoading()) {
         <div class="state inline" role="status">Loading changed files...</div>
-        } @else { @for (file of files(); track file.path) {
+        } @else { @for (row of fileRows(); track row.path) { @if (row.kind ===
+        "dir") {
         <button
           type="button"
-          [class.active]="selectedFile()?.path === file.path"
-          (click)="selectFile(file)"
-          [title]="file.path"
+          class="dir-row"
+          [attr.aria-expanded]="!row.collapsed"
+          [style.paddingLeft.px]="row.depth * 14 + 9"
+          (click)="toggleFileDirectory(row.path)"
+          [title]="row.path"
         >
-          <span [class]="'file-status status-' + file.changeType"
-            >{{ file.changeType[0].toUpperCase() }}</span
-          >
-          <span>{{ file.path }}</span>
+          <svg class="file-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            @if (row.collapsed) {
+            <polyline points="9 6 15 12 9 18" />
+            } @else {
+            <polyline points="6 9 12 15 18 9" />
+            }
+          </svg>
+          <span>{{ row.name }}</span>
         </button>
-        } @empty {
+        } @else {
+        <button
+          type="button"
+          [class.active]="selectedFile()?.path === row.file.path"
+          [style.paddingLeft.px]="row.depth * 14 + 9"
+          (click)="selectFile(row.file)"
+          [title]="row.file.path"
+        >
+          <span [class]="'file-status status-' + row.file.changeType"
+            >{{ row.file.changeType[0].toUpperCase() }}</span
+          >
+          <span>{{ row.name }}</span>
+        </button>
+        } } @empty {
         <div class="state inline">No changed files.</div>
         } }
       </aside>
@@ -535,7 +626,7 @@
         (click)="toggleReviewerRequired(reviewer)"
         [title]="reviewer.isRequired ? 'Make optional' : 'Make required'"
       >
-        Required
+        {{ reviewer.isRequired ? "Required" : "Optional" }}
       </button>
       <button
         type="button"
