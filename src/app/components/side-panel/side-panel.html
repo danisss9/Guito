@@ -71,6 +71,9 @@
     </button>
     @if (branchesExpanded()) {
       <div class="tree-body">
+        @if (loading()) {
+          <div class="empty section-loading" role="status">Loading...</div>
+        }
         <button
           type="button"
           class="row"
@@ -183,7 +186,7 @@
             }
           }
         }
-        @if (filtering() && branchCount() === 0) {
+        @if (!loading() && filtering() && branchCount() === 0) {
           <div class="empty">No matching branches</div>
         }
       </div>
@@ -209,6 +212,9 @@
     </button>
     @if (tagsExpanded()) {
       <div class="tree-body">
+        @if (loading()) {
+          <div class="empty section-loading" role="status">Loading...</div>
+        }
         @for (row of tagRows(); track $index) {
           @if (row.kind === 'dir') {
             <button
@@ -248,7 +254,9 @@
             </button>
           }
         } @empty {
-          <div class="empty">{{ filtering() ? 'No matching tags' : 'No tags' }}</div>
+          @if (!loading()) {
+            <div class="empty">{{ filtering() ? 'No matching tags' : 'No tags' }}</div>
+          }
         }
       </div>
     }
@@ -273,6 +281,9 @@
     </button>
     @if (stashesExpanded()) {
       <div class="tree-body">
+        @if (loading()) {
+          <div class="empty section-loading" role="status">Loading...</div>
+        }
         @for (stash of filteredStashes(); track stash.index) {
           <button
             type="button"
@@ -290,7 +301,9 @@
             <span class="row-tag stash-message">{{ stash.message }}</span>
           </button>
         } @empty {
-          <div class="empty">{{ filtering() ? 'No matching stashes' : 'No stashes' }}</div>
+          @if (!loading()) {
+            <div class="empty">{{ filtering() ? 'No matching stashes' : 'No stashes' }}</div>
+          }
         }
       </div>
     }
@@ -329,6 +342,9 @@
     </div>
     @if (worktreesExpanded()) {
       <div class="tree-body">
+        @if (loading()) {
+          <div class="empty section-loading" role="status">Loading...</div>
+        }
         @for (worktree of filteredWorktrees(); track worktree.path) {
           <button
             type="button"
@@ -347,7 +363,9 @@
             }
           </button>
         } @empty {
-          <div class="empty">{{ filtering() ? 'No matching worktrees' : 'No worktrees' }}</div>
+          @if (!loading()) {
+            <div class="empty">{{ filtering() ? 'No matching worktrees' : 'No worktrees' }}</div>
+          }
         }
       </div>
     }
@@ -445,7 +463,4 @@
     </section>
   }
 
-  @if (loading()) {
-    <div class="panel-loading" role="status">Loading...</div>
-  }
 </aside>

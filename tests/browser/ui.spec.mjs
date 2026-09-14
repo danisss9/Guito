@@ -72,6 +72,7 @@ async function setup(page, count = 700, overrides = {}) {
     searchDelay: 0,
     searchRequests: [],
     refreshDelay: 0,
+    panelDelay: 0,
     historyRequests: 0,
     historyRanges: [],
     fetchRequests: [],
@@ -327,6 +328,7 @@ async function setup(page, count = 700, overrides = {}) {
           },
         ]);
       case '/api/stash/list':
+        await delay(state.panelDelay);
         return send({
           total: 1,
           all: [
@@ -346,6 +348,7 @@ async function setup(page, count = 700, overrides = {}) {
         return send({ success: true });
       case '/api/worktrees':
         state.worktreeRequests++;
+        await delay(state.panelDelay);
         if (request.method() === 'POST') {
           state.worktreeMutations.push({ endpoint: parsed.pathname, ...body });
           state.worktrees.push({
@@ -367,6 +370,7 @@ async function setup(page, count = 700, overrides = {}) {
         state.fetchRequests.push({ prune: parsed.searchParams.get('prune') });
         return send({ success: true });
       case '/api/tags':
+        await delay(state.panelDelay);
         return send([
           { name: 'v0.5.0', hash: commits[10].hash },
           { name: 'v1.0.0', hash: commits[2].hash },
@@ -1397,6 +1401,21 @@ test('repository panel animation follows live reduced-motion changes', async ({ 
   const reopeningWidth = await host.evaluate((element) => element.getBoundingClientRect().width);
   expect(reopeningWidth).toBeGreaterThan(closingWidth);
   await expect(host).toHaveCSS('width', '260px');
+  expect(errors).toEqual([]);
+});
+
+test('repository panel shows loading feedback inside each expanded section', async ({ page }) => {
+  const { errors } = await setup(page, 700, { panelDelay: 500 });
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+
+  await expect(panel.locator('.panel-loading')).toHaveCount(0);
+  for (const title of ['Branches', 'Tags', 'Stashes', 'Worktrees']) {
+    const section = panel.locator('.tree').filter({ hasText: title });
+    await expect(section.getByRole('status').filter({ hasText: 'Loading...' })).toBeVisible();
+  }
+
+  await expect(panel.locator('.section-loading')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
