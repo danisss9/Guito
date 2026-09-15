@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.2
+
+- Add a keyboard shortcut to open Guito: Ctrl+Alt+G on Windows and Linux, Cmd+Alt+G on macOS. The shortcut is available whenever a workspace folder is open and can be rebound in VS Code's Keyboard Shortcuts editor.
+
 ## 1.0.1
 
 - Fix pull request policy evaluations in the merge checks card: build the documented `vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}` artifact id instead of the rejected `CodeReviewIdentity` form, so the card shows branch policies again instead of degrading to pull request statuses only.
