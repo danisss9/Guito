@@ -37,11 +37,10 @@ export class VscodeService {
         requestId?: number;
         path?: string;
       } | null;
-      if (
-        data?.type === "guito/config" &&
-        (data.diffViewer === "guito" || data.diffViewer === "vscode")
-      ) {
-        this.diffViewer.set(data.diffViewer);
+      if (data?.type === "guito/config") {
+        if (data.diffViewer === "guito" || data.diffViewer === "vscode") {
+          this.diffViewer.set(data.diffViewer);
+        }
         this.settingsVersion.update((version) => version + 1);
       }
       if (
@@ -100,12 +99,55 @@ export class VscodeService {
     return this.inVsCode;
   }
 
+  /** Whether repository contexts can be opened as dedicated VS Code tabs. */
+  canOpenRepository(): boolean {
+    return this.inVsCode;
+  }
+
+  /** Changes the repository served by the current Guito tab. */
+  switchRepository(path: string): boolean {
+    return this.requestRepository(path, "switch");
+  }
+
+  /** Opens or reveals a separate Guito tab for the repository. */
+  openRepository(path: string): boolean {
+    return this.requestRepository(path, "tab");
+  }
+
+  /** Opens the repository folder in a new VS Code window. */
+  openRepositoryWindow(path: string): boolean {
+    return this.requestRepository(path, "window");
+  }
+
+  private requestRepository(
+    path: string,
+    disposition: "switch" | "tab" | "window",
+  ): boolean {
+    if (!this.inVsCode) {
+      return false;
+    }
+    window.parent.postMessage(
+      { type: "guito/openRepository", path, disposition },
+      "*",
+    );
+    return true;
+  }
+
   /** Opens a repository-relative working-tree file in VS Code. */
   openFile(path: string): boolean {
     if (!this.inVsCode) {
       return false;
     }
     window.parent.postMessage({ type: "guito/openFile", path }, "*");
+    return true;
+  }
+
+  /** Opens VS Code's native Merge Editor for a conflicted working-tree file. */
+  openMergeConflict(path: string): boolean {
+    if (!this.inVsCode) {
+      return false;
+    }
+    window.parent.postMessage({ type: "guito/openMergeConflict", path }, "*");
     return true;
   }
 

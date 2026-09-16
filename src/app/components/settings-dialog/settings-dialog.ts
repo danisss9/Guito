@@ -1,6 +1,20 @@
-import { ChangeDetectionStrategy, Component, HostListener, effect, inject, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostListener,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { Observable } from 'rxjs';
-import { AzureSettings, GitIdentity, GitRemote, IssueLinkingSettings } from '../../models/git.models';
+import {
+  AzureSettings,
+  GitIdentity,
+  GitRemote,
+  IssueLinkingSettings,
+} from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 
 export interface GuitoSettingsUpdate {
@@ -12,6 +26,7 @@ export interface GuitoSettingsUpdate {
   showTags: boolean;
   showRemoteBranches: boolean;
   fileListView: 'flat' | 'tree';
+  refListView: 'flat' | 'tree';
   searchMode: 'navigate' | 'filter';
   searchCaseSensitive: boolean;
   allowMerge: boolean;
@@ -44,6 +59,7 @@ export class SettingsDialog {
   protected readonly showTags = signal(true);
   protected readonly showRemoteBranches = signal(true);
   protected readonly fileListView = signal<'flat' | 'tree'>('flat');
+  protected readonly refListView = signal<'flat' | 'tree'>('flat');
   protected readonly searchMode = signal<'navigate' | 'filter'>('navigate');
   protected readonly searchCaseSensitive = signal(false);
   protected readonly allowMerge = signal(true);
@@ -73,6 +89,7 @@ export class SettingsDialog {
       this.showTags.set(settings.showTags !== false);
       this.showRemoteBranches.set(settings.showRemoteBranches !== false);
       this.fileListView.set(settings.fileListView === 'tree' ? 'tree' : 'flat');
+      this.refListView.set(settings.refListView === 'tree' ? 'tree' : 'flat');
       this.searchMode.set(settings.searchMode === 'filter' ? 'filter' : 'navigate');
       this.searchCaseSensitive.set(settings.searchCaseSensitive === true);
       this.allowMerge.set(settings.allowMerge !== false);
@@ -90,12 +107,35 @@ export class SettingsDialog {
     else this.mode.set('main');
   }
 
-  protected setChecked(target: EventTarget | null, setting: 'autoReload' | 'showGraph' | 'showStashes' | 'showTags' | 'showRemoteBranches' | 'searchCaseSensitive' | 'allowMerge'): void {
+  protected setChecked(
+    target: EventTarget | null,
+    setting:
+      | 'autoReload'
+      | 'showGraph'
+      | 'showStashes'
+      | 'showTags'
+      | 'showRemoteBranches'
+      | 'searchCaseSensitive'
+      | 'allowMerge',
+  ): void {
     this[setting].set((target as HTMLInputElement).checked);
   }
 
   protected save(): void {
-    this.saved.emit({ azureDevOpsUrl: this.azureDevOpsUrl().trim(), prBranchNameTemplate: this.prBranchNameTemplate().trim(), autoReload: this.autoReload(), showGraph: this.showGraph(), showStashes: this.showStashes(), showTags: this.showTags(), showRemoteBranches: this.showRemoteBranches(), fileListView: this.fileListView(), searchMode: this.searchMode(), searchCaseSensitive: this.searchCaseSensitive(), allowMerge: this.allowMerge() });
+    this.saved.emit({
+      azureDevOpsUrl: this.azureDevOpsUrl().trim(),
+      prBranchNameTemplate: this.prBranchNameTemplate().trim(),
+      autoReload: this.autoReload(),
+      showGraph: this.showGraph(),
+      showStashes: this.showStashes(),
+      showTags: this.showTags(),
+      showRemoteBranches: this.showRemoteBranches(),
+      fileListView: this.fileListView(),
+      refListView: this.refListView(),
+      searchMode: this.searchMode(),
+      searchCaseSensitive: this.searchCaseSensitive(),
+      allowMerge: this.allowMerge(),
+    });
   }
 
   protected changeSearchMode(target: EventTarget | null): void {
@@ -111,11 +151,14 @@ export class SettingsDialog {
   }
 
   protected saveIdentity(): void {
-    this.run(this.git.saveIdentity({ name: this.userName().trim(), email: this.userEmail().trim() }), (identity) => {
-      this.identityChanged.emit(identity);
-      this.repositoryChanged.emit();
-      this.mode.set('main');
-    });
+    this.run(
+      this.git.saveIdentity({ name: this.userName().trim(), email: this.userEmail().trim() }),
+      (identity) => {
+        this.identityChanged.emit(identity);
+        this.repositoryChanged.emit();
+        this.mode.set('main');
+      },
+    );
   }
 
   protected removeIdentity(): void {
@@ -136,11 +179,19 @@ export class SettingsDialog {
   }
 
   protected saveRemote(): void {
-    this.run(this.git.saveRemote({ originalName: this.originalRemoteName() || undefined, name: this.remoteName().trim(), fetchUrl: this.fetchUrl().trim(), pushUrl: this.pushUrl().trim() }), (remotes) => {
-      this.remotes.set(remotes);
-      this.repositoryChanged.emit();
-      this.mode.set('main');
-    });
+    this.run(
+      this.git.saveRemote({
+        originalName: this.originalRemoteName() || undefined,
+        name: this.remoteName().trim(),
+        fetchUrl: this.fetchUrl().trim(),
+        pushUrl: this.pushUrl().trim(),
+      }),
+      (remotes) => {
+        this.remotes.set(remotes);
+        this.repositoryChanged.emit();
+        this.mode.set('main');
+      },
+    );
   }
 
   protected removeRemote(name: string): void {
@@ -161,7 +212,11 @@ export class SettingsDialog {
   }
 
   protected saveIssueLinking(): void {
-    const issueLinking: IssueLinkingSettings = { regex: this.issueRegex().trim(), url: this.issueUrl().trim(), useGlobally: this.issueGlobal() };
+    const issueLinking: IssueLinkingSettings = {
+      regex: this.issueRegex().trim(),
+      url: this.issueUrl().trim(),
+      useGlobally: this.issueGlobal(),
+    };
     this.run(this.git.saveSettings({ issueLinking }), (settings) => {
       this.settingsUpdated.emit(settings);
       this.mode.set('main');
@@ -170,18 +225,38 @@ export class SettingsDialog {
 
   protected removeIssueLinking(): void {
     if (!window.confirm('Remove this issue-linking rule?')) return;
-    this.run(this.git.saveSettings({ issueLinking: null, issueLinkingGlobal: this.settings().issueLinking?.useGlobally ?? false }), (settings) => this.settingsUpdated.emit(settings));
+    this.run(
+      this.git.saveSettings({
+        issueLinking: null,
+        issueLinkingGlobal: this.settings().issueLinking?.useGlobally ?? false,
+      }),
+      (settings) => this.settingsUpdated.emit(settings),
+    );
   }
 
   private loadRemotes(): void {
-    this.git.getRemotes().subscribe({ next: (remotes) => this.remotes.set(remotes), error: (error) => this.error.set(this.errorMessage(error)) });
+    this.git
+      .getRemotes()
+      .subscribe({
+        next: (remotes) => this.remotes.set(remotes),
+        error: (error) => this.error.set(this.errorMessage(error)),
+      });
   }
 
   private run<T>(request: Observable<T>, next: (value: T) => void): void {
     if (this.busy()) return;
     this.busy.set(true);
     this.error.set('');
-    request.subscribe({ next: (value) => { this.busy.set(false); next(value); }, error: (error) => { this.busy.set(false); this.error.set(this.errorMessage(error)); } });
+    request.subscribe({
+      next: (value) => {
+        this.busy.set(false);
+        next(value);
+      },
+      error: (error) => {
+        this.busy.set(false);
+        this.error.set(this.errorMessage(error));
+      },
+    });
   }
 
   private errorMessage(error: any): string {

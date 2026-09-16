@@ -1,80 +1,79 @@
-import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import test from 'node:test';
 import {
   buildAzurePullRequestUrl,
   formatPrBranchName,
   parseAzureRemoteUrl,
   startGuitoServer,
-} from "../bin/guito-server.js";
+} from '../bin/guito-server.js';
 
-test("formats automatic pull request branch names with safe template variables", () => {
+test('formats automatic pull request branch names with safe template variables', () => {
   assert.equal(
     formatPrBranchName(
-      "users/${username}/${repository}/${branch}/${targetbranch}/${title}/${date}/${time}/${timestamp}/${randomstring}",
+      'users/${username}/${repository}/${branch}/${targetbranch}/${title}/${date}/${time}/${timestamp}/${randomstring}',
       {
-        username: "Dani Smith",
-        repository: "Guito App",
-        branch: "feature/new UI",
-        targetbranch: "release/next",
-        title: "Add settings UI",
-        date: "2026-09-12",
-        time: "214530",
-        timestamp: "1789250000000",
-        randomstring: "a1b2c3",
+        username: 'Dani Smith',
+        repository: 'Guito App',
+        branch: 'feature/new UI',
+        targetbranch: 'release/next',
+        title: 'Add settings UI',
+        date: '2026-09-12',
+        time: '214530',
+        timestamp: '1789250000000',
+        randomstring: 'a1b2c3',
       },
     ),
-    "users/Dani-Smith/Guito-App/feature/new-UI/release/next/Add-settings-UI/2026-09-12/214530/1789250000000/a1b2c3",
+    'users/Dani-Smith/Guito-App/feature/new-UI/release/next/Add-settings-UI/2026-09-12/214530/1789250000000/a1b2c3',
   );
   assert.throws(
     () =>
-      formatPrBranchName("${unknown}", {
-        username: "dani",
-        repository: "Guito",
-        branch: "main",
-        targetbranch: "main",
-        title: "PR",
-        date: "2026-09-12",
-        time: "214530",
-        timestamp: "1789250000000",
-        randomstring: "a1b2c3",
+      formatPrBranchName('${unknown}', {
+        username: 'dani',
+        repository: 'Guito',
+        branch: 'main',
+        targetbranch: 'main',
+        title: 'PR',
+        date: '2026-09-12',
+        time: '214530',
+        timestamp: '1789250000000',
+        randomstring: 'a1b2c3',
       }),
     /Unknown pull request branch variable \$\{unknown\}/,
   );
 });
 
 function assertSettings(actual, expected) {
-  for (const [key, value] of Object.entries(expected))
-    assert.deepEqual(actual[key], value, key);
+  for (const [key, value] of Object.entries(expected)) assert.deepEqual(actual[key], value, key);
 }
 
 async function createRepository() {
-  const directory = await mkdtemp(join(tmpdir(), "guito-test-"));
-  execFileSync("git", ["init"], { cwd: directory, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "Guito Test"], {
+  const directory = await mkdtemp(join(tmpdir(), 'guito-test-'));
+  execFileSync('git', ['init'], { cwd: directory, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Guito Test'], {
     cwd: directory,
   });
-  execFileSync("git", ["config", "user.email", "guito@example.test"], {
+  execFileSync('git', ['config', 'user.email', 'guito@example.test'], {
     cwd: directory,
   });
-  execFileSync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], {
     cwd: directory,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
   return directory;
 }
 
-test("starts on a random port and targets the configured repository", async (context) => {
+test('starts on a random port and targets the configured repository', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
@@ -88,15 +87,15 @@ test("starts on a random port and targets the configured repository", async (con
   await assert.rejects(fetch(`${server.address}/api/repo`));
 });
 
-test("protects extension API requests and archive downloads with a token", async (context) => {
+test('protects extension API requests and archive downloads with a token', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
-  const apiToken = "test-session-token";
+  const apiToken = 'test-session-token';
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
     apiToken,
   });
@@ -106,34 +105,31 @@ test("protects extension API requests and archive downloads with a token", async
   assert.equal(
     (
       await fetch(`${server.address}/api/repo`, {
-        headers: { "X-Guito-Token": apiToken },
+        headers: { 'X-Guito-Token': apiToken },
       })
     ).status,
     200,
   );
-  assert.equal(
-    (await fetch(`${server.address}/api/archive?ref=HEAD`)).status,
-    401,
-  );
+  assert.equal((await fetch(`${server.address}/api/archive?ref=HEAD`)).status, 401);
 
   const archive = await fetch(
     `${server.address}/api/archive?ref=HEAD&guitoToken=${encodeURIComponent(apiToken)}`,
   );
   assert.equal(archive.status, 200);
-  assert.equal(archive.headers.get("content-type"), "application/zip");
+  assert.equal(archive.headers.get('content-type'), 'application/zip');
 });
 
-test("settles extension responses when error logging is enabled", async (context) => {
+test('settles extension responses when error logging is enabled', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
   const logs = [];
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    apiToken: "test-session-token",
+    apiToken: 'test-session-token',
     onLog: (line) => logs.push(line),
   });
   context.after(() => server.close());
@@ -150,21 +146,21 @@ test("settles extension responses when error logging is enabled", async (context
   assert.deepEqual(logs, ['GET /api/repo -> 401 {"error":"unauthorized"}']);
 });
 
-test("returns commits in pages with a total count", async (context) => {
+test('returns commits in pages with a total count', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
-  for (const message of ["Second commit", "Third commit"]) {
-    execFileSync("git", ["commit", "--allow-empty", "-m", message], {
+  for (const message of ['Second commit', 'Third commit']) {
+    execFileSync('git', ['commit', '--allow-empty', '-m', message], {
       cwd: repositoryPath,
-      stdio: "ignore",
+      stdio: 'ignore',
     });
   }
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
@@ -172,74 +168,62 @@ test("returns commits in pages with a total count", async (context) => {
   const all = await (await fetch(`${server.address}/api/commits`)).json();
   assert.equal(all.total, 3);
   assert.equal(all.commits.length, 3);
-  assert.equal(all.commits[0].message, "Third commit");
+  assert.equal(all.commits[0].message, 'Third commit');
 
-  const firstPage = await (
-    await fetch(`${server.address}/api/commits?limit=2`)
-  ).json();
+  const firstPage = await (await fetch(`${server.address}/api/commits?limit=2`)).json();
   assert.equal(firstPage.total, 3);
   assert.equal(firstPage.commits.length, 2);
-  assert.equal(firstPage.commits[0].message, "Third commit");
+  assert.equal(firstPage.commits[0].message, 'Third commit');
 
-  const lastPage = await (
-    await fetch(`${server.address}/api/commits?limit=2&skip=2`)
-  ).json();
+  const lastPage = await (await fetch(`${server.address}/api/commits?limit=2&skip=2`)).json();
   assert.equal(lastPage.total, 3);
   assert.equal(lastPage.commits.length, 1);
-  assert.equal(lastPage.commits[0].message, "Initial commit");
+  assert.equal(lastPage.commits[0].message, 'Initial commit');
 
   // Commits on unmerged branches are part of the history too.
-  execFileSync("git", ["checkout", "-b", "feature"], {
+  execFileSync('git', ['checkout', '-b', 'feature'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  execFileSync("git", ["commit", "--allow-empty", "-m", "Feature commit"], {
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'Feature commit'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  execFileSync("git", ["checkout", "-"], {
+  execFileSync('git', ['checkout', '-'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
 
-  const withBranch = await (
-    await fetch(`${server.address}/api/commits`)
-  ).json();
+  const withBranch = await (await fetch(`${server.address}/api/commits`)).json();
   assert.equal(withBranch.total, 4);
-  assert.ok(
-    withBranch.commits.some((commit) => commit.message === "Feature commit"),
-  );
+  assert.ok(withBranch.commits.some((commit) => commit.message === 'Feature commit'));
 });
 
-test("serves large compressed responses without truncation", async (context) => {
+test('serves large compressed responses without truncation', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
   // Long subjects keep the response large now that the list payload omits
   // commit bodies, pushing it past the synchronous compression threshold so
   // the streaming compression path is exercised.
-  const filler = "x".repeat(4096);
+  const filler = 'x'.repeat(4096);
   for (let index = 0; index < 20; index++) {
-    execFileSync(
-      "git",
-      ["commit", "--allow-empty", "-m", `Commit ${index} ${filler}`],
-      {
-        cwd: repositoryPath,
-        stdio: "ignore",
-      },
-    );
+    execFileSync('git', ['commit', '--allow-empty', '-m', `Commit ${index} ${filler}`], {
+      cwd: repositoryPath,
+      stdio: 'ignore',
+    });
   }
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   const response = await fetch(`${server.address}/api/commits`, {
-    headers: { "accept-encoding": "gzip" },
+    headers: { 'accept-encoding': 'gzip' },
   });
   assert.equal(response.status, 200);
   const result = await response.json();
@@ -247,114 +231,120 @@ test("serves large compressed responses without truncation", async (context) => 
   assert.equal(result.commits.length, 21);
 });
 
-test("omits commit bodies from the list and serves them on demand", async (context) => {
+test('omits commit bodies from the list and serves them on demand', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
   execFileSync(
-    "git",
+    'git',
     [
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Fix session handling",
-      "-m",
-      "The session cookie expired too early for some users.",
+      'commit',
+      '--allow-empty',
+      '-m',
+      'Fix session handling',
+      '-m',
+      'The session cookie expired too early for some users. Résumé attached.',
     ],
-    { cwd: repositoryPath, stdio: "ignore" },
+    { cwd: repositoryPath, stdio: 'ignore' },
   );
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   // The list payload leaves the body out entirely.
   const list = await (await fetch(`${server.address}/api/commits`)).json();
-  const listed = list.commits.find(
-    (commit) => commit.message === "Fix session handling",
-  );
-  assert.ok(listed, "expected the commit to be listed");
-  assert.equal("body" in listed, false);
+  const listed = list.commits.find((commit) => commit.message === 'Fix session handling');
+  assert.ok(listed, 'expected the commit to be listed');
+  assert.equal('body' in listed, false);
 
   // The detail endpoint returns the full commit including the body.
   const detailResponse = await fetch(`${server.address}/api/commit/detail`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ hash: listed.hash }),
   });
   assert.equal(detailResponse.status, 200);
   const detail = await detailResponse.json();
   assert.equal(detail.hash, listed.hash);
-  assert.equal(detail.message, "Fix session handling");
-  assert.ok(detail.body.includes("session cookie expired too early"));
+  assert.equal(detail.message, 'Fix session handling');
+  assert.ok(detail.body.includes('session cookie expired too early'));
   assert.equal(detail.parents.length, 1);
 
   // Body search runs on the server since bodies are not part of the list.
   const search = await (
     await fetch(
-      `${server.address}/api/commits/search?query=${encodeURIComponent("session cookie expired")}`,
+      `${server.address}/api/commits/search?query=${encodeURIComponent('session cookie expired')}`,
     )
   ).json();
   assert.deepEqual(search.hashes, [listed.hash]);
   assert.equal(search.indices[listed.hash], list.commits.indexOf(listed));
   const insensitiveSearch = await (
     await fetch(
-      `${server.address}/api/commits/search?query=${encodeURIComponent("SESSION COOKIE EXPIRED")}`,
+      `${server.address}/api/commits/search?query=${encodeURIComponent('SESSION COOKIE EXPIRED')}`,
     )
   ).json();
   assert.deepEqual(insensitiveSearch.hashes, [listed.hash]);
+  const accentInsensitiveSearch = await (
+    await fetch(`${server.address}/api/commits/search?query=${encodeURIComponent('resume attached')}`)
+  ).json();
+  assert.deepEqual(accentInsensitiveSearch.hashes, [listed.hash]);
   const sensitiveMiss = await (
     await fetch(
-      `${server.address}/api/commits/search?query=${encodeURIComponent("SESSION COOKIE EXPIRED")}&caseSensitive=1`,
+      `${server.address}/api/commits/search?query=${encodeURIComponent('SESSION COOKIE EXPIRED')}&caseSensitive=1`,
     )
   ).json();
   assert.deepEqual(sensitiveMiss.hashes, []);
   const sensitiveMatch = await (
     await fetch(
-      `${server.address}/api/commits/search?query=${encodeURIComponent("session cookie expired")}&caseSensitive=1`,
+      `${server.address}/api/commits/search?query=${encodeURIComponent('session cookie expired')}&caseSensitive=1`,
     )
   ).json();
   assert.deepEqual(sensitiveMatch.hashes, [listed.hash]);
+  const accentSensitiveMiss = await (
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('Resume attached')}&caseSensitive=1`,
+    )
+  ).json();
+  assert.deepEqual(accentSensitiveMiss.hashes, []);
+  const accentSensitiveMatch = await (
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('Résumé attached')}&caseSensitive=1`,
+    )
+  ).json();
+  assert.deepEqual(accentSensitiveMatch.hashes, [listed.hash]);
   const older = list.commits[1];
   const olderSearch = await (
-    await fetch(
-      `${server.address}/api/commits/search?query=${encodeURIComponent(older.message)}`,
-    )
+    await fetch(`${server.address}/api/commits/search?query=${encodeURIComponent(older.message)}`)
   ).json();
   assert.equal(olderSearch.indices[older.hash], 1);
   const targetPage = await (
-    await fetch(
-      `${server.address}/api/commits?skip=${olderSearch.indices[older.hash]}&limit=1`,
-    )
+    await fetch(`${server.address}/api/commits?skip=${olderSearch.indices[older.hash]}&limit=1`)
   ).json();
   assert.equal(targetPage.commits[0].hash, older.hash);
 
   const noMatch = await (
-    await fetch(
-      `${server.address}/api/commits/search?query=nothing-matches-this`,
-    )
+    await fetch(`${server.address}/api/commits/search?query=nothing-matches-this`)
   ).json();
   assert.deepEqual(noMatch.hashes, []);
 
-  const emptyQuery = await (
-    await fetch(`${server.address}/api/commits/search`)
-  ).json();
+  const emptyQuery = await (await fetch(`${server.address}/api/commits/search`)).json();
   assert.deepEqual(emptyQuery.hashes, []);
 });
 
-test("returns an empty history for repositories without commits", async (context) => {
-  const repositoryPath = await mkdtemp(join(tmpdir(), "guito-test-"));
-  execFileSync("git", ["init"], { cwd: repositoryPath, stdio: "ignore" });
+test('returns an empty history for repositories without commits', async (context) => {
+  const repositoryPath = await mkdtemp(join(tmpdir(), 'guito-test-'));
+  execFileSync('git', ['init'], { cwd: repositoryPath, stdio: 'ignore' });
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
@@ -364,47 +354,45 @@ test("returns an empty history for repositories without commits", async (context
   assert.deepEqual(await response.json(), { commits: [], total: 0 });
 });
 
-test("renames and deletes branches through the API", async (context) => {
+test('renames and deletes branches through the API', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
-  execFileSync("git", ["branch", "feature"], {
+  execFileSync('git', ['branch', 'feature'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   const listBranches = (pattern) =>
-    execFileSync("git", ["branch", "--list", pattern], { cwd: repositoryPath })
-      .toString()
-      .trim();
+    execFileSync('git', ['branch', '--list', pattern], { cwd: repositoryPath }).toString().trim();
 
   // Renaming a local branch moves it.
   const renamed = await fetch(`${server.address}/api/branch/rename`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ oldName: "feature", newName: "renamed-feature" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ oldName: 'feature', newName: 'renamed-feature' }),
   });
   assert.equal(renamed.status, 200);
-  assert.ok(listBranches("renamed-feature").includes("renamed-feature"));
-  assert.equal(listBranches("feature"), "");
+  assert.ok(listBranches('renamed-feature').includes('renamed-feature'));
+  assert.equal(listBranches('feature'), '');
 
   // Deleting the checked-out branch is rejected with a JSON error.
-  const currentBranch = execFileSync("git", ["branch", "--show-current"], {
+  const currentBranch = execFileSync('git', ['branch', '--show-current'], {
     cwd: repositoryPath,
   })
     .toString()
     .trim();
   const current = await fetch(`${server.address}/api/branch/delete`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name: currentBranch }),
   });
   assert.equal(current.status, 400);
@@ -412,459 +400,407 @@ test("renames and deletes branches through the API", async (context) => {
 
   // Deleting an existing local branch removes it.
   const deleted = await fetch(`${server.address}/api/branch/delete`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "renamed-feature" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'renamed-feature' }),
   });
   assert.equal(deleted.status, 200);
-  assert.equal(listBranches("renamed-feature"), "");
+  assert.equal(listBranches('renamed-feature'), '');
 
   // Deleting a missing branch fails with a JSON error.
   const missing = await fetch(`${server.address}/api/branch/delete`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "no-such-branch" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'no-such-branch' }),
   });
   assert.equal(missing.status, 400);
   assert.ok((await missing.json()).error);
 });
 
-test("lists worktrees and stashes, and prunes deleted remote branches on fetch", async (context) => {
+test('lists worktrees and stashes, and prunes deleted remote branches on fetch', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
-  const originPath = await mkdtemp(join(tmpdir(), "guito-origin-"));
+  const originPath = await mkdtemp(join(tmpdir(), 'guito-origin-'));
   context.after(() => rm(originPath, { recursive: true, force: true }));
   const git = (...args) =>
-    execFileSync("git", args, { cwd: repositoryPath, stdio: "pipe" })
-      .toString()
-      .trim();
-  const branch = git("branch", "--show-current");
+    execFileSync('git', args, { cwd: repositoryPath, stdio: 'pipe' }).toString().trim();
+  const branch = git('branch', '--show-current');
 
   // A bare remote with one pushed branch plus a later-deleted stale branch.
-  execFileSync("git", ["init", "--bare", originPath], { stdio: "ignore" });
-  git("remote", "add", "origin", originPath);
-  git("push", "origin", branch);
-  git("push", "origin", `${branch}:stale-remote`);
+  execFileSync('git', ['init', '--bare', originPath], { stdio: 'ignore' });
+  git('remote', 'add', 'origin', originPath);
+  git('push', 'origin', branch);
+  git('push', 'origin', `${branch}:stale-remote`);
 
-  const linked = join(repositoryPath, "linked");
-  git("worktree", "add", "-b", "linked-branch", linked);
-  await writeFile(join(repositoryPath, "stashed.txt"), "change\n");
-  git("add", ".");
-  git("stash", "push", "-m", "wip stash");
+  const linked = join(repositoryPath, 'linked');
+  git('worktree', 'add', '-b', 'linked-branch', linked);
+  await writeFile(join(repositoryPath, 'stashed.txt'), 'change\n');
+  git('add', '.');
+  git('stash', 'push', '-m', 'wip stash');
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   // The worktree list marks the served directory and describes the linked one.
-  const worktrees = await (
-    await fetch(`${server.address}/api/worktrees`)
-  ).json();
+  const worktrees = await (await fetch(`${server.address}/api/worktrees`)).json();
   assert.equal(worktrees.length, 2);
   const main = worktrees.find((entry) => entry.current);
-  assert.ok(main, "the served worktree is marked current");
+  assert.ok(main, 'the served worktree is marked current');
   assert.equal(resolve(main.path), resolve(repositoryPath));
   assert.equal(main.branch, branch);
   const other = worktrees.find((entry) => !entry.current);
-  assert.equal(other.branch, "linked-branch");
+  assert.equal(other.branch, 'linked-branch');
   assert.equal(resolve(other.path), resolve(linked));
 
   // Worktrees can be created from an existing local branch and removed again.
-  git("branch", "api-worktree");
-  const apiLinked = join(repositoryPath, "api-linked");
+  git('branch', 'api-worktree');
+  const apiLinked = join(repositoryPath, 'api-linked');
   const created = await fetch(`${server.address}/api/worktrees`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ path: apiLinked, branch: "api-worktree" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: apiLinked, branch: 'api-worktree' }),
   });
   assert.equal(created.status, 200, await created.text());
   assert.equal(
-    execFileSync("git", ["branch", "--show-current"], { cwd: apiLinked })
-      .toString()
-      .trim(),
-    "api-worktree",
+    execFileSync('git', ['branch', '--show-current'], { cwd: apiLinked }).toString().trim(),
+    'api-worktree',
   );
 
   // Removing the served worktree is always rejected.
   const removeCurrent = await fetch(`${server.address}/api/worktrees/remove`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ path: repositoryPath }),
   });
   assert.equal(removeCurrent.status, 400);
   assert.match((await removeCurrent.json()).error, /currently open/i);
 
-  await writeFile(join(apiLinked, "uncommitted.txt"), "keep me\n");
+  await writeFile(join(apiLinked, 'uncommitted.txt'), 'keep me\n');
   const dirtyRemoval = await fetch(`${server.address}/api/worktrees/remove`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ path: apiLinked }),
   });
   assert.equal(dirtyRemoval.status, 400);
   assert.ok((await dirtyRemoval.json()).error);
-  await rm(join(apiLinked, "uncommitted.txt"));
+  await rm(join(apiLinked, 'uncommitted.txt'));
 
   const removed = await fetch(`${server.address}/api/worktrees/remove`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ path: apiLinked }),
   });
   assert.equal(removed.status, 200, await removed.text());
   assert.equal(
-    (
-      await fetch(`${server.address}/api/worktrees`).then((response) =>
-        response.json(),
-      )
-    ).some((entry) => resolve(entry.path) === resolve(apiLinked)),
+    (await fetch(`${server.address}/api/worktrees`).then((response) => response.json())).some(
+      (entry) => resolve(entry.path) === resolve(apiLinked),
+    ),
     false,
   );
 
   // The stash list feeds the panel and the commit table rows; the entries
   // carry the stash commit's metadata on top of hash + message.
-  const stashList = await (
-    await fetch(`${server.address}/api/stash/list`)
-  ).json();
+  const stashList = await (await fetch(`${server.address}/api/stash/list`)).json();
   assert.equal(stashList.total, 1);
-  assert.ok(stashList.all[0].message.includes("wip stash"));
+  assert.ok(stashList.all[0].message.includes('wip stash'));
   assert.match(stashList.all[0].hash, /^[0-9a-f]{40}$/);
   assert.match(stashList.all[0].date, /^\d{4}-\d{2}-\d{2}T/);
-  assert.equal(typeof stashList.all[0].author_name, "string");
-  assert.equal(typeof stashList.all[0].author_email, "string");
+  assert.equal(typeof stashList.all[0].author_name, 'string');
+  assert.equal(typeof stashList.all[0].author_email, 'string');
   // The stash hash resolves through the commit endpoints used by the detail pane.
   const stashDetail = await fetch(`${server.address}/api/commit/detail`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ hash: stashList.all[0].hash }),
   });
   assert.equal(stashDetail.status, 200);
   const stashDiff = await fetch(`${server.address}/api/commit/diff`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ hash: stashList.all[0].hash }),
   });
   assert.equal(stashDiff.status, 200);
   assert.ok(
-    (await stashDiff.json()).files.some((file) => file.path === "stashed.txt"),
-    "the stash diff shows the stashed file",
+    (await stashDiff.json()).files.some((file) => file.path === 'stashed.txt'),
+    'the stash diff shows the stashed file',
   );
 
   // A plain fetch keeps the stale remote-tracking branch; prune removes it.
   assert.ok(
     (await (await fetch(`${server.address}/api/branches/all`)).json()).some(
-      (entry) => entry.name === "origin/stale-remote",
+      (entry) => entry.name === 'origin/stale-remote',
     ),
   );
   // Deleting on the remote itself leaves the local remote-tracking ref stale.
-  execFileSync("git", ["branch", "-d", "stale-remote"], {
+  execFileSync('git', ['branch', '-d', 'stale-remote'], {
     cwd: originPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
   const pruned = await fetch(`${server.address}/api/fetch?prune=1`);
   assert.equal(pruned.status, 200);
-  const branchesAfter = await (
-    await fetch(`${server.address}/api/branches/all`)
-  ).json();
+  const branchesAfter = await (await fetch(`${server.address}/api/branches/all`)).json();
   assert.ok(
-    !branchesAfter.some((entry) => entry.name === "origin/stale-remote"),
-    "fetch with prune drops the deleted remote branch",
+    !branchesAfter.some((entry) => entry.name === 'origin/stale-remote'),
+    'fetch with prune drops the deleted remote branch',
   );
   assert.ok(branchesAfter.some((entry) => entry.name === `origin/${branch}`));
 });
 
-test("resets the current branch with the requested mode", async (context) => {
+test('resets the current branch with the requested mode', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
-  const file = join(repositoryPath, "file.txt");
-  await (await import("node:fs/promises")).writeFile(file, "content\n");
-  execFileSync("git", ["add", "file.txt"], {
+  const file = join(repositoryPath, 'file.txt');
+  await (await import('node:fs/promises')).writeFile(file, 'content\n');
+  execFileSync('git', ['add', 'file.txt'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  execFileSync("git", ["commit", "-m", "Add file"], {
+  execFileSync('git', ['commit', '-m', 'Add file'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
 
-  const firstCommit = execFileSync(
-    "git",
-    ["rev-list", "--max-parents=0", "HEAD"],
-    {
-      cwd: repositoryPath,
-    },
-  )
+  const firstCommit = execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
+    cwd: repositoryPath,
+  })
     .toString()
     .trim();
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   const reset = (mode) =>
     fetch(`${server.address}/api/reset-commit`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ commit: firstCommit, mode }),
     });
 
   const status = () =>
-    execFileSync("git", ["status", "--porcelain"], { cwd: repositoryPath })
-      .toString()
-      .trim();
+    execFileSync('git', ['status', '--porcelain'], { cwd: repositoryPath }).toString().trim();
   const headCommit = () =>
-    execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryPath })
-      .toString()
-      .trim();
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath }).toString().trim();
 
   // Soft keeps the changes staged.
-  assert.equal((await reset("soft")).status, 200);
+  assert.equal((await reset('soft')).status, 200);
   assert.equal(headCommit(), firstCommit);
-  assert.equal(status(), "A  file.txt");
+  assert.equal(status(), 'A  file.txt');
 
   // Mixed keeps the changes but unstages them.
-  assert.equal((await reset("mixed")).status, 200);
+  assert.equal((await reset('mixed')).status, 200);
   assert.equal(headCommit(), firstCommit);
-  assert.equal(status(), "?? file.txt");
+  assert.equal(status(), '?? file.txt');
 
   // Hard discards the changes; the file is staged again first because a hard
   // reset leaves untracked files alone.
-  execFileSync("git", ["add", "file.txt"], {
+  execFileSync('git', ['add', 'file.txt'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  assert.equal((await reset("hard")).status, 200);
+  assert.equal((await reset('hard')).status, 200);
   assert.equal(headCommit(), firstCommit);
-  assert.equal(status(), "");
+  assert.equal(status(), '');
 
   // An unknown mode falls back to a hard reset.
-  await (await import("node:fs/promises")).writeFile(file, "more\n");
-  execFileSync("git", ["add", "file.txt"], {
+  await (await import('node:fs/promises')).writeFile(file, 'more\n');
+  execFileSync('git', ['add', 'file.txt'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  execFileSync("git", ["commit", "-m", "Add file again"], {
+  execFileSync('git', ['commit', '-m', 'Add file again'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  assert.equal((await reset("nonsense")).status, 200);
+  assert.equal((await reset('nonsense')).status, 200);
   assert.equal(headCommit(), firstCommit);
-  assert.equal(status(), "");
+  assert.equal(status(), '');
 });
 
-test("deletes and pushes tags through the API", async (context) => {
+test('deletes and pushes tags through the API', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
 
-  const remotePath = await mkdtemp(join(tmpdir(), "guito-remote-"));
+  const remotePath = await mkdtemp(join(tmpdir(), 'guito-remote-'));
   context.after(() => rm(remotePath, { recursive: true, force: true }));
-  execFileSync("git", ["init", "--bare"], { cwd: remotePath, stdio: "ignore" });
-  execFileSync("git", ["remote", "add", "origin", remotePath], {
+  execFileSync('git', ['init', '--bare'], { cwd: remotePath, stdio: 'ignore' });
+  execFileSync('git', ['remote', 'add', 'origin', remotePath], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   const listTags = () =>
-    execFileSync("git", ["tag", "--list"], { cwd: repositoryPath })
-      .toString()
-      .trim();
+    execFileSync('git', ['tag', '--list'], { cwd: repositoryPath }).toString().trim();
   const remoteTags = () =>
-    execFileSync("git", ["--git-dir", remotePath, "tag", "--list"], {
+    execFileSync('git', ['--git-dir', remotePath, 'tag', '--list'], {
       cwd: remotePath,
     })
       .toString()
       .trim();
 
-  execFileSync("git", ["tag", "v1.0.0"], {
+  execFileSync('git', ['tag', 'v1.0.0'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
 
   // Deleting a tag removes it.
   const deleted = await fetch(`${server.address}/api/tag/delete`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "v1.0.0" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'v1.0.0' }),
   });
   assert.equal(deleted.status, 200);
-  assert.equal(listTags(), "");
+  assert.equal(listTags(), '');
 
   // Pushing a tag uploads it to the remote.
-  execFileSync("git", ["tag", "v1.0.0"], {
+  execFileSync('git', ['tag', 'v1.0.0'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
   const pushed = await fetch(`${server.address}/api/tag/push`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "v1.0.0" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'v1.0.0' }),
   });
   assert.equal(pushed.status, 200);
-  assert.equal(remoteTags(), "v1.0.0");
+  assert.equal(remoteTags(), 'v1.0.0');
 
   // Pushing a missing tag fails with a JSON error.
   const missing = await fetch(`${server.address}/api/tag/push`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "no-such-tag" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'no-such-tag' }),
   });
   assert.equal(missing.status, 400);
   assert.ok((await missing.json()).error);
 });
 
-test("parses Azure DevOps remote URLs", () => {
+test('parses Azure DevOps remote URLs', () => {
+  assert.deepEqual(parseAzureRemoteUrl('https://server/DefaultCollection/Project/_git/Repo'), {
+    projectPath: 'DefaultCollection/Project',
+    repo: 'Repo',
+  });
+  assert.deepEqual(parseAzureRemoteUrl('https://server/DefaultCollection/Project/_git/Repo.git'), {
+    projectPath: 'DefaultCollection/Project',
+    repo: 'Repo',
+  });
+  assert.deepEqual(parseAzureRemoteUrl('https://server/tfs/My%20Project/_git/My%20Repo'), {
+    projectPath: 'tfs/My Project',
+    repo: 'My Repo',
+  });
   assert.deepEqual(
-    parseAzureRemoteUrl("https://server/DefaultCollection/Project/_git/Repo"),
+    parseAzureRemoteUrl('https://user@server:8443/tfs/Collection/Project/_git/Repo'),
     {
-      projectPath: "DefaultCollection/Project",
-      repo: "Repo",
+      projectPath: 'tfs/Collection/Project',
+      repo: 'Repo',
     },
   );
-  assert.deepEqual(
-    parseAzureRemoteUrl(
-      "https://server/DefaultCollection/Project/_git/Repo.git",
-    ),
-    {
-      projectPath: "DefaultCollection/Project",
-      repo: "Repo",
-    },
-  );
-  assert.deepEqual(
-    parseAzureRemoteUrl("https://server/tfs/My%20Project/_git/My%20Repo"),
-    {
-      projectPath: "tfs/My Project",
-      repo: "My Repo",
-    },
-  );
-  assert.deepEqual(
-    parseAzureRemoteUrl(
-      "https://user@server:8443/tfs/Collection/Project/_git/Repo",
-    ),
-    {
-      projectPath: "tfs/Collection/Project",
-      repo: "Repo",
-    },
-  );
-  assert.deepEqual(
-    parseAzureRemoteUrl("git@server:DefaultCollection/Project/_git/Repo.git"),
-    {
-      projectPath: "DefaultCollection/Project",
-      repo: "Repo",
-    },
-  );
-  assert.deepEqual(
-    parseAzureRemoteUrl("ssh://git@server/DefaultCollection/Project/_git/Repo"),
-    {
-      projectPath: "DefaultCollection/Project",
-      repo: "Repo",
-    },
-  );
-  assert.equal(
-    parseAzureRemoteUrl("https://github.com/danisss9/Guito.git"),
-    null,
-  );
-  assert.equal(parseAzureRemoteUrl("/local/path/only"), null);
-  assert.equal(parseAzureRemoteUrl(""), null);
+  assert.deepEqual(parseAzureRemoteUrl('git@server:DefaultCollection/Project/_git/Repo.git'), {
+    projectPath: 'DefaultCollection/Project',
+    repo: 'Repo',
+  });
+  assert.deepEqual(parseAzureRemoteUrl('ssh://git@server/DefaultCollection/Project/_git/Repo'), {
+    projectPath: 'DefaultCollection/Project',
+    repo: 'Repo',
+  });
+  assert.equal(parseAzureRemoteUrl('https://github.com/danisss9/Guito.git'), null);
+  assert.equal(parseAzureRemoteUrl('/local/path/only'), null);
+  assert.equal(parseAzureRemoteUrl(''), null);
 });
 
-test("builds the pull request REST URL", () => {
-  const remote = "https://server/DefaultCollection/Project/_git/Repo.git";
+test('builds the pull request REST URL', () => {
+  const remote = 'https://server/DefaultCollection/Project/_git/Repo.git';
   assert.equal(
-    buildAzurePullRequestUrl("https://server/DefaultCollection", remote),
-    "https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview",
+    buildAzurePullRequestUrl('https://server/DefaultCollection', remote),
+    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
   );
   // A bare host base must not lose the collection path.
   assert.equal(
-    buildAzurePullRequestUrl("https://server", remote),
-    "https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview",
+    buildAzurePullRequestUrl('https://server', remote),
+    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
   );
   // Trailing slashes on the base are trimmed.
   assert.equal(
-    buildAzurePullRequestUrl("https://server/DefaultCollection/", remote),
-    "https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview",
+    buildAzurePullRequestUrl('https://server/DefaultCollection/', remote),
+    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
   );
   // Encoded project segments are re-encoded in the REST URL.
   assert.equal(
     buildAzurePullRequestUrl(
-      "https://server/tfs",
-      "https://server/tfs/My%20Project/_git/My%20Repo",
+      'https://server/tfs',
+      'https://server/tfs/My%20Project/_git/My%20Repo',
     ),
-    "https://server/tfs/My%20Project/_apis/git/repositories/My%20Repo/pullrequests?api-version=5.0-preview",
+    'https://server/tfs/My%20Project/_apis/git/repositories/My%20Repo/pullrequests?api-version=5.0-preview',
   );
-  assert.equal(buildAzurePullRequestUrl("", remote), null);
-  assert.equal(
-    buildAzurePullRequestUrl("https://server", "https://github.com/x/y.git"),
-    null,
-  );
+  assert.equal(buildAzurePullRequestUrl('', remote), null);
+  assert.equal(buildAzurePullRequestUrl('https://server', 'https://github.com/x/y.git'), null);
 });
 
 /** Creates a repository whose origin looks like Azure DevOps but pushes to a local bare repo. */
 async function createAzureRepository(context) {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
-  const remotePath = await mkdtemp(join(tmpdir(), "guito-remote-"));
+  const remotePath = await mkdtemp(join(tmpdir(), 'guito-remote-'));
   context.after(() => rm(remotePath, { recursive: true, force: true }));
-  execFileSync("git", ["init", "--bare"], { cwd: remotePath, stdio: "ignore" });
+  execFileSync('git', ['init', '--bare'], { cwd: remotePath, stdio: 'ignore' });
   // The fetch URL points at a fake Azure DevOps server (parsed by the PR
   // route) while pushes go to the local bare repository.
   execFileSync(
-    "git",
-    [
-      "remote",
-      "add",
-      "origin",
-      "https://azure.example/DefaultCollection/Project/_git/Repo.git",
-    ],
-    { cwd: repositoryPath, stdio: "ignore" },
+    'git',
+    ['remote', 'add', 'origin', 'https://azure.example/DefaultCollection/Project/_git/Repo.git'],
+    { cwd: repositoryPath, stdio: 'ignore' },
   );
-  execFileSync("git", ["remote", "set-url", "--push", "origin", remotePath], {
+  execFileSync('git', ['remote', 'set-url', '--push', 'origin', remotePath], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  execFileSync("git", ["push", "origin", "HEAD:refs/heads/main"], {
+  execFileSync('git', ['push', 'origin', 'HEAD:refs/heads/main'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
   return { repositoryPath, remotePath };
 }
 
 const remoteBranches = (remotePath) =>
-  execFileSync("git", [
-    "--git-dir",
+  execFileSync('git', [
+    '--git-dir',
     remotePath,
-    "for-each-ref",
-    "refs/heads",
-    "--format=%(refname)",
+    'for-each-ref',
+    'refs/heads',
+    '--format=%(refname)',
   ])
     .toString()
-    .split("\n")
+    .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
 
-test("creates a pull request through Azure DevOps", async (context) => {
+test('creates a pull request through Azure DevOps', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
   const calls = [];
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ url, payload: JSON.parse(body) });
       return {
@@ -873,7 +809,7 @@ test("creates a pull request through Azure DevOps", async (context) => {
           pullRequestId: 42,
           _links: {
             web: {
-              href: "https://azure.example/DefaultCollection/Project/_git/Repo/pullrequest/42",
+              href: 'https://azure.example/DefaultCollection/Project/_git/Repo/pullrequest/42',
             },
           },
         }),
@@ -882,543 +818,536 @@ test("creates a pull request through Azure DevOps", async (context) => {
   });
   context.after(() => server.close());
 
-  const response = await fetch(
-    `${server.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceBranch: "main",
-        targetBranch: "main",
-        title: "My PR",
-        description: "Body",
-      }),
-    },
-  );
+  const response = await fetch(`${server.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sourceBranch: 'main',
+      targetBranch: 'main',
+      title: 'My PR',
+      description: 'Body',
+    }),
+  });
   assert.equal(response.status, 200);
   const created = await response.json();
   assert.equal(created.id, 42);
   assert.equal(
     created.url,
-    "https://azure.example/DefaultCollection/Project/_git/Repo/pullrequest/42",
+    'https://azure.example/DefaultCollection/Project/_git/Repo/pullrequest/42',
   );
-  assert.equal(created.branch, "main");
+  assert.equal(created.branch, 'main');
 
   assert.equal(calls.length, 1);
   assert.equal(
     calls[0].url,
-    "https://azure.example/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview",
+    'https://azure.example/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
   );
   assert.deepEqual(calls[0].payload, {
     isDraft: false,
-    sourceRefName: "refs/heads/main",
-    targetRefName: "refs/heads/main",
-    title: "My PR",
-    description: "Body",
+    sourceRefName: 'refs/heads/main',
+    targetRefName: 'refs/heads/main',
+    title: 'My PR',
+    description: 'Body',
   });
 });
 
-test("creates a pull request from a new random branch", async (context) => {
+test('creates a pull request from a new random branch', async (context) => {
   const { repositoryPath, remotePath } = await createAzureRepository(context);
   const calls = [];
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ url, payload: JSON.parse(body) });
       return {
         status: 201,
         body: JSON.stringify({
           pullRequestId: 7,
-          _links: { web: { href: "x" } },
+          _links: { web: { href: 'x' } },
         }),
       };
     },
   });
   context.after(() => server.close());
 
-  const response = await fetch(
-    `${server.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceBranch: "",
-        targetBranch: "main",
-        newBranch: true,
-      }),
-    },
-  );
+  const response = await fetch(`${server.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sourceBranch: '',
+      targetBranch: 'main',
+      newBranch: true,
+    }),
+  });
   assert.equal(response.status, 200);
   const created = await response.json();
   assert.match(created.branch, /^pr\/[a-z0-9]{6}$/);
 
   // The random branch was pushed to the remote as the PR source.
-  assert.ok(
-    remoteBranches(remotePath).includes(`refs/heads/${created.branch}`),
-  );
+  assert.ok(remoteBranches(remotePath).includes(`refs/heads/${created.branch}`));
   assert.deepEqual(calls[0].payload, {
     isDraft: false,
     sourceRefName: `refs/heads/${created.branch}`,
-    targetRefName: "refs/heads/main",
+    targetRefName: 'refs/heads/main',
   });
 });
 
-test("publishes a local-only source branch before creating the pull request", async (context) => {
+test('publishes a local-only source branch before creating the pull request', async (context) => {
   const { repositoryPath, remotePath } = await createAzureRepository(context);
-  execFileSync("git", ["checkout", "-b", "feature"], {
+  execFileSync('git', ['checkout', '-b', 'feature'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
-  execFileSync("git", ["commit", "--allow-empty", "-m", "Feature work"], {
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'Feature work'], {
     cwd: repositoryPath,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async () => ({
       status: 201,
       body: JSON.stringify({
         pullRequestId: 9,
-        _links: { web: { href: "x" } },
+        _links: { web: { href: 'x' } },
       }),
     }),
   });
   context.after(() => server.close());
 
-  const response = await fetch(
-    `${server.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceBranch: "feature", targetBranch: "main" }),
-    },
-  );
+  const response = await fetch(`${server.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceBranch: 'feature', targetBranch: 'main' }),
+  });
   assert.equal(response.status, 200);
   const created = await response.json();
-  assert.equal(created.branch, "feature");
-  assert.ok(remoteBranches(remotePath).includes("refs/heads/feature"));
+  assert.equal(created.branch, 'feature');
+  assert.ok(remoteBranches(remotePath).includes('refs/heads/feature'));
 });
 
-test("surfaces Azure DevOps errors and requires configuration", async (context) => {
+test('surfaces Azure DevOps errors and requires configuration', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
 
   const failing = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async () => ({
       status: 400,
-      body: JSON.stringify({ message: "TF401027: You need permission." }),
+      body: JSON.stringify({ message: 'TF401027: You need permission.' }),
     }),
   });
   context.after(() => failing.close());
 
-  const failed = await fetch(
-    `${failing.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceBranch: "main", targetBranch: "main" }),
-    },
-  );
+  const failed = await fetch(`${failing.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceBranch: 'main', targetBranch: 'main' }),
+  });
   assert.equal(failed.status, 400);
-  assert.equal((await failed.json()).error, "TF401027: You need permission.");
+  assert.equal((await failed.json()).error, 'TF401027: You need permission.');
 
   // Without any configured URL the request is rejected up front.
   const unconfigured = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => unconfigured.close());
 
-  const missing = await fetch(
-    `${unconfigured.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sourceBranch: "main", targetBranch: "main" }),
-    },
-  );
+  const missing = await fetch(`${unconfigured.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourceBranch: 'main', targetBranch: 'main' }),
+  });
   assert.equal(missing.status, 400);
   assert.match((await missing.json()).error, /not configured/i);
 });
 
-test("edits repository identity and remote configuration", async (context) => {
+test('edits repository identity and remote configuration', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   const identity = await fetch(`${server.address}/api/identity`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      name: "Settings User",
-      email: "settings@example.test",
+      name: 'Settings User',
+      email: 'settings@example.test',
     }),
   });
   assert.equal(identity.status, 200);
   assert.deepEqual(await identity.json(), {
-    name: "Settings User",
-    email: "settings@example.test",
+    name: 'Settings User',
+    email: 'settings@example.test',
   });
 
   const added = await fetch(`${server.address}/api/remotes`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      name: "upstream",
-      fetchUrl: "https://example.test/fetch.git",
-      pushUrl: "https://example.test/push.git",
+      name: 'upstream',
+      fetchUrl: 'https://example.test/fetch.git',
+      pushUrl: 'https://example.test/push.git',
     }),
   });
   assert.equal(added.status, 200);
   assert.deepEqual(await added.json(), [
     {
-      name: "upstream",
-      fetchUrl: "https://example.test/fetch.git",
-      pushUrl: "https://example.test/push.git",
+      name: 'upstream',
+      fetchUrl: 'https://example.test/fetch.git',
+      pushUrl: 'https://example.test/push.git',
     },
   ]);
   const renamed = await fetch(`${server.address}/api/remotes`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      originalName: "upstream",
-      name: "origin",
-      fetchUrl: "https://example.test/repo.git",
+      originalName: 'upstream',
+      name: 'origin',
+      fetchUrl: 'https://example.test/repo.git',
     }),
   });
   assert.equal(renamed.status, 200);
   assert.deepEqual(await renamed.json(), [
     {
-      name: "origin",
-      fetchUrl: "https://example.test/repo.git",
-      pushUrl: "https://example.test/repo.git",
+      name: 'origin',
+      fetchUrl: 'https://example.test/repo.git',
+      pushUrl: 'https://example.test/repo.git',
     },
   ]);
   const removed = await fetch(`${server.address}/api/remotes/origin`, {
-    method: "DELETE",
+    method: 'DELETE',
   });
   assert.equal(removed.status, 200);
   assert.deepEqual(await removed.json(), []);
 });
 
-test("creates a pull request branch from the configured name template", async (context) => {
+test('creates a pull request branch from the configured name template', async (context) => {
   const { repositoryPath, remotePath } = await createAzureRepository(context);
   const calls = [];
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
-    prBranchNameTemplate: "users/${username}/${randomstring}",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
+    prBranchNameTemplate: 'users/${username}/${randomstring}',
     azureRequestImpl: async (_method, _url, body) => {
       calls.push(JSON.parse(body));
       return {
         status: 201,
         body: JSON.stringify({
           pullRequestId: 8,
-          _links: { web: { href: "x" } },
+          _links: { web: { href: 'x' } },
         }),
       };
     },
   });
   context.after(() => server.close());
 
-  const response = await fetch(
-    `${server.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceBranch: "",
-        targetBranch: "main",
-        newBranch: true,
-      }),
-    },
-  );
+  const response = await fetch(`${server.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sourceBranch: '',
+      targetBranch: 'main',
+      newBranch: true,
+    }),
+  });
   assert.equal(response.status, 200);
   const created = await response.json();
   assert.match(created.branch, /^users\/[^/]+\/[a-z0-9]{6}$/);
-  assert.ok(
-    remoteBranches(remotePath).includes(`refs/heads/${created.branch}`),
-  );
+  assert.ok(remoteBranches(remotePath).includes(`refs/heads/${created.branch}`));
   assert.equal(calls[0].sourceRefName, `refs/heads/${created.branch}`);
 });
 
-test("stores the Azure DevOps URL in server-side settings", async (context) => {
+test('stores the Azure DevOps URL in server-side settings', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
 
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
 
   const saved = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      azureDevOpsUrl: "https://server/DefaultCollection",
+      azureDevOpsUrl: 'https://server/DefaultCollection',
     }),
   });
   assert.equal(saved.status, 200);
   assertSettings(await saved.json(), {
-    azureDevOpsUrl: "https://server/DefaultCollection",
-    source: "file",
+    azureDevOpsUrl: 'https://server/DefaultCollection',
+    source: 'file',
     autoReload: true,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    refListView: 'flat',
+    searchMode: 'navigate',
     searchCaseSensitive: false,
   });
 
   const loaded = await fetch(`${server.address}/api/settings`);
   assert.equal(loaded.status, 200);
   assertSettings(await loaded.json(), {
-    azureDevOpsUrl: "https://server/DefaultCollection",
-    source: "file",
+    azureDevOpsUrl: 'https://server/DefaultCollection',
+    source: 'file',
     autoReload: true,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    searchMode: 'navigate',
   });
 
   // The settings file lives in the repository's git directory.
-  const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+  const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], {
     cwd: repositoryPath,
   })
     .toString()
     .trim();
-  const settings = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
-  );
-  assert.equal(settings.azureDevOpsUrl, "https://server/DefaultCollection");
+  const settings = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
+  assert.equal(settings.azureDevOpsUrl, 'https://server/DefaultCollection');
 
   const namedBranch = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      prBranchNameTemplate: "users/${username}/${randomstring}",
+      prBranchNameTemplate: 'users/${username}/${randomstring}',
     }),
   });
   assert.equal(namedBranch.status, 200);
   assert.equal(
     (await namedBranch.json()).prBranchNameTemplate,
-    "users/${username}/${randomstring}",
+    'users/${username}/${randomstring}',
   );
   const fileAfterBranchTemplate = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
   );
-  assert.equal(
-    fileAfterBranchTemplate.prBranchNameTemplate,
-    "users/${username}/${randomstring}",
-  );
+  assert.equal(fileAfterBranchTemplate.prBranchNameTemplate, 'users/${username}/${randomstring}');
 
   const unknownVariable = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prBranchNameTemplate: "pr/${missing}" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prBranchNameTemplate: 'pr/${missing}' }),
   });
   assert.equal(unknownVariable.status, 400);
   assert.match((await unknownVariable.json()).error, /\$\{missing\}/);
 
   const resetBranchTemplate = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prBranchNameTemplate: "" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prBranchNameTemplate: '' }),
   });
   assert.equal(resetBranchTemplate.status, 200);
-  assert.equal(
-    (await resetBranchTemplate.json()).prBranchNameTemplate,
-    "pr/${randomstring}",
-  );
+  assert.equal((await resetBranchTemplate.json()).prBranchNameTemplate, 'pr/${randomstring}');
 
   // Non-http URLs are rejected.
   const invalid = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ azureDevOpsUrl: "ftp://server" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ azureDevOpsUrl: 'ftp://server' }),
   });
   assert.equal(invalid.status, 400);
 
   // An empty value clears the setting.
   const cleared = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ azureDevOpsUrl: "" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ azureDevOpsUrl: '' }),
   });
   assert.equal(cleared.status, 200);
   assertSettings(await cleared.json(), {
-    azureDevOpsUrl: "",
-    source: "",
+    azureDevOpsUrl: '',
+    source: '',
     autoReload: true,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    searchMode: 'navigate',
   });
 
   // Hiding the graph persists it, and a post without the URL keeps the
   // cleared URL instead of resetting it.
   const hidden = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ showGraph: false, autoReload: false }),
   });
   assert.equal(hidden.status, 200);
   assertSettings(await hidden.json(), {
-    azureDevOpsUrl: "",
-    source: "",
+    azureDevOpsUrl: '',
+    source: '',
     autoReload: false,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: false,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    searchMode: 'navigate',
   });
-  const fileAfterHide = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
-  );
+  const fileAfterHide = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
   assert.equal(fileAfterHide.showGraph, false);
   assert.equal(fileAfterHide.autoReload, false);
 
   // Hiding the commit-table stash rows persists the same way.
   const stashesHidden = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ showStashes: false }),
   });
   assert.equal(stashesHidden.status, 200);
   assertSettings(await stashesHidden.json(), {
-    azureDevOpsUrl: "",
-    source: "",
+    azureDevOpsUrl: '',
+    source: '',
     autoReload: false,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: false,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    searchMode: 'navigate',
   });
 
   // Switching the file lists to the tree view persists, an invalid value is
   // ignored, and unrelated keys survive.
   const treed = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fileListView: "tree" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fileListView: 'tree' }),
   });
   assert.equal(treed.status, 200);
   assertSettings(await treed.json(), {
-    azureDevOpsUrl: "",
-    source: "",
+    azureDevOpsUrl: '',
+    source: '',
     autoReload: false,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: false,
     showStashes: false,
-    fileListView: "tree",
-    searchMode: "navigate",
+    fileListView: 'tree',
+    searchMode: 'navigate',
   });
-  const fileAfterTree = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
-  );
-  assert.equal(fileAfterTree.fileListView, "tree");
+  const fileAfterTree = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
+  assert.equal(fileAfterTree.fileListView, 'tree');
   assert.equal(fileAfterTree.showGraph, false);
   const invalidView = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fileListView: "folders" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fileListView: 'folders' }),
   });
   assert.equal(invalidView.status, 200);
-  assert.equal((await invalidView.json()).fileListView, "tree");
+  assert.equal((await invalidView.json()).fileListView, 'tree');
+
+  // The side-panel branch/tag view persists the same way and ignores invalid values.
+  const refTree = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refListView: 'tree' }),
+  });
+  assert.equal(refTree.status, 200);
+  assertSettings(await refTree.json(), {
+    azureDevOpsUrl: '',
+    source: '',
+    autoReload: false,
+    diffViewer: 'guito',
+    showGraph: false,
+    showStashes: false,
+    fileListView: 'tree',
+    refListView: 'tree',
+    searchMode: 'navigate',
+  });
+  const fileAfterRefTree = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
+  assert.equal(fileAfterRefTree.refListView, 'tree');
+  const invalidRefView = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refListView: 'nested' }),
+  });
+  assert.equal(invalidRefView.status, 200);
+  assert.equal((await invalidRefView.json()).refListView, 'tree');
 
   const filtered = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ searchMode: "filter" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ searchMode: 'filter' }),
   });
   assert.equal(filtered.status, 200);
-  assert.equal((await filtered.json()).searchMode, "filter");
+  assert.equal((await filtered.json()).searchMode, 'filter');
   const fileAfterSearchMode = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
   );
-  assert.equal(fileAfterSearchMode.searchMode, "filter");
+  assert.equal(fileAfterSearchMode.searchMode, 'filter');
   const invalidSearchMode = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ searchMode: "find" }),
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ searchMode: 'find' }),
   });
   assert.equal(invalidSearchMode.status, 200);
-  assert.equal((await invalidSearchMode.json()).searchMode, "filter");
+  assert.equal((await invalidSearchMode.json()).searchMode, 'filter');
 
   const caseSensitive = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ searchCaseSensitive: true }),
   });
   assert.equal(caseSensitive.status, 200);
   assert.equal((await caseSensitive.json()).searchCaseSensitive, true);
   const fileAfterSearchCase = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
   );
   assert.equal(fileAfterSearchCase.searchCaseSensitive, true);
 
   // Disabling merge completion persists so the PR dialogs stop offering merge strategies.
   const mergeDisabled = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ allowMerge: false }),
   });
   assert.equal(mergeDisabled.status, 200);
   assert.equal((await mergeDisabled.json()).allowMerge, false);
-  const fileAfterMerge = JSON.parse(
-    await readFile(join(gitDir, "guito-settings.json"), "utf8"),
-  );
+  const fileAfterMerge = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
   assert.equal(fileAfterMerge.allowMerge, false);
   const mergeEnabled = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ allowMerge: true }),
   });
   assert.equal(mergeEnabled.status, 200);
   assert.equal((await mergeEnabled.json()).allowMerge, true);
 
   const linked = await fetch(`${server.address}/api/settings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       showTags: false,
       showRemoteBranches: false,
       issueLinking: {
-        regex: "#(\\d+)",
-        url: "https://example.test/issues/$1",
+        regex: '#(\\d+)',
+        url: 'https://example.test/issues/$1',
         useGlobally: false,
       },
     }),
@@ -1428,8 +1357,8 @@ test("stores the Azure DevOps URL in server-side settings", async (context) => {
     showTags: false,
     showRemoteBranches: false,
     issueLinking: {
-      regex: "#(\\d+)",
-      url: "https://example.test/issues/$1",
+      regex: '#(\\d+)',
+      url: 'https://example.test/issues/$1',
       useGlobally: false,
     },
   });
@@ -1437,26 +1366,26 @@ test("stores the Azure DevOps URL in server-side settings", async (context) => {
   // A VS Code-provided URL wins over the file and is reported as such.
   const extension = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://vscode/Collection",
+    azureDevOpsUrl: 'https://vscode/Collection',
     autoReload: false,
-    diffViewer: "vscode",
-    searchMode: "navigate",
+    diffViewer: 'vscode',
+    searchMode: 'navigate',
     searchCaseSensitive: false,
   });
   context.after(() => extension.close());
   const fromExtension = await fetch(`${extension.address}/api/settings`);
   assertSettings(await fromExtension.json(), {
-    azureDevOpsUrl: "https://vscode/Collection",
-    source: "vscode",
+    azureDevOpsUrl: 'https://vscode/Collection',
+    source: 'vscode',
     autoReload: false,
-    diffViewer: "vscode",
+    diffViewer: 'vscode',
     showGraph: false,
     showStashes: false,
-    fileListView: "tree",
-    searchMode: "navigate",
+    fileListView: 'tree',
+    searchMode: 'navigate',
     searchCaseSensitive: false,
   });
 
@@ -1464,103 +1393,103 @@ test("stores the Azure DevOps URL in server-side settings", async (context) => {
   extension.updateSettings({
     azureDevOpsUrl: undefined,
     autoReload: true,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: true,
-    fileListView: "flat",
+    fileListView: 'flat',
     searchMode: undefined,
     searchCaseSensitive: undefined,
   });
   const updatedFromExtension = await fetch(`${extension.address}/api/settings`);
   assertSettings(await updatedFromExtension.json(), {
-    azureDevOpsUrl: "",
-    source: "",
+    azureDevOpsUrl: '',
+    source: '',
     autoReload: true,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: true,
-    fileListView: "flat",
-    searchMode: "filter",
+    fileListView: 'flat',
+    searchMode: 'filter',
     searchCaseSensitive: true,
   });
 
   // Auto-reload falls back to the settings file when the extension does not
   // pass it, and the extension value wins when it does.
   await writeFile(
-    join(gitDir, "guito-settings.json"),
+    join(gitDir, 'guito-settings.json'),
     JSON.stringify({
-      azureDevOpsUrl: "https://server/DefaultCollection",
+      azureDevOpsUrl: 'https://server/DefaultCollection',
       autoReload: false,
     }),
-    "utf8",
+    'utf8',
   );
   const fromFile = await fetch(`${server.address}/api/settings`);
   assertSettings(await fromFile.json(), {
-    azureDevOpsUrl: "https://server/DefaultCollection",
-    source: "file",
+    azureDevOpsUrl: 'https://server/DefaultCollection',
+    source: 'file',
     autoReload: false,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    searchMode: 'navigate',
     searchCaseSensitive: false,
   });
   const reloaded = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
     autoReload: true,
   });
   context.after(() => reloaded.close());
   const fromReloaded = await fetch(`${reloaded.address}/api/settings`);
   assertSettings(await fromReloaded.json(), {
-    azureDevOpsUrl: "https://server/DefaultCollection",
-    source: "file",
+    azureDevOpsUrl: 'https://server/DefaultCollection',
+    source: 'file',
     autoReload: true,
-    diffViewer: "guito",
+    diffViewer: 'guito',
     showGraph: true,
     showStashes: false,
-    fileListView: "flat",
-    searchMode: "navigate",
+    fileListView: 'flat',
+    searchMode: 'navigate',
     searchCaseSensitive: false,
   });
 });
 
-test("searches reviewers, work items, and tags through Azure DevOps", async (context) => {
+test('searches reviewers, work items, and tags through Azure DevOps', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
   const calls = [];
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ method, url, payload: body ? JSON.parse(body) : undefined });
-      if (url.includes("/_apis/identities")) {
+      if (url.includes('/_apis/identities')) {
         return {
           status: 200,
           body: JSON.stringify({
             value: [
               {
-                id: "uuid-1",
-                providerDisplayName: "Jane Doe",
-                properties: { Mail: { $value: "jane@contoso.com" } },
+                id: 'uuid-1',
+                providerDisplayName: 'Jane Doe',
+                properties: { Mail: { $value: 'jane@contoso.com' } },
               },
-              { id: "uuid-2", providerDisplayName: "John Roe" },
+              { id: 'uuid-2', providerDisplayName: 'John Roe' },
             ],
           }),
         };
       }
-      if (url.includes("/_apis/wit/wiql")) {
+      if (url.includes('/_apis/wit/wiql')) {
         return {
           status: 200,
           body: JSON.stringify({ workItems: [{ id: 64 }, { id: 12 }] }),
         };
       }
-      if (url.includes("/_apis/wit/workitems?ids=")) {
+      if (url.includes('/_apis/wit/workitems?ids=')) {
         return {
           status: 200,
           body: JSON.stringify({
@@ -1568,164 +1497,154 @@ test("searches reviewers, work items, and tags through Azure DevOps", async (con
               {
                 id: 64,
                 fields: {
-                  "System.Title": "Fix login",
-                  "System.State": "Active",
+                  'System.Title': 'Fix login',
+                  'System.State': 'Active',
                 },
               },
               {
                 id: 12,
-                fields: { "System.Title": "Add tests", "System.State": "New" },
+                fields: { 'System.Title': 'Add tests', 'System.State': 'New' },
               },
             ],
           }),
         };
       }
-      if (url.includes("/pullrequests?")) {
+      if (url.includes('/pullrequests?')) {
         return {
           status: 200,
           body: JSON.stringify({
-            value: [{ labels: [{ name: "perf" }, { name: "ui" }] }],
+            value: [{ labels: [{ name: 'perf' }, { name: 'ui' }] }],
           }),
         };
       }
-      return { status: 404, body: "" };
+      return { status: 404, body: '' };
     },
   });
   context.after(() => server.close());
 
   const reviewers = await fetch(
-    `${server.address}/api/azure-devops/reviewers?query=${encodeURIComponent("jane")}`,
+    `${server.address}/api/azure-devops/reviewers?query=${encodeURIComponent('jane')}`,
   );
   assert.equal(reviewers.status, 200);
   assert.deepEqual(await reviewers.json(), {
     reviewers: [
-      { id: "uuid-1", label: "Jane Doe", description: "jane@contoso.com" },
-      { id: "uuid-2", label: "John Roe" },
+      { id: 'uuid-1', label: 'Jane Doe', description: 'jane@contoso.com' },
+      { id: 'uuid-2', label: 'John Roe' },
     ],
   });
   assert.match(calls[0].url, /DefaultCollection\/_apis\/identities/);
   assert.match(calls[0].url, /filterValue=jane/);
 
   const workItems = await fetch(
-    `${server.address}/api/azure-devops/workitems?query=${encodeURIComponent("login")}`,
+    `${server.address}/api/azure-devops/workitems?query=${encodeURIComponent('login')}`,
   );
   assert.equal(workItems.status, 200);
   assert.deepEqual(await workItems.json(), {
     workItems: [
-      { id: 64, title: "Fix login", state: "Active" },
-      { id: 12, title: "Add tests", state: "New" },
+      { id: 64, title: 'Fix login', state: 'Active' },
+      { id: 12, title: 'Add tests', state: 'New' },
     ],
   });
   // The WIQL query matches the title and, for numeric input, the id too.
-  assert.equal(new URL(calls[1].url).searchParams.get("$top"), "20");
+  assert.equal(new URL(calls[1].url).searchParams.get('$top'), '20');
   assert.match(calls[1].payload.query, /\[System\.TeamProject\] = @project/);
   assert.match(calls[1].payload.query, /\[System\.Title\] CONTAINS 'login'/);
 
   const byId = await fetch(
-    `${server.address}/api/azure-devops/workitems?query=${encodeURIComponent("64")}`,
+    `${server.address}/api/azure-devops/workitems?query=${encodeURIComponent('64')}`,
   );
   assert.equal(byId.status, 200);
   assert.match(calls[3].payload.query, /\[System\.Id\] = 64/);
 
   const tags = await fetch(`${server.address}/api/azure-devops/tags`);
   assert.equal(tags.status, 200);
-  assert.deepEqual(await tags.json(), { tags: ["perf", "ui"] });
+  assert.deepEqual(await tags.json(), { tags: ['perf', 'ui'] });
 
   // An empty query short-circuits without calling Azure.
-  const empty = await fetch(
-    `${server.address}/api/azure-devops/reviewers?query=%20`,
-  );
+  const empty = await fetch(`${server.address}/api/azure-devops/reviewers?query=%20`);
   assert.deepEqual(await empty.json(), { reviewers: [] });
   // 1 identity + 2 x (WIQL + batch) + 1 tags; the empty query adds none.
   assert.equal(calls.length, 6);
 });
 
-test("creates a pull request with reviewers, work items, and tags", async (context) => {
+test('creates a pull request with reviewers, work items, and tags', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
   const calls = [];
   let labelCalls = 0;
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ method, url, payload: body ? JSON.parse(body) : undefined });
-      if (url.includes("/labels")) {
+      if (url.includes('/labels')) {
         labelCalls++;
         // The second tag fails; the route must report it as a warning.
         return labelCalls === 1
-          ? { status: 200, body: "{}" }
+          ? { status: 200, body: '{}' }
           : {
               status: 400,
-              body: JSON.stringify({ message: "TF401027: denied" }),
+              body: JSON.stringify({ message: 'TF401027: denied' }),
             };
       }
       return {
         status: 201,
         body: JSON.stringify({
           pullRequestId: 55,
-          _links: { web: { href: "pr-link" } },
+          _links: { web: { href: 'pr-link' } },
         }),
       };
     },
   });
   context.after(() => server.close());
 
-  const response = await fetch(
-    `${server.address}/api/azure-devops/pullrequest`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sourceBranch: "main",
-        targetBranch: "origin/main",
-        reviewers: [
-          { id: "uuid-1", required: true },
-          { id: "uuid-2", required: false },
-        ],
-        workItems: [64, "not-a-number", 0],
-        labels: ["perf", "ui"],
-        isDraft: true,
-      }),
-    },
-  );
+  const response = await fetch(`${server.address}/api/azure-devops/pullrequest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      sourceBranch: 'main',
+      targetBranch: 'origin/main',
+      reviewers: [
+        { id: 'uuid-1', required: true },
+        { id: 'uuid-2', required: false },
+      ],
+      workItems: [64, 'not-a-number', 0],
+      labels: ['perf', 'ui'],
+      isDraft: true,
+    }),
+  });
   assert.equal(response.status, 200);
   const created = await response.json();
   assert.equal(created.id, 55);
   assert.deepEqual(created.warnings, ['Could not add tag "ui" (HTTP 400).']);
 
   assert.equal(calls[0].payload.isDraft, true);
-  assert.equal(calls[0].payload.targetRefName, "refs/heads/main");
+  assert.equal(calls[0].payload.targetRefName, 'refs/heads/main');
   // The create payload carries reviewers and only valid work item ids.
   assert.deepEqual(calls[0].payload.reviewers, [
-    { id: "uuid-1", isRequired: true },
-    { id: "uuid-2", isRequired: false },
+    { id: 'uuid-1', isRequired: true },
+    { id: 'uuid-2', isRequired: false },
   ]);
-  assert.deepEqual(calls[0].payload.workItemRefs, [{ id: "64" }]);
+  assert.deepEqual(calls[0].payload.workItemRefs, [{ id: '64' }]);
   // Each tag is added through the labels endpoint after creation.
-  assert.equal(calls[1].method, "POST");
-  assert.match(
-    calls[1].url,
-    /pullrequests\/55\/labels\?api-version=5\.0-preview/,
-  );
-  assert.deepEqual(calls[1].payload, { name: "perf" });
-  assert.deepEqual(calls[2].payload, { name: "ui" });
+  assert.equal(calls[1].method, 'POST');
+  assert.match(calls[1].url, /pullrequests\/55\/labels\?api-version=5\.0-preview/);
+  assert.deepEqual(calls[1].payload, { name: 'perf' });
+  assert.deepEqual(calls[2].payload, { name: 'ui' });
 });
 
 // Exercise real Git changes made outside the API, including linked worktrees.
-test("repository state detects external refs, checkout, index, edits, and configuration", async (context) => {
+test('repository state detects external refs, checkout, index, edits, and configuration', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
   const git = (...args) =>
-    execFileSync("git", args, { cwd: repositoryPath, stdio: "pipe" })
-      .toString()
-      .trim();
+    execFileSync('git', args, { cwd: repositoryPath, stdio: 'pipe' }).toString().trim();
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
@@ -1736,93 +1655,80 @@ test("repository state detects external refs, checkout, index, edits, and config
   };
   const initial = await state();
   assert.deepEqual(await state(), initial);
-  git("checkout", "-b", "external");
+  git('checkout', '-b', 'external');
   const checkout = await state();
   assert.notEqual(checkout.history, initial.history);
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(join(repositoryPath, "external.txt"), "one\n");
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(join(repositoryPath, 'external.txt'), 'one\n');
   const added = await state();
   assert.equal(added.history, checkout.history);
   assert.notEqual(added.working, checkout.working);
-  await writeFile(join(repositoryPath, "external.txt"), "two lines\nchanged\n");
+  await writeFile(join(repositoryPath, 'external.txt'), 'two lines\nchanged\n');
   assert.notEqual((await state()).working, added.working);
-  git("add", ".");
+  git('add', '.');
   const staged = await state();
-  git("commit", "-m", "Outside Guito");
+  git('commit', '-m', 'Outside Guito');
   const committed = await state();
   assert.notEqual(committed.history, staged.history);
   assert.notEqual(committed.working, staged.working);
-  git("config", "user.name", "Correct Name");
+  git('config', 'user.name', 'Correct Name');
   assert.notEqual((await state()).history, committed.history);
   const beforeDetached = await state();
-  git("checkout", "--detach");
+  git('checkout', '--detach');
   assert.notEqual((await state()).history, beforeDetached.history);
-  git("tag", "outside-tag");
+  git('tag', 'outside-tag');
   const tagged = await state();
-  git("pack-refs", "--all");
+  git('pack-refs', '--all');
   assert.deepEqual(await state(), tagged);
 
-  const linked = join(repositoryPath, "linked");
-  git("worktree", "add", "-b", "linked-branch", linked);
+  const linked = join(repositoryPath, 'linked');
+  git('worktree', 'add', '-b', 'linked-branch', linked);
   const linkedServer = await startGuitoServer({
     repositoryPath: linked,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => linkedServer.close());
   const linkedState = async () =>
     (await fetch(`${linkedServer.address}/api/repository-state`)).json();
   const previous = await linkedState();
-  execFileSync("git", ["checkout", "--detach"], {
+  execFileSync('git', ['checkout', '--detach'], {
     cwd: linked,
-    stdio: "ignore",
+    stdio: 'ignore',
   });
   assert.notEqual((await linkedState()).history, previous.history);
 });
 
-test("author names use matching Git config and respect other authors and mailmaps", async (context) => {
+test('author names use matching Git config and respect other authors and mailmaps', async (context) => {
   const repositoryPath = await createRepository();
   context.after(() => rm(repositoryPath, { recursive: true, force: true }));
   const git = (...args) =>
-    execFileSync("git", args, { cwd: repositoryPath, stdio: "pipe" })
-      .toString()
-      .trim();
-  git("config", "user.name", "Correct Name");
-  git(
-    "commit",
-    "--allow-empty",
-    "--author=Other Author <other@example.test>",
-    "-m",
-    "Other",
-  );
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(
-    join(repositoryPath, ".mailmap"),
-    "Canonical Other <other@example.test>\n",
-  );
+    execFileSync('git', args, { cwd: repositoryPath, stdio: 'pipe' }).toString().trim();
+  git('config', 'user.name', 'Correct Name');
+  git('commit', '--allow-empty', '--author=Other Author <other@example.test>', '-m', 'Other');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(join(repositoryPath, '.mailmap'), 'Canonical Other <other@example.test>\n');
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
   });
   context.after(() => server.close());
   const repo = await (await fetch(`${server.address}/api/repo`)).json();
   assert.deepEqual(repo.identity, {
-    name: "Correct Name",
-    email: "guito@example.test",
+    name: 'Correct Name',
+    email: 'guito@example.test',
   });
-  const { commits } = await (
-    await fetch(`${server.address}/api/commits`)
-  ).json();
-  assert.equal(commits[0].author_name, "Canonical Other");
-  assert.equal(commits[1].author_name, "Correct Name");
+  const { commits } = await (await fetch(`${server.address}/api/commits`)).json();
+  assert.equal(commits[0].author_name, 'Canonical Other');
+  assert.equal(commits[1].author_name, 'Correct Name');
   for (const commit of commits) {
     const detail = await (
       await fetch(`${server.address}/api/commit/detail`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ hash: commit.hash }),
       })
     ).json();
@@ -1830,65 +1736,59 @@ test("author names use matching Git config and respect other authors and mailmap
   }
 });
 
-test("avatar cache normalizes email, deduplicates requests, and caches missing images", async () => {
-  const { avatarCache } = await import("../bin/avatars.js");
-  const { createHash } = await import("node:crypto");
+test('avatar cache normalizes email, deduplicates requests, and caches missing images', async () => {
+  const { avatarCache } = await import('../bin/avatars.js');
+  const { createHash } = await import('node:crypto');
   const calls = [];
   const cache = avatarCache(async (url) => {
     calls.push(url);
-    return new Response("image", { headers: { "content-type": "image/png" } });
+    return new Response('image', { headers: { 'content-type': 'image/png' } });
   });
-  const images = await Promise.all([
-    cache(" User@Example.com "),
-    cache("user@example.com"),
-  ]);
+  const images = await Promise.all([cache(' User@Example.com '), cache('user@example.com')]);
   assert.equal(calls.length, 1);
-  assert.equal(images[0].data.toString(), "image");
+  assert.equal(images[0].data.toString(), 'image');
   assert.equal(images[0], images[1]);
-  assert.match(
-    calls[0],
-    new RegExp(createHash("sha256").update("user@example.com").digest("hex")),
-  );
+  assert.match(calls[0], new RegExp(createHash('sha256').update('user@example.com').digest('hex')));
   let missing = 0;
   const negativeCache = avatarCache(async () => {
     missing++;
-    return new Response("", { status: 404 });
+    return new Response('', { status: 404 });
   });
-  assert.equal(await negativeCache("missing@example.test"), null);
-  assert.equal(await negativeCache("missing@example.test"), null);
+  assert.equal(await negativeCache('missing@example.test'), null);
+  assert.equal(await negativeCache('missing@example.test'), null);
   assert.equal(missing, 1);
 });
 
-test("PR tags page through history and fetch omitted labels", async (context) => {
+test('PR tags page through history and fetch omitted labels', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
   const calls = [];
   const server = await startGuitoServer({
     repositoryPath,
-    uiRoot: resolve("bin/ui"),
-    host: "127.0.0.1",
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: "https://azure.example/DefaultCollection",
+    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url) => {
       calls.push(url);
       const parsed = new URL(url);
-      if (parsed.pathname.endsWith("/1/labels")) {
+      if (parsed.pathname.endsWith('/1/labels')) {
         return {
           status: 200,
-          body: JSON.stringify({ value: [{ name: "fetched" }] }),
+          body: JSON.stringify({ value: [{ name: 'fetched' }] }),
         };
       }
-      const skip = parsed.searchParams.get("$skip");
+      const skip = parsed.searchParams.get('$skip');
       const value =
-        skip === "0"
+        skip === '0'
           ? Array.from({ length: 100 }, (_, i) =>
               i === 0
                 ? { pullRequestId: 1 }
-                : { pullRequestId: i + 1, labels: [{ name: "shared" }] },
+                : { pullRequestId: i + 1, labels: [{ name: 'shared' }] },
             )
           : [
               {
                 pullRequestId: 101,
-                labels: [{ name: "last-page" }, { name: "shared" }],
+                labels: [{ name: 'last-page' }, { name: 'shared' }],
               },
             ];
       return { status: 200, body: JSON.stringify({ value }) };
@@ -1898,7 +1798,7 @@ test("PR tags page through history and fetch omitted labels", async (context) =>
   const response = await fetch(`${server.address}/api/azure-devops/tags`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
-    tags: ["fetched", "last-page", "shared"],
+    tags: ['fetched', 'last-page', 'shared'],
   });
   assert.equal(calls.length, 3);
   assert.match(calls[2], /\$skip=100/);

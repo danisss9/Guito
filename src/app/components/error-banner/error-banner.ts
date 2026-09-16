@@ -12,12 +12,27 @@ export class ErrorBanner {
   readonly busy = input(false);
   readonly retry = output<void>();
   protected readonly dismissed = signal(false);
+  protected readonly closing = signal(false);
 
   constructor() {
     effect(() => {
       this.message();
       this.busy();
+      this.closing.set(false);
       this.dismissed.set(false);
     });
+  }
+
+  protected dismiss(): void {
+    if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.dismissed.set(true);
+      return;
+    }
+    this.closing.set(true);
+  }
+
+  protected finishDismiss(event: AnimationEvent): void {
+    if (event.target !== event.currentTarget || !this.closing()) return;
+    this.dismissed.set(true);
   }
 }

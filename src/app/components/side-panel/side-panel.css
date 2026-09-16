@@ -1,13 +1,19 @@
 :host {
-  /* Panel width; also used as the target of the slide-in/out animation below. */
+  /* Panel width; also used as the target of the slide-in/out transition below. */
   --panel-width: 260px;
   display: block;
   position: relative;
-  width: var(--panel-width);
+  width: 0;
   flex: none;
   min-height: 0;
   overflow: hidden;
   background: var(--bg-alt);
+  transition: width 150ms cubic-bezier(0.3, 0, 0.8, 0.15);
+}
+
+/* The app keeps this component mounted after first use to preserve its UI state. */
+:host([hidden]) {
+  display: none;
 }
 
 /* Keeps its full width while the host collapses, so the panel slides out instead of reflowing.
@@ -20,43 +26,138 @@
   border-right: 1px solid var(--border);
 }
 
-@keyframes panel-enter {
-  from {
-    width: 0;
-  }
-
-  to {
-    width: var(--panel-width);
-  }
-}
-
-@keyframes panel-leave {
-  from {
-    width: var(--panel-width);
-  }
-
-  to {
-    width: 0;
-  }
-}
-
-:host(.panel-enter) {
-  animation: panel-enter 180ms cubic-bezier(0.05, 0.7, 0.1, 1);
-}
-
-:host(.panel-leave) {
-  animation: panel-leave 150ms cubic-bezier(0.3, 0, 0.8, 0.15) forwards;
+:host(.panel-open) {
+  width: var(--panel-width);
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.05, 0.7, 0.1, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :host(.panel-enter),
-  :host(.panel-leave) {
-    animation: none;
+  :host {
+    transition: none;
   }
 }
 
 .tree {
   border-bottom: 1px solid var(--border);
+}
+
+/* ---- Panel filter bar ---- */
+
+/* Sticky so the filter stays reachable while scrolling long ref lists. */
+.panel-filter {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 7px 8px 8px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-field {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.filter-field:hover {
+  border-color: var(--text-dim);
+}
+
+.filter-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.filter-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+  pointer-events: none;
+  transition: stroke 120ms ease;
+}
+
+.filter-field:focus-within .filter-icon {
+  stroke: var(--text);
+}
+
+.filter-input {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 7px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.filter-input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.9;
+}
+
+/* Hide the browser-provided clear affordance; the styled button below is
+   consistent between the browser app and the VS Code webview. */
+.filter-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 3px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: none;
+}
+
+.filter-clear:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.filter-clear:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.filter-clear svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* Group labels vanish while filtering hides all of their rows. */
+.group-label.hidden {
+  display: none;
 }
 
 .tree-head {
@@ -160,6 +261,22 @@
   stroke-linejoin: round;
   flex: none;
   opacity: 0.85;
+}
+
+/* Namespace folder row of the branch/tag tree view. */
+.row.dir-row {
+  color: var(--text-bright);
+}
+
+.row .row-chevron {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
 }
 
 .row-label {

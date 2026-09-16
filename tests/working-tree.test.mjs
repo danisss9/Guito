@@ -23,7 +23,12 @@ async function fixture(t, initial = true) {
     const response = await fetch(`${server.address}/api/working-changes`);
     const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value)); return value;
   };
-  return { root, git, post, working, write: (path, text) => writeFile(join(root, path), text) };
+  const get = async (path, status = 200) => {
+    const response = await fetch(`${server.address}/api/${path}`);
+    const value = await response.json();
+    assert.equal(response.status, status, JSON.stringify(value)); return value;
+  };
+  return { root, git, get, post, working, write: (path, text) => writeFile(join(root, path), text) };
 }
 
 test('partial staging exposes both diffs and commits only the index', async t => {
@@ -113,6 +118,34 @@ test('invalid paths, empty commits, subjects, and unresolved conflicts are rejec
   assert.throws(() => f.git('merge', 'other'));
   assert.deepEqual((await f.working()).conflicted, ['file.txt']);
   await f.post('commit', { message: 'Unresolved' }, 400);
+});
+
+test('conflict details expose index stages and a saved result resolves and stages the file', async t => {
+  const f = await fixture(t);
+  const branch = f.git('branch', '--show-current').trim();
+  f.git('checkout', '-b', 'incoming');
+  await f.write('file.txt', 'incoming\n');
+  f.git('commit', '-am', 'Incoming');
+  f.git('checkout', branch);
+  await f.write('file.txt', 'current\n');
+  f.git('commit', '-am', 'Current');
+  assert.throws(() => f.git('merge', 'incoming'));
+
+  const detail = await f.get('conflict?path=file.txt');
+  assert.equal(detail.base.content, 'original\n');
+  assert.equal(detail.ours.content, 'current\n');
+  assert.equal(detail.theirs.content, 'incoming\n');
+  assert.match(detail.result.content, /<<<<<<< HEAD/);
+
+  await f.post('conflict/resolve', {
+    path: 'file.txt',
+    resolution: 'content',
+    content: 'combined\n',
+  });
+  assert.deepEqual((await f.working()).conflicted, []);
+  assert.equal(f.git('show', ':file.txt'), 'combined\n');
+  assert.equal(await readFile(join(f.root, 'file.txt'), 'utf8'), 'combined\n');
+  await f.get('conflict?path=file.txt', 400);
 });
 
 test('a staged rename can be edited and staged again', async t => {

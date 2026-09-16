@@ -1,19 +1,19 @@
-import { existsSync } from "node:fs";
-import { execFile, spawn } from "node:child_process";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
-import { userInfo } from "node:os";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
-import fastify from "fastify";
-import fastifyStatic from "@fastify/static";
-import fastifyCors from "@fastify/cors";
-import fastifyCompress from "@fastify/compress";
-import { simpleGit } from "simple-git";
-import { createTwoFilesPatch } from "diff";
-import { promisify } from "node:util";
-import { workingTree } from "./working-tree.js";
-import { avatarCache } from "./avatars.js";
-import { repositoryState } from "./repository-state.js";
+import { existsSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { userInfo } from 'node:os';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import fastify from 'fastify';
+import fastifyStatic from '@fastify/static';
+import fastifyCors from '@fastify/cors';
+import fastifyCompress from '@fastify/compress';
+import { simpleGit } from 'simple-git';
+import { createTwoFilesPatch } from 'diff';
+import { promisify } from 'node:util';
+import { workingTree } from './working-tree.js';
+import { avatarCache } from './avatars.js';
+import { repositoryState } from './repository-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -27,15 +27,16 @@ export interface GuitoHostSettings {
   azureDevOpsUrl?: string;
   prBranchNameTemplate?: string;
   autoReload?: boolean;
-  diffViewer?: "guito" | "vscode";
+  diffViewer?: 'guito' | 'vscode';
   showGraph?: boolean;
   showStashes?: boolean;
   showTags?: boolean;
   showRemoteBranches?: boolean;
   issueRegex?: string;
   issueUrl?: string;
-  fileListView?: "flat" | "tree";
-  searchMode?: "navigate" | "filter";
+  fileListView?: 'flat' | 'tree';
+  refListView?: 'flat' | 'tree';
+  searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
   allowMerge?: boolean;
 }
@@ -46,7 +47,7 @@ export interface AzureRequestResult {
 }
 
 /** Performs one Azure DevOps REST call; injectable so tests can fake the server. */
-export type AzureRequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type AzureRequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type AzureRequestImpl = (
   method: AzureRequestMethod,
   url: string,
@@ -68,7 +69,7 @@ export interface GuitoServerOptions {
   /** Whether Guito reloads automatically when the repository changes (wins over the settings file). */
   autoReload?: boolean;
   /** Where file diffs open; 'vscode' is only meaningful inside the VS Code extension. */
-  diffViewer?: "guito" | "vscode";
+  diffViewer?: 'guito' | 'vscode';
   /** VS Code overrides for repository display preferences. */
   showGraph?: boolean;
   showStashes?: boolean;
@@ -76,8 +77,10 @@ export interface GuitoServerOptions {
   showRemoteBranches?: boolean;
   issueRegex?: string;
   issueUrl?: string;
-  fileListView?: "flat" | "tree";
-  searchMode?: "navigate" | "filter";
+  fileListView?: 'flat' | 'tree';
+  /** How branches and tags in the repository panel are displayed. */
+  refListView?: 'flat' | 'tree';
+  searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
   /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; wins over the settings file. */
   allowMerge?: boolean;
@@ -88,18 +91,25 @@ export interface GuitoServerOptions {
   onLog?: (line: string) => void;
 }
 
-const AZURE_API_VERSION = "5.0-preview";
-export const DEFAULT_PR_BRANCH_NAME_TEMPLATE = "pr/${randomstring}";
+const AZURE_API_VERSION = '5.0-preview';
+export const DEFAULT_PR_BRANCH_NAME_TEMPLATE = 'pr/${randomstring}';
+
+/** Matches the UI's insensitive-search behavior for casing and accents. */
+function normalizeSearchText(value: string, sensitive: boolean): string {
+  if (sensitive) return value;
+  return value.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
+}
+
 const PR_BRANCH_TEMPLATE_VARIABLES = [
-  "username",
-  "randomstring",
-  "branch",
-  "targetbranch",
-  "title",
-  "repository",
-  "date",
-  "time",
-  "timestamp",
+  'username',
+  'randomstring',
+  'branch',
+  'targetbranch',
+  'title',
+  'repository',
+  'date',
+  'time',
+  'timestamp',
 ] as const;
 
 export interface AzureRemoteInfo {
@@ -126,9 +136,7 @@ const AZURE_THREAD_STATUSES: Record<string, number> = {
   pending: 7,
 };
 const azureThreadStatusName = (value: number): string =>
-  Object.entries(AZURE_THREAD_STATUSES).find(
-    ([, numeric]) => numeric === value,
-  )?.[0] ?? "unknown";
+  Object.entries(AZURE_THREAD_STATUSES).find(([, numeric]) => numeric === value)?.[0] ?? 'unknown';
 
 /** Pull request reviewer votes, by their numeric REST value. */
 const AZURE_VOTES: Record<string, number> = {
@@ -145,7 +153,7 @@ const AZURE_VOTES: Record<string, number> = {
  * forms, a trailing .git, and URL-encoded segments such as %20.
  */
 export function parseAzureRemoteUrl(remoteUrl: string): AzureRemoteInfo | null {
-  const value = (remoteUrl ?? "").trim();
+  const value = (remoteUrl ?? '').trim();
   if (!value) {
     return null;
   }
@@ -163,19 +171,19 @@ export function parseAzureRemoteUrl(remoteUrl: string): AzureRemoteInfo | null {
     path = scpMatch[1];
   }
 
-  path = path.replace(/\.git\/?$/i, "");
+  path = path.replace(/\.git\/?$/i, '');
   try {
     path = decodeURIComponent(path);
   } catch {
     // Keep the raw path when it contains invalid percent-escapes.
   }
 
-  const gitIndex = path.toLowerCase().lastIndexOf("/_git/");
+  const gitIndex = path.toLowerCase().lastIndexOf('/_git/');
   if (gitIndex < 0) {
     return null;
   }
-  const projectPath = path.slice(0, gitIndex).replace(/^\/+|\/+$/g, "");
-  const repo = path.slice(gitIndex + "/_git/".length).replace(/^\/+|\/+$/g, "");
+  const projectPath = path.slice(0, gitIndex).replace(/^\/+|\/+$/g, '');
+  const repo = path.slice(gitIndex + '/_git/'.length).replace(/^\/+|\/+$/g, '');
   if (!projectPath || !repo) {
     return null;
   }
@@ -187,11 +195,8 @@ export function parseAzureRemoteUrl(remoteUrl: string): AzureRemoteInfo | null {
  * DevOps REST calls. When the base URL already contains the collection
  * prefix of the remote path it is not duplicated.
  */
-export function buildAzureProjectPrefix(
-  baseUrl: string,
-  remoteUrl: string,
-): string | null {
-  const base = (baseUrl ?? "").trim().replace(/\/+$/, "");
+export function buildAzureProjectPrefix(baseUrl: string, remoteUrl: string): string | null {
+  const base = (baseUrl ?? '').trim().replace(/\/+$/, '');
   if (!base) {
     return null;
   }
@@ -202,42 +207,36 @@ export function buildAzureProjectPrefix(
 
   const encodePath = (value: string) =>
     value
-      .split("/")
+      .split('/')
       .filter(Boolean)
       .map((segment) => encodeURIComponent(segment))
-      .join("/");
+      .join('/');
 
   try {
     const parsed = new URL(base);
     const decode = (path: string) =>
       path
-        .split("/")
+        .split('/')
         .filter(Boolean)
         .map((segment) => decodeURIComponent(segment));
     const baseParts = decode(parsed.pathname);
-    const remoteParts = info.projectPath.split("/").filter(Boolean);
+    const remoteParts = info.projectPath.split('/').filter(Boolean);
     let overlap = Math.min(baseParts.length, remoteParts.length);
     while (
       overlap &&
       !baseParts
         .slice(-overlap)
-        .every(
-          (part, index) =>
-            part.toLowerCase() === remoteParts[index].toLowerCase(),
-        )
+        .every((part, index) => part.toLowerCase() === remoteParts[index].toLowerCase())
     )
       overlap--;
-    return `${parsed.origin}/${[...baseParts, ...remoteParts.slice(overlap)].map(encodeURIComponent).join("/")}`;
+    return `${parsed.origin}/${[...baseParts, ...remoteParts.slice(overlap)].map(encodeURIComponent).join('/')}`;
   } catch {
     return `${base}/${encodePath(info.projectPath)}`;
   }
 }
 
 /** Builds the pullrequests REST URL from the server base URL and origin remote. */
-export function buildAzurePullRequestUrl(
-  baseUrl: string,
-  remoteUrl: string,
-): string | null {
+export function buildAzurePullRequestUrl(baseUrl: string, remoteUrl: string): string | null {
   const prefix = buildAzureProjectPrefix(baseUrl, remoteUrl);
   if (!prefix) {
     return null;
@@ -259,71 +258,67 @@ function defaultAzureRequest(
   method: AzureRequestMethod,
   url: string,
   body: string,
-  contentType = "application/json",
+  contentType = 'application/json',
 ): Promise<AzureRequestResult> {
   return new Promise((resolveRequest, rejectRequest) => {
     const args = [
-      "-sS",
-      "--negotiate",
-      "-u",
-      ":",
-      "--max-time",
-      "60",
-      "-w",
-      "\n%{http_code}",
-      "-X",
+      '-sS',
+      '--negotiate',
+      '-u',
+      ':',
+      '--max-time',
+      '60',
+      '-w',
+      '\n%{http_code}',
+      '-X',
       method,
     ];
-    if (method === "POST" || method === "PUT" || method === "PATCH") {
-      args.push("-H", `Content-Type: ${contentType}`, "--data-binary", "@-");
+    if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+      args.push('-H', `Content-Type: ${contentType}`, '--data-binary', '@-');
     }
     args.push(url);
-    const child = spawn("curl.exe", args, { windowsHide: true });
+    const child = spawn('curl.exe', args, { windowsHide: true });
 
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
       stdout += chunk;
     });
-    child.stderr.on("data", (chunk) => {
+    child.stderr.on('data', (chunk) => {
       stderr += chunk;
     });
     // EPIPE when curl exits before reading the whole body; the close handler
     // reports the real failure.
-    child.stdin.on("error", () => {});
-    child.on("error", (err) => {
+    child.stdin.on('error', () => {});
+    child.on('error', (err) => {
       rejectRequest(
         new Error(
           `Failed to run curl.exe (Windows integrated auth requires Windows): ${err.message}`,
         ),
       );
     });
-    child.on("close", (code) => {
+    child.on('close', (code) => {
       if (code !== 0) {
-        rejectRequest(
-          new Error(stderr.trim() || `curl.exe exited with code ${code}.`),
-        );
+        rejectRequest(new Error(stderr.trim() || `curl.exe exited with code ${code}.`));
         return;
       }
       // -w appends "\n<http_code>" after the response body.
-      const separator = stdout.lastIndexOf("\n");
+      const separator = stdout.lastIndexOf('\n');
       const status = Number.parseInt(stdout.slice(separator + 1), 10);
       if (separator < 0 || !Number.isFinite(status)) {
-        rejectRequest(
-          new Error("Unexpected curl.exe output (missing HTTP status)."),
-        );
+        rejectRequest(new Error('Unexpected curl.exe output (missing HTTP status).'));
         return;
       }
       resolveRequest({ status, body: stdout.slice(0, separator) });
     });
-    child.stdin.end(body, "utf8");
+    child.stdin.end(body, 'utf8');
   });
 }
 
 const randomBranchSuffix = (): string => {
-  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
   const bytes = randomBytes(6);
-  let suffix = "";
+  let suffix = '';
   for (const byte of bytes) {
     suffix += alphabet[byte % alphabet.length];
   }
@@ -336,37 +331,28 @@ type PrBranchTemplateValues = Record<PrBranchTemplateVariable, string>;
 const safeBranchTemplateValue = (value: string): string =>
   value
     .trim()
-    .replace(/[\x00-\x20\x7f~^:?*\[\\]+/g, "-")
-    .replace(/\.{2,}/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[./-]+|[./-]+$/g, "") || "unknown";
+    .replace(/[\x00-\x20\x7f~^:?*\[\\]+/g, '-')
+    .replace(/\.{2,}/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[./-]+|[./-]+$/g, '') || 'unknown';
 
 /** Expands a configured automatic PR branch name and rejects unknown variables. */
-export const formatPrBranchName = (
-  template: string,
-  values: PrBranchTemplateValues,
-): string => {
+export const formatPrBranchName = (template: string, values: PrBranchTemplateValues): string => {
   const source = template.trim() || DEFAULT_PR_BRANCH_NAME_TEMPLATE;
   return source.replace(/\$\{([^}]+)\}/g, (_match, variable: string) => {
-    if (
-      !PR_BRANCH_TEMPLATE_VARIABLES.includes(
-        variable as PrBranchTemplateVariable,
-      )
-    ) {
+    if (!PR_BRANCH_TEMPLATE_VARIABLES.includes(variable as PrBranchTemplateVariable)) {
       throw new Error(
-        `Unknown pull request branch variable \${${variable}}. Supported variables: ${PR_BRANCH_TEMPLATE_VARIABLES.map((name) => `\${${name}}`).join(", ")}.`,
+        `Unknown pull request branch variable \${${variable}}. Supported variables: ${PR_BRANCH_TEMPLATE_VARIABLES.map((name) => `\${${name}}`).join(', ')}.`,
       );
     }
-    return safeBranchTemplateValue(
-      values[variable as PrBranchTemplateVariable],
-    );
+    return safeBranchTemplateValue(values[variable as PrBranchTemplateVariable]);
   });
 };
 
 /** Extracts Azure DevOps' human-readable error message from a REST response. */
 const azureErrorMessage = (result: AzureRequestResult): string => {
   try {
-    return String(JSON.parse(result.body)?.message ?? "");
+    return String(JSON.parse(result.body)?.message ?? '');
   } catch {
     return result.body;
   }
@@ -390,6 +376,7 @@ export async function startGuitoServer({
   issueUrl,
   allowMerge,
   fileListView,
+  refListView,
   searchMode,
   searchCaseSensitive,
   azureRequestImpl,
@@ -403,12 +390,10 @@ export async function startGuitoServer({
 
   if (onLog) {
     // Report error responses to the host (e.g. the VS Code output channel).
-    app.addHook("onSend", async (request, reply, payload) => {
+    app.addHook('onSend', async (request, reply, payload) => {
       if (reply.statusCode >= 400) {
-        const body = typeof payload === "string" ? payload.slice(0, 500) : "";
-        onLog(
-          `${request.method} ${request.url} -> ${reply.statusCode}${body ? ` ${body}` : ""}`,
-        );
+        const body = typeof payload === 'string' ? payload.slice(0, 500) : '';
+        onLog(`${request.method} ${request.url} -> ${reply.statusCode}${body ? ` ${body}` : ''}`);
       }
       return payload;
     });
@@ -421,38 +406,34 @@ export async function startGuitoServer({
   await app.register(fastifyCompress);
 
   if (apiToken) {
-    app.addHook("onRequest", async (request, reply) => {
-      const pathname = request.url.split("?", 1)[0];
-      if (!pathname.startsWith("/api/")) {
+    app.addHook('onRequest', async (request, reply) => {
+      const pathname = request.url.split('?', 1)[0];
+      if (!pathname.startsWith('/api/')) {
         return;
       }
 
-      const headerToken = request.headers["x-guito-token"];
-      const queryToken = (request.query as { guitoToken?: string } | undefined)
-        ?.guitoToken;
-      const archiveToken = pathname === "/api/archive" ? queryToken : undefined;
+      const headerToken = request.headers['x-guito-token'];
+      const queryToken = (request.query as { guitoToken?: string } | undefined)?.guitoToken;
+      const archiveToken = pathname === '/api/archive' ? queryToken : undefined;
       if (headerToken !== apiToken && archiveToken !== apiToken) {
-        await reply
-          .status(401)
-          .type("application/json")
-          .send({ error: "unauthorized" });
+        await reply.status(401).type('application/json').send({ error: 'unauthorized' });
       }
     });
   }
 
   // Register static file provider (supports both `ui/` and `ui/browser/` layouts)
-  const staticRoot = existsSync(join(uiRoot, "browser", "index.html"))
-    ? join(uiRoot, "browser")
+  const staticRoot = existsSync(join(uiRoot, 'browser', 'index.html'))
+    ? join(uiRoot, 'browser')
     : uiRoot;
 
   if (existsSync(staticRoot)) {
     await app.register(fastifyStatic, { root: staticRoot });
 
     // Serve UI
-    app.get("/", (_req, resp) => resp.sendFile("index.html"));
+    app.get('/', (_req, resp) => resp.sendFile('index.html'));
   } else {
-    app.get("/", (_req, resp) =>
-      resp.send("Guito API is running. Build the UI with `npm run build:ui`."),
+    app.get('/', (_req, resp) =>
+      resp.send('Guito API is running. Build the UI with `npm run build:ui`.'),
     );
   }
 
@@ -460,19 +441,17 @@ export async function startGuitoServer({
   const git = simpleGit(repositoryPath);
 
   const avatars = avatarCache(avatarFetchImpl);
-  app.get("/api/avatar", async (req: any, reply) => {
-    const email = String(req.query?.email ?? "").trim();
+  app.get('/api/avatar', async (req: any, reply) => {
+    const email = String(req.query?.email ?? '').trim();
     if (!email || email.length > 320)
-      return reply.code(400).send({ error: "Valid email required" });
+      return reply.code(400).send({ error: 'Valid email required' });
     const image = await avatars(email);
-    reply.header("Cache-Control", "private, max-age=3600");
-    return image
-      ? reply.type(image.contentType).send(image.data)
-      : reply.code(204).send();
+    reply.header('Cache-Control', 'private, max-age=3600');
+    return image ? reply.type(image.contentType).send(image.data) : reply.code(204).send();
   });
 
   let stateRequest: ReturnType<typeof repositoryState> | undefined;
-  app.get("/api/repository-state", async (_req, reply) => {
+  app.get('/api/repository-state', async (_req, reply) => {
     try {
       stateRequest ??= repositoryState(git, repositoryPath).finally(() => {
         stateRequest = undefined;
@@ -486,7 +465,7 @@ export async function startGuitoServer({
   // ==================== Diff parsing ====================
   function parseUnifiedDiff(rawDiff: string): any[] {
     const files: any[] = [];
-    const lines = rawDiff.split("\n");
+    const lines = rawDiff.split('\n');
 
     let current: any = null;
     let inHunk = false;
@@ -495,9 +474,9 @@ export async function startGuitoServer({
 
     const startFile = (line: string) => {
       current = {
-        path: "",
-        oldPath: "",
-        status: "modified",
+        path: '',
+        oldPath: '',
+        status: 'modified',
         lines: [],
         additions: 0,
         deletions: 0,
@@ -511,7 +490,7 @@ export async function startGuitoServer({
     };
 
     for (const line of lines) {
-      if (line.startsWith("diff --git ")) {
+      if (line.startsWith('diff --git ')) {
         if (current) files.push(current);
         startFile(line);
         continue;
@@ -519,55 +498,50 @@ export async function startGuitoServer({
 
       if (!current) continue;
 
-      if (line.startsWith("@@")) {
+      if (line.startsWith('@@')) {
         inHunk = true;
         const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
         if (match) {
           oldLine = parseInt(match[1], 10);
           newLine = parseInt(match[2], 10);
         }
-        current.lines.push({ type: "hunk", text: line });
+        current.lines.push({ type: 'hunk', text: line });
         continue;
       }
 
       if (!inHunk) {
         // File meta headers (mode, index, rename, binary...)
-        if (line.startsWith("new file mode")) current.status = "added";
-        else if (line.startsWith("deleted file mode"))
-          current.status = "deleted";
-        else if (line.startsWith("rename from ")) current.status = "renamed";
-        else if (line.startsWith("rename to "))
-          current.path = line.slice("rename to ".length);
-        else if (
-          line.startsWith("Binary files") ||
-          line.startsWith("GIT binary patch")
-        )
-          current.status = "binary";
+        if (line.startsWith('new file mode')) current.status = 'added';
+        else if (line.startsWith('deleted file mode')) current.status = 'deleted';
+        else if (line.startsWith('rename from ')) current.status = 'renamed';
+        else if (line.startsWith('rename to ')) current.path = line.slice('rename to '.length);
+        else if (line.startsWith('Binary files') || line.startsWith('GIT binary patch'))
+          current.status = 'binary';
         continue;
       }
 
-      if (line.startsWith("\\")) {
+      if (line.startsWith('\\')) {
         // "\ No newline at end of file"
         continue;
       }
 
-      if (line.startsWith("+")) {
+      if (line.startsWith('+')) {
         current.lines.push({
-          type: "add",
+          type: 'add',
           newLine: newLine++,
           text: line.slice(1),
         });
         current.additions++;
-      } else if (line.startsWith("-")) {
+      } else if (line.startsWith('-')) {
         current.lines.push({
-          type: "del",
+          type: 'del',
           oldLine: oldLine++,
           text: line.slice(1),
         });
         current.deletions++;
       } else {
         current.lines.push({
-          type: "context",
+          type: 'context',
           oldLine: oldLine++,
           newLine: newLine++,
           text: line.slice(1),
@@ -588,58 +562,44 @@ export async function startGuitoServer({
     return result;
   };
 
-  const repoRoot = async (): Promise<string> =>
-    (await git.revparse(["--show-toplevel"])).trim();
+  const repoRoot = async (): Promise<string> => (await git.revparse(['--show-toplevel'])).trim();
 
   // ==================== Azure DevOps settings ====================
   // Settings live in the repository's git directory so they are per-repo and
   // never committed. The VS Code extension passes its own setting via
   // azureDevOpsUrl, which wins over the file.
-  let settingsPath = "";
+  let settingsPath = '';
   try {
-    const gitDir = (await git.revparse(["--absolute-git-dir"])).trim();
-    settingsPath = join(gitDir, "guito-settings.json");
+    const gitDir = (await git.revparse(['--absolute-git-dir'])).trim();
+    settingsPath = join(gitDir, 'guito-settings.json');
   } catch {
-    settingsPath = join(repositoryPath, ".git", "guito-settings.json");
+    settingsPath = join(repositoryPath, '.git', 'guito-settings.json');
   }
 
   const readSettings = async (): Promise<Record<string, unknown>> => {
     try {
-      return JSON.parse(await readFile(settingsPath, "utf8")) as Record<
-        string,
-        unknown
-      >;
+      return JSON.parse(await readFile(settingsPath, 'utf8')) as Record<string, unknown>;
     } catch {
       return {};
     }
   };
 
-  const writeSettings = async (
-    settings: Record<string, unknown>,
-  ): Promise<void> => {
-    await writeFile(
-      settingsPath,
-      `${JSON.stringify(settings, null, 2)}\n`,
-      "utf8",
-    );
+  const writeSettings = async (settings: Record<string, unknown>): Promise<void> => {
+    await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
   };
 
-  const azureRequest: AzureRequestImpl =
-    azureRequestImpl ?? defaultAzureRequest;
+  const azureRequest: AzureRequestImpl = azureRequestImpl ?? defaultAzureRequest;
   const effectiveAzureUrl = async (): Promise<{
     url: string;
-    source: "vscode" | "file" | "";
+    source: 'vscode' | 'file' | '';
   }> => {
-    const configuredAzureUrl = azureDevOpsUrl?.trim() ?? "";
+    const configuredAzureUrl = azureDevOpsUrl?.trim() ?? '';
     if (configuredAzureUrl) {
-      return { url: configuredAzureUrl, source: "vscode" };
+      return { url: configuredAzureUrl, source: 'vscode' };
     }
     const settings = await readSettings();
-    const url =
-      typeof settings.azureDevOpsUrl === "string"
-        ? settings.azureDevOpsUrl.trim()
-        : "";
-    return { url, source: url ? "file" : "" };
+    const url = typeof settings.azureDevOpsUrl === 'string' ? settings.azureDevOpsUrl.trim() : '';
+    return { url, source: url ? 'file' : '' };
   };
 
   /** Resolves the Azure DevOps project prefix or throws a user-facing error. */
@@ -650,22 +610,18 @@ export async function startGuitoServer({
     const effective = await effectiveAzureUrl();
     if (!effective.url) {
       throw new Error(
-        "Azure DevOps URL is not configured. Set it in Settings (gear icon) or the guito.azureDevOpsUrl VS Code setting.",
+        'Azure DevOps URL is not configured. Set it in Settings (gear icon) or the guito.azureDevOpsUrl VS Code setting.',
       );
     }
-    let remoteUrl = "";
+    let remoteUrl = '';
     try {
-      remoteUrl = (
-        await (git.remote(["get-url", "origin"]) as unknown as Promise<string>)
-      ).trim();
+      remoteUrl = (await (git.remote(['get-url', 'origin']) as unknown as Promise<string>)).trim();
     } catch {
       throw new Error('No "origin" remote is configured for this repository.');
     }
     const prefix = buildAzureProjectPrefix(effective.url, remoteUrl);
     if (!prefix) {
-      throw new Error(
-        `The origin remote does not point to an Azure DevOps project: ${remoteUrl}`,
-      );
+      throw new Error(`The origin remote does not point to an Azure DevOps project: ${remoteUrl}`);
     }
     return { prefix, remoteUrl };
   };
@@ -679,11 +635,11 @@ export async function startGuitoServer({
     const { prefix } = await azureProjectContext();
     // The prefix is "{collection-or-org}/{project}"; connectionData is
     // collection scoped.
-    const collection = prefix.slice(0, prefix.lastIndexOf("/"));
+    const collection = prefix.slice(0, prefix.lastIndexOf('/'));
     const result = await azureRequest(
-      "GET",
+      'GET',
       `${collection}/_apis/connectionData?q=1&api-version=${AZURE_API_VERSION}`,
-      "",
+      '',
     );
     if (result.status < 200 || result.status >= 300) {
       throw new Error(
@@ -692,45 +648,32 @@ export async function startGuitoServer({
       );
     }
     const user = (JSON.parse(result.body) ?? {}).authenticatedUser;
-    const id = String(user?.id ?? "");
+    const id = String(user?.id ?? '');
     if (!id) {
-      throw new Error("Azure DevOps did not report an authenticated user.");
+      throw new Error('Azure DevOps did not report an authenticated user.');
     }
     cachedAzureMe = {
       id,
-      name: String(user?.providerDisplayName ?? ""),
-      email: String(
-        user?.properties?.Mail?.$value ??
-          user?.properties?.Account?.$value ??
-          "",
-      ),
+      name: String(user?.providerDisplayName ?? ''),
+      email: String(user?.properties?.Mail?.$value ?? user?.properties?.Account?.$value ?? ''),
     };
     return cachedAzureMe;
   };
 
   /** Web UI URL of a pull request, used by the "Open in Azure DevOps" links. */
-  const azurePrWebUrl = (
-    prefix: string,
-    remoteUrl: string,
-    id: number,
-  ): string => {
-    const repo = parseAzureRemoteUrl(remoteUrl)?.repo ?? "";
+  const azurePrWebUrl = (prefix: string, remoteUrl: string, id: number): string => {
+    const repo = parseAzureRemoteUrl(remoteUrl)?.repo ?? '';
     return `${prefix}/_git/${encodeURIComponent(repo)}/pullrequest/${id}`;
   };
 
   /** Normalizes the Azure pull request merge state for the dialog. */
   const azureMergeStatus = (pr: any): string => {
-    const raw = String(pr?.mergeStatus ?? "notSet");
-    return [
-      "notSet",
-      "queued",
-      "conflicts",
-      "succeeded",
-      "rejectedByPolicy",
-      "failure",
-    ].includes(raw)
+    const raw = String(pr?.mergeStatus ?? 'notSet');
+    return ['notSet', 'queued', 'conflicts', 'succeeded', 'rejectedByPolicy', 'failure'].includes(
+      raw,
+    )
       ? raw
-      : "notSet";
+      : 'notSet';
   };
 
   /** Maps one Azure DevOps pull request record to the shape the UI consumes. */
@@ -740,39 +683,29 @@ export async function startGuitoServer({
     remoteUrl: string,
     me: AzureIdentity | null,
   ) => {
-    const reviewers = (Array.isArray(pr?.reviewers) ? pr.reviewers : []).map(
-      (entry: any) => ({
-        id: String(entry?.id ?? ""),
-        name: String(entry?.displayName ?? ""),
-        email: String(entry?.uniqueName ?? ""),
-        vote: Number(entry?.vote ?? 0),
-        isRequired: entry?.isRequired === true,
-      }),
-    );
-    const mine = me
-      ? reviewers.find((reviewer: any) => reviewer.id === me.id)
-      : undefined;
+    const reviewers = (Array.isArray(pr?.reviewers) ? pr.reviewers : []).map((entry: any) => ({
+      id: String(entry?.id ?? ''),
+      name: String(entry?.displayName ?? ''),
+      email: String(entry?.uniqueName ?? ''),
+      vote: Number(entry?.vote ?? 0),
+      isRequired: entry?.isRequired === true,
+    }));
+    const mine = me ? reviewers.find((reviewer: any) => reviewer.id === me.id) : undefined;
     return {
       id: Number(pr?.pullRequestId ?? 0),
-      title: String(pr?.title ?? ""),
+      title: String(pr?.title ?? ''),
       isDraft: pr?.isDraft === true,
       author: {
-        id: String(pr?.createdBy?.id ?? ""),
-        name: String(pr?.createdBy?.displayName ?? ""),
-        email: String(pr?.createdBy?.uniqueName ?? ""),
+        id: String(pr?.createdBy?.id ?? ''),
+        name: String(pr?.createdBy?.displayName ?? ''),
+        email: String(pr?.createdBy?.uniqueName ?? ''),
       },
-      createdAt: String(pr?.creationDate ?? ""),
-      sourceBranch: String(pr?.sourceRefName ?? "").replace(
-        /^refs\/heads\//,
-        "",
-      ),
-      targetBranch: String(pr?.targetRefName ?? "").replace(
-        /^refs\/heads\//,
-        "",
-      ),
-      status: String(pr?.status ?? "active"),
+      createdAt: String(pr?.creationDate ?? ''),
+      sourceBranch: String(pr?.sourceRefName ?? '').replace(/^refs\/heads\//, ''),
+      targetBranch: String(pr?.targetRefName ?? '').replace(/^refs\/heads\//, ''),
+      status: String(pr?.status ?? 'active'),
       webUrl:
-        String(pr?._links?.web?.href || "") ||
+        String(pr?._links?.web?.href || '') ||
         azurePrWebUrl(prefix, remoteUrl, Number(pr?.pullRequestId ?? 0)),
       reviewers,
       myVote: mine ? Number(mine.vote ?? 0) : 0,
@@ -790,14 +723,12 @@ export async function startGuitoServer({
     repo: string;
   }> => {
     if (!Number.isInteger(id) || id <= 0) {
-      throw new Error("A pull request id is required.");
+      throw new Error('A pull request id is required.');
     }
     const { prefix, remoteUrl } = await azureProjectContext();
     const repo = parseAzureRemoteUrl(remoteUrl)?.repo;
     if (!repo) {
-      throw new Error(
-        `The origin remote does not point to an Azure DevOps project: ${remoteUrl}`,
-      );
+      throw new Error(`The origin remote does not point to an Azure DevOps project: ${remoteUrl}`);
     }
     return {
       prefix,
@@ -811,34 +742,24 @@ export async function startGuitoServer({
   const azureJson = async <T>(
     method: AzureRequestMethod,
     url: string,
-    body = "",
-    contentType = "application/json",
+    body = '',
+    contentType = 'application/json',
   ): Promise<T> => {
     const result = await azureRequest(method, url, body, contentType);
     if (result.status < 200 || result.status >= 300) {
-      throw new Error(
-        azureErrorMessage(result) ||
-          `Azure DevOps returned HTTP ${result.status}.`,
-      );
+      throw new Error(azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`);
     }
     return (result.body ? JSON.parse(result.body) : {}) as T;
   };
 
   /** vstfs artifact URI of a pull request; work item ArtifactLink relations point at it. */
-  const azurePrArtifactUrl = (
-    projectId: string,
-    repositoryId: string,
-    id: number,
-  ): string =>
+  const azurePrArtifactUrl = (projectId: string, repositoryId: string, id: number): string =>
     `vstfs:///Git/PullRequestId/${encodeURIComponent(projectId)}%2F${encodeURIComponent(repositoryId)}%2F${id}`;
 
   /** Reads one work item's relations from the WIT API. */
-  const azureWorkItemRelations = async (
-    prefix: string,
-    workItemId: number,
-  ): Promise<any[]> => {
+  const azureWorkItemRelations = async (prefix: string, workItemId: number): Promise<any[]> => {
     const item = await azureJson<any>(
-      "GET",
+      'GET',
       `${prefix}/_apis/wit/workitems/${workItemId}?$expand=relations&api-version=${AZURE_API_VERSION}`,
     );
     return Array.isArray(item?.relations) ? item.relations : [];
@@ -851,10 +772,10 @@ export async function startGuitoServer({
     patch: unknown[],
   ): Promise<void> => {
     await azureJson(
-      "PATCH",
+      'PATCH',
       `${prefix}/_apis/wit/workitems/${workItemId}?api-version=${AZURE_API_VERSION}`,
       JSON.stringify(patch),
-      "application/json-patch+json",
+      'application/json-patch+json',
     );
   };
 
@@ -863,16 +784,11 @@ export async function startGuitoServer({
     id: number,
   ): Promise<{ prefix: string; artifactUrl: string }> => {
     const { base, prefix } = await azurePrApiBase(id);
-    const pr = await azureJson<any>(
-      "GET",
-      `${base}?api-version=${AZURE_API_VERSION}`,
-    );
-    const projectId = String(pr?.repository?.project?.id ?? "");
-    const repositoryId = String(pr?.repository?.id ?? "");
+    const pr = await azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`);
+    const projectId = String(pr?.repository?.project?.id ?? '');
+    const repositoryId = String(pr?.repository?.id ?? '');
     if (!projectId || !repositoryId) {
-      throw new Error(
-        "Azure DevOps did not report the pull request's project and repository.",
-      );
+      throw new Error("Azure DevOps did not report the pull request's project and repository.");
     }
     return {
       prefix,
@@ -883,57 +799,41 @@ export async function startGuitoServer({
   const effectiveSettings = async (): Promise<{
     azureDevOpsUrl: string;
     prBranchNameTemplate: string;
-    source: "vscode" | "file" | "";
+    source: 'vscode' | 'file' | '';
     autoReload: boolean;
-    diffViewer: "guito" | "vscode";
+    diffViewer: 'guito' | 'vscode';
     showGraph: boolean;
     showStashes: boolean;
     showTags: boolean;
     showRemoteBranches: boolean;
-    fileListView: "flat" | "tree";
-    searchMode: "navigate" | "filter";
+    fileListView: 'flat' | 'tree';
+    refListView: 'flat' | 'tree';
+    searchMode: 'navigate' | 'filter';
     searchCaseSensitive: boolean;
     issueLinking: { regex: string; url: string; useGlobally: boolean } | null;
     allowMerge: boolean;
   }> => {
-    const [file, azure] = await Promise.all([
-      readSettings(),
-      effectiveAzureUrl(),
-    ]);
-    const fileAutoReload =
-      typeof file.autoReload === "boolean" ? file.autoReload : undefined;
-    const fileShowGraph =
-      typeof file.showGraph === "boolean" ? file.showGraph : undefined;
-    const fileShowStashes =
-      typeof file.showStashes === "boolean" ? file.showStashes : undefined;
-    const fileShowTags =
-      typeof file.showTags === "boolean" ? file.showTags : undefined;
+    const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
+    const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
+    const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
+    const fileShowStashes = typeof file.showStashes === 'boolean' ? file.showStashes : undefined;
+    const fileShowTags = typeof file.showTags === 'boolean' ? file.showTags : undefined;
     const fileShowRemoteBranches =
-      typeof file.showRemoteBranches === "boolean"
-        ? file.showRemoteBranches
-        : undefined;
+      typeof file.showRemoteBranches === 'boolean' ? file.showRemoteBranches : undefined;
     const fileFileListView =
-      file.fileListView === "tree" || file.fileListView === "flat"
-        ? file.fileListView
-        : undefined;
+      file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
+    const fileRefListView =
+      file.refListView === 'tree' || file.refListView === 'flat' ? file.refListView : undefined;
     const fileSearchMode =
-      file.searchMode === "filter" || file.searchMode === "navigate"
-        ? file.searchMode
-        : undefined;
-    const fileAllowMerge =
-      typeof file.allowMerge === "boolean" ? file.allowMerge : undefined;
+      file.searchMode === 'filter' || file.searchMode === 'navigate' ? file.searchMode : undefined;
+    const fileAllowMerge = typeof file.allowMerge === 'boolean' ? file.allowMerge : undefined;
     const fileSearchCaseSensitive =
-      typeof file.searchCaseSensitive === "boolean"
-        ? file.searchCaseSensitive
-        : undefined;
+      typeof file.searchCaseSensitive === 'boolean' ? file.searchCaseSensitive : undefined;
     const filePrBranchNameTemplate =
-      typeof file.prBranchNameTemplate === "string" &&
-      file.prBranchNameTemplate.trim()
+      typeof file.prBranchNameTemplate === 'string' && file.prBranchNameTemplate.trim()
         ? file.prBranchNameTemplate.trim()
         : undefined;
-    const localIssue = file.issueLinking as
-      | { regex?: unknown; url?: unknown }
-      | undefined;
+    const localIssue = file.issueLinking as { regex?: unknown; url?: unknown } | undefined;
     let issueLinking: {
       regex: string;
       url: string;
@@ -945,10 +845,7 @@ export async function startGuitoServer({
         url: issueUrl.trim(),
         useGlobally: true,
       };
-    } else if (
-      typeof localIssue?.regex === "string" &&
-      typeof localIssue.url === "string"
-    ) {
+    } else if (typeof localIssue?.regex === 'string' && typeof localIssue.url === 'string') {
       issueLinking = {
         regex: localIssue.regex,
         url: localIssue.url,
@@ -956,12 +853,8 @@ export async function startGuitoServer({
       };
     } else {
       const [regex, url] = await Promise.all([
-        git
-          .raw(["config", "--global", "--get", "guito.issueRegex"])
-          .catch(() => ""),
-        git
-          .raw(["config", "--global", "--get", "guito.issueUrl"])
-          .catch(() => ""),
+        git.raw(['config', '--global', '--get', 'guito.issueRegex']).catch(() => ''),
+        git.raw(['config', '--global', '--get', 'guito.issueUrl']).catch(() => ''),
       ]);
       if (regex.trim() && url.trim()) {
         issueLinking = {
@@ -974,33 +867,25 @@ export async function startGuitoServer({
     return {
       azureDevOpsUrl: azure.url,
       prBranchNameTemplate:
-        prBranchNameTemplate?.trim() ||
-        filePrBranchNameTemplate ||
-        DEFAULT_PR_BRANCH_NAME_TEMPLATE,
+        prBranchNameTemplate?.trim() || filePrBranchNameTemplate || DEFAULT_PR_BRANCH_NAME_TEMPLATE,
       source: azure.source,
-      autoReload:
-        typeof autoReload === "boolean" ? autoReload : (fileAutoReload ?? true),
-      diffViewer: diffViewer === "vscode" ? "vscode" : "guito",
-      showGraph:
-        typeof showGraph === "boolean" ? showGraph : (fileShowGraph ?? true),
-      showStashes:
-        typeof showStashes === "boolean"
-          ? showStashes
-          : (fileShowStashes ?? false),
-      showTags:
-        typeof showTags === "boolean" ? showTags : (fileShowTags ?? true),
+      autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
+      diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
+      showGraph: typeof showGraph === 'boolean' ? showGraph : (fileShowGraph ?? true),
+      showStashes: typeof showStashes === 'boolean' ? showStashes : (fileShowStashes ?? false),
+      showTags: typeof showTags === 'boolean' ? showTags : (fileShowTags ?? true),
       showRemoteBranches:
-        typeof showRemoteBranches === "boolean"
+        typeof showRemoteBranches === 'boolean'
           ? showRemoteBranches
           : (fileShowRemoteBranches ?? true),
-      fileListView: fileListView ?? fileFileListView ?? "flat",
-      searchMode: searchMode ?? fileSearchMode ?? "navigate",
+      fileListView: fileListView ?? fileFileListView ?? 'flat',
+      refListView: refListView ?? fileRefListView ?? 'flat',
+      searchMode: searchMode ?? fileSearchMode ?? 'navigate',
       searchCaseSensitive:
-        typeof searchCaseSensitive === "boolean"
+        typeof searchCaseSensitive === 'boolean'
           ? searchCaseSensitive
           : (fileSearchCaseSensitive ?? false),
-      allowMerge:
-        typeof allowMerge === "boolean" ? allowMerge : (fileAllowMerge ?? true),
+      allowMerge: typeof allowMerge === 'boolean' ? allowMerge : (fileAllowMerge ?? true),
       issueLinking,
     };
   };
@@ -1008,8 +893,8 @@ export async function startGuitoServer({
   const configuredIdentity = async () => {
     const config = await git.listConfig();
     return {
-      name: String(config.all["user.name"] ?? "").trim(),
-      email: String(config.all["user.email"] ?? "").trim(),
+      name: String(config.all['user.name'] ?? '').trim(),
+      email: String(config.all['user.email'] ?? '').trim(),
     };
   };
   const authorIdentity = (
@@ -1018,37 +903,32 @@ export async function startGuitoServer({
     identity: { name: string; email: string },
   ) => ({
     author_name:
-      identity.name &&
-      identity.email &&
-      email.trim().toLowerCase() === identity.email.toLowerCase()
+      identity.name && identity.email && email.trim().toLowerCase() === identity.email.toLowerCase()
         ? identity.name
         : name,
     author_email: email,
   });
 
   // ==================== Repository ====================
-  app.get("/api/repo", async (_req, resp) => {
+  app.get('/api/repo', async (_req, resp) => {
     try {
-      const root = (await git.revparse(["--show-toplevel"])).trim();
-      return resp.type("application/json").send({
+      const root = (await git.revparse(['--show-toplevel'])).trim();
+      return resp.type('application/json').send({
         root,
         name: basename(root),
         identity: await configuredIdentity(),
       });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Commits ====================
-  app.get("/api/commits", async (req: any, resp) => {
+  app.get('/api/commits', async (req: any, resp) => {
     try {
       const query = (req.query ?? {}) as { limit?: string; skip?: string };
-      const limit = Number.parseInt(query.limit ?? "", 10);
-      const skip = Number.parseInt(query.skip ?? "", 10);
+      const limit = Number.parseInt(query.limit ?? '', 10);
+      const skip = Number.parseInt(query.skip ?? '', 10);
 
       // Build simple-git options conditionally: an explicit key with an
       // undefined value would still be emitted as a bare command flag.
@@ -1057,342 +937,284 @@ export async function startGuitoServer({
       // on demand by /api/commit/detail instead.
       const options: Record<string, unknown> = {
         format: {
-          hash: "%H",
-          date: "%aI",
-          message: "%s",
-          refs: "%D",
-          author_name: "%aN",
-          author_email: "%aE",
-          parents: "%P",
+          hash: '%H',
+          date: '%aI',
+          message: '%s',
+          refs: '%D',
+          author_name: '%aN',
+          author_email: '%aE',
+          parents: '%P',
         },
-        "--all": null,
+        '--all': null,
       };
       if (Number.isFinite(limit) && limit > 0) {
         options.maxCount = limit;
       }
       if (Number.isFinite(skip) && skip > 0) {
-        options["--skip"] = String(skip);
+        options['--skip'] = String(skip);
       }
 
       const [log, count, identity] = await Promise.all([
         git.log(options as Parameters<typeof git.log>[0]),
-        git.raw(["rev-list", "--count", "--all"]),
+        git.raw(['rev-list', '--count', '--all']),
         configuredIdentity(),
       ]);
 
       const commits = log.all.map((commit: any) => ({
         ...commit,
         ...authorIdentity(commit.author_name, commit.author_email, identity),
-        parents: String(commit.parents ?? "")
-          .split(" ")
+        parents: String(commit.parents ?? '')
+          .split(' ')
           .filter(Boolean),
       }));
 
       return resp
-        .type("application/json")
+        .type('application/json')
         .send({ commits, total: Number.parseInt(count, 10) || 0 });
     } catch (err: any) {
       // A repository without any commits has no history to list.
       if (
         /does not have any commits yet|unknown revision|bad default revision/i.test(
-          err.message ?? "",
+          err.message ?? '',
         )
       ) {
-        return resp.type("application/json").send({ commits: [], total: 0 });
+        return resp.type('application/json').send({ commits: [], total: 0 });
       }
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // Full-text commit search. The list payload omits commit bodies, so body
-  // matching runs here (git --grep covers subject and body together) and the
+  // matching runs here (the complete commit message is included) and the
   // client unions the resulting hashes with its local subject/author/hash
   // matches over the loaded history.
-  app.get("/api/commits/search", async (req: any, resp) => {
-    const query = String((req.query ?? {}).query ?? "").trim();
-    const caseSensitive = String((req.query ?? {}).caseSensitive ?? "") === "1";
+  app.get('/api/commits/search', async (req: any, resp) => {
+    const query = String((req.query ?? {}).query ?? '').trim();
+    const caseSensitive = String((req.query ?? {}).caseSensitive ?? '') === '1';
     if (!query) {
-      return resp.type("application/json").send({ hashes: [], indices: {} });
+      return resp.type('application/json').send({ hashes: [], indices: {} });
     }
 
     try {
-      const grepArgs = ["log", "--all"];
-      if (!caseSensitive) grepArgs.push("-i");
-      grepArgs.push("--fixed-strings", `--grep=${query}`, "--format=%H");
-      const [raw, history] = await Promise.all([
-        git.raw(grepArgs),
-        git.raw(["log", "--all", "--format=%H"]),
-      ]);
-      const hashes = raw
-        .split("\n")
-        .map((hash) => hash.trim())
-        .filter(Boolean);
-      const matches = new Set(hashes);
-      // Use the same unfiltered Git log order as the paged history endpoint.
+      // NUL separators are safe because Git commit messages cannot contain
+      // NUL bytes. Searching in JS lets insensitive mode fold accents too,
+      // which Git's --regexp-ignore-case does not do consistently.
+      const raw = await git.raw(['log', '--all', '--format=%H%x00%B%x00']);
+      const fields = raw.split('\0');
+      const normalizedQuery = normalizeSearchText(query, caseSensitive);
+      const hashes: string[] = [];
       const indices: Record<string, number> = {};
-      history
-        .split("\n")
-        .map((hash) => hash.trim())
-        .filter(Boolean)
-        .forEach((hash, index) => {
-          if (matches.has(hash)) indices[hash] = index;
-        });
-      return resp.type("application/json").send({
+      let historyIndex = 0;
+      for (let index = 0; index + 1 < fields.length; index += 2) {
+        const hash = fields[index].trim();
+        const message = fields[index + 1];
+        if (!hash) continue;
+        if (normalizeSearchText(message, caseSensitive).includes(normalizedQuery)) {
+          hashes.push(hash);
+          indices[hash] = historyIndex;
+        }
+        historyIndex += 1;
+      }
+      return resp.type('application/json').send({
         hashes,
         indices,
       });
     } catch (err: any) {
       if (
         /does not have any commits yet|unknown revision|bad default revision/i.test(
-          err.message ?? "",
+          err.message ?? '',
         )
       ) {
-        return resp.type("application/json").send({ hashes: [], indices: {} });
+        return resp.type('application/json').send({ hashes: [], indices: {} });
       }
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/commit", async (req: any, resp) => {
+  app.post('/api/commit', async (req: any, resp) => {
     try {
       const { message, description } = req.body ?? {};
       await mutate(() => working.commit(message, description));
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/amend", async (req: any, resp) => {
+  app.post('/api/amend', async (req: any, resp) => {
     try {
       const { message, description } = req.body;
       await git.commit([message, ...(description ? [description] : [])], {
-        "--amend": null,
-        "--no-edit": null,
+        '--amend': null,
+        '--no-edit': null,
       });
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/revert", async (req: any, resp) => {
+  app.post('/api/revert', async (req: any, resp) => {
     try {
       const { commit } = req.body;
       await git.revert(commit);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/cherry-pick", async (req: any, resp) => {
+  app.post('/api/cherry-pick', async (req: any, resp) => {
     try {
-      await git.raw(["cherry-pick", req.body.commit]);
-      return resp.type("application/json").send({ success: true });
+      await git.raw(['cherry-pick', req.body.commit]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/commit/drop", async (req: any, resp) => {
+  app.post('/api/commit/drop', async (req: any, resp) => {
     try {
-      await git.raw(["reset", "--hard", `${req.body.commit}^`]);
-      return resp.type("application/json").send({ success: true });
+      await git.raw(['reset', '--hard', `${req.body.commit}^`]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/reset-commit", async (req: any, resp) => {
+  app.post('/api/reset-commit', async (req: any, resp) => {
     try {
-      const mode = ["soft", "mixed", "hard"].includes(req.body?.mode)
-        ? req.body.mode
-        : "hard";
-      await git.raw(["reset", `--${mode}`, req.body.commit]);
-      return resp.type("application/json").send({ success: true });
+      const mode = ['soft', 'mixed', 'hard'].includes(req.body?.mode) ? req.body.mode : 'hard';
+      await git.raw(['reset', `--${mode}`, req.body.commit]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Staging ====================
-  app.get("/api/status", async (_req, resp) => {
+  app.get('/api/status', async (_req, resp) => {
     try {
       const status = await git.status();
-      return resp.type("application/json").send(status);
+      return resp.type('application/json').send(status);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stage", async (req: any, resp) => {
+  app.post('/api/stage', async (req: any, resp) => {
     try {
       await mutate(() => working.stage(req.body?.files));
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/unstage", async (req: any, resp) => {
+  app.post('/api/unstage', async (req: any, resp) => {
     try {
       await mutate(() => working.unstage(req.body?.files));
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stage-lines", async (req: any, resp) => {
+  app.post('/api/stage-lines', async (req: any, resp) => {
     try {
       const { file, patch } = req.body;
       // Stage specific lines using git add -p equivalent (patch mode)
-      await git.raw("add --patch", { input: patch });
-      return resp.type("application/json").send({ success: true });
+      await git.raw('add --patch', { input: patch });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Branches ====================
-  app.get("/api/branches/all", async (_req, resp) => {
+  app.get('/api/branches/all', async (_req, resp) => {
     try {
       const raw = await git.raw([
-        "for-each-ref",
-        "--format=%(refname)%09%(objectname)%09%(HEAD)",
-        "refs/heads",
-        "refs/remotes",
+        'for-each-ref',
+        '--format=%(refname)%09%(objectname)%09%(HEAD)',
+        'refs/heads',
+        'refs/remotes',
       ]);
 
       const branches = raw
-        .split("\n")
+        .split('\n')
         .map((line) => line.trim())
         .filter(Boolean)
         .map((line) => {
-          const [refname, commit, headMarker] = line.split("\t");
-          const remote = refname.startsWith("refs/remotes/");
-          const name = refname.replace(/^refs\/(heads|remotes)\//, "");
-          return { name, commit, current: headMarker === "*", remote };
+          const [refname, commit, headMarker] = line.split('\t');
+          const remote = refname.startsWith('refs/remotes/');
+          const name = refname.replace(/^refs\/(heads|remotes)\//, '');
+          return { name, commit, current: headMarker === '*', remote };
         });
 
-      return resp.type("application/json").send(branches);
+      return resp.type('application/json').send(branches);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.get("/api/branches", async (_req, resp) => {
+  app.get('/api/branches', async (_req, resp) => {
     try {
       const branchSummary = await git.branchLocal();
-      return resp.type("application/json").send(branchSummary);
+      return resp.type('application/json').send(branchSummary);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/branch/create", async (req: any, resp) => {
+  app.post('/api/branch/create', async (req: any, resp) => {
     try {
       const { name, startPoint } = req.body;
       await git.branch([...(startPoint ? [name, startPoint] : [name])]);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/branch/delete", async (req: any, resp) => {
+  app.post('/api/branch/delete', async (req: any, resp) => {
     try {
       const { name, force } = req.body;
       await git.deleteLocalBranch(name, force);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/branch/delete-remote", async (req: any, resp) => {
+  app.post('/api/branch/delete-remote', async (req: any, resp) => {
     try {
       const { remote, branch } = req.body;
-      await git.push([remote, "--delete", branch]);
-      return resp.type("application/json").send({ success: true });
+      await git.push([remote, '--delete', branch]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/branch/rename", async (req: any, resp) => {
+  app.post('/api/branch/rename', async (req: any, resp) => {
     try {
       const { oldName, newName } = req.body;
-      await git.branch(["-m", oldName, newName]);
-      return resp.type("application/json").send({ success: true });
+      await git.branch(['-m', oldName, newName]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Worktrees ====================
-  app.get("/api/worktrees", async (_req, resp) => {
+  app.get('/api/worktrees', async (_req, resp) => {
     try {
-      const raw = await git.raw(["worktree", "list", "--porcelain"]);
+      const raw = await git.raw(['worktree', 'list', '--porcelain']);
       // Path comparison is case-insensitive on Windows so the served worktree
       // is detected regardless of drive-letter casing.
       const samePath = (a: string, b: string) =>
-        process.platform === "win32"
+        process.platform === 'win32'
           ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
           : resolve(a) === resolve(b);
       const worktrees = raw
@@ -1401,221 +1223,158 @@ export async function startGuitoServer({
         .filter(Boolean)
         .map((block) => {
           const entry = {
-            path: "",
-            head: "",
-            branch: "",
+            path: '',
+            head: '',
+            branch: '',
             bare: false,
             detached: false,
             current: false,
           };
-          for (const line of block.split("\n").map((l) => l.trim())) {
-            if (line.startsWith("worktree "))
-              entry.path = line.slice("worktree ".length);
-            else if (line.startsWith("HEAD "))
-              entry.head = line.slice("HEAD ".length);
-            else if (line.startsWith("branch "))
-              entry.branch = line
-                .slice("branch ".length)
-                .replace(/^refs\/heads\//, "");
-            else if (line === "bare") entry.bare = true;
-            else if (line === "detached") entry.detached = true;
+          for (const line of block.split('\n').map((l) => l.trim())) {
+            if (line.startsWith('worktree ')) entry.path = line.slice('worktree '.length);
+            else if (line.startsWith('HEAD ')) entry.head = line.slice('HEAD '.length);
+            else if (line.startsWith('branch '))
+              entry.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
+            else if (line === 'bare') entry.bare = true;
+            else if (line === 'detached') entry.detached = true;
           }
           entry.current = !!entry.path && samePath(entry.path, repositoryPath);
           return entry;
         });
-      return resp.type("application/json").send(worktrees);
+      return resp.type('application/json').send(worktrees);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/worktrees", async (req: any, resp) => {
+  app.post('/api/worktrees', async (req: any, resp) => {
     try {
-      const path =
-        typeof req.body?.path === "string" ? req.body.path.trim() : "";
-      const branch =
-        typeof req.body?.branch === "string" ? req.body.branch.trim() : "";
+      const path = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+      const branch = typeof req.body?.branch === 'string' ? req.body.branch.trim() : '';
       if (!path || !isAbsolute(path)) {
-        throw new Error("Choose an absolute folder path for the worktree.");
+        throw new Error('Choose an absolute folder path for the worktree.');
       }
       if (!branch) {
-        throw new Error("Choose a local branch for the worktree.");
+        throw new Error('Choose a local branch for the worktree.');
       }
 
       // Resolve the branch as a local ref before passing it to Git. Besides a
       // clearer error, this prevents a request from treating an option as a ref.
-      await git.raw([
-        "show-ref",
-        "--verify",
-        "--quiet",
-        `refs/heads/${branch}`,
-      ]);
-      await mutate(() =>
-        git
-          .raw(["worktree", "add", "--", resolve(path), branch])
-          .then(() => {}),
-      );
-      return resp.type("application/json").send({ success: true });
+      await git.raw(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
+      await mutate(() => git.raw(['worktree', 'add', '--', resolve(path), branch]).then(() => {}));
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/worktrees/remove", async (req: any, resp) => {
+  app.post('/api/worktrees/remove', async (req: any, resp) => {
     try {
-      const path =
-        typeof req.body?.path === "string" ? req.body.path.trim() : "";
+      const path = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
       if (!path || !isAbsolute(path)) {
-        throw new Error("A valid worktree path is required.");
+        throw new Error('A valid worktree path is required.');
       }
       const target = resolve(path);
       const samePath = (a: string, b: string) =>
-        process.platform === "win32"
+        process.platform === 'win32'
           ? resolve(a).toLowerCase() === resolve(b).toLowerCase()
           : resolve(a) === resolve(b);
       if (samePath(target, repositoryPath)) {
-        throw new Error(
-          "The worktree currently open in Guito cannot be removed.",
-        );
+        throw new Error('The worktree currently open in Guito cannot be removed.');
       }
 
       // Only registered worktrees may be removed. Do not use --force: Git must
       // protect uncommitted or untracked files in the selected worktree.
-      const registered = (await git.raw(["worktree", "list", "--porcelain"]))
+      const registered = (await git.raw(['worktree', 'list', '--porcelain']))
         .split(/\n\s*\n/)
         .some((block) => {
-          const line = block
-            .split("\n")
-            .find((entry) => entry.startsWith("worktree "));
-          return (
-            !!line && samePath(line.slice("worktree ".length).trim(), target)
-          );
+          const line = block.split('\n').find((entry) => entry.startsWith('worktree '));
+          return !!line && samePath(line.slice('worktree '.length).trim(), target);
         });
       if (!registered) {
-        throw new Error("The selected folder is not a registered worktree.");
+        throw new Error('The selected folder is not a registered worktree.');
       }
-      await mutate(() =>
-        git.raw(["worktree", "remove", "--", target]).then(() => {}),
-      );
-      return resp.type("application/json").send({ success: true });
+      await mutate(() => git.raw(['worktree', 'remove', '--', target]).then(() => {}));
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/checkout", async (req: any, resp) => {
+  app.post('/api/checkout', async (req: any, resp) => {
     try {
       const { ref } = req.body;
       await git.checkout(ref);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Merge & Rebase ====================
-  app.post("/api/merge", async (req: any, resp) => {
+  app.post('/api/merge', async (req: any, resp) => {
     try {
       const { branch } = req.body;
       await git.merge([branch]);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.get("/api/archive", async (req: any, resp) => {
+  app.get('/api/archive', async (req: any, resp) => {
     try {
-      const ref = String(req.query?.ref ?? "HEAD");
+      const ref = String(req.query?.ref ?? 'HEAD');
       if (!/^[0-9a-fA-F]{7,40}$/.test(ref) && !/^[A-Za-z0-9._/-]+$/.test(ref)) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "invalid ref" });
+        return resp.status(400).type('application/json').send({ error: 'invalid ref' });
       }
-      const result = await execFileAsync(
-        "git",
-        ["archive", "--format=zip", ref],
-        {
-          cwd: repositoryPath,
-          encoding: "buffer",
-          maxBuffer: 100 * 1024 * 1024,
-        },
-      );
+      const result = await execFileAsync('git', ['archive', '--format=zip', ref], {
+        cwd: repositoryPath,
+        encoding: 'buffer',
+        maxBuffer: 100 * 1024 * 1024,
+      });
       return resp
-        .header(
-          "Content-Disposition",
-          `attachment; filename="guito-${ref.slice(0, 8)}.zip"`,
-        )
-        .type("application/zip")
+        .header('Content-Disposition', `attachment; filename="guito-${ref.slice(0, 8)}.zip"`)
+        .type('application/zip')
         .send(result.stdout);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/rebase", async (req: any, resp) => {
+  app.post('/api/rebase', async (req: any, resp) => {
     try {
       const { branch } = req.body;
       await git.rebase([branch]);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/squash", async (req: any, resp) => {
+  app.post('/api/squash', async (req: any, resp) => {
     try {
       const { commits } = req.body;
       // Squash: rebase -i with squash operation
-      await git.rebase(["-i", "HEAD~" + commits]);
-      return resp.type("application/json").send({ success: true });
+      await git.rebase(['-i', 'HEAD~' + commits]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Stash ====================
-  app.get("/api/stash/list", async (_req, resp) => {
+  app.get('/api/stash/list', async (_req, resp) => {
     try {
       // Extra fields (date, author) let the commit table render stash rows;
       // they are NUL-separated because messages cannot contain NUL.
-      const raw = await git.raw([
-        "stash",
-        "list",
-        "--format=%H%x00%aI%x00%aN%x00%aE%x00%s",
-      ]);
+      const raw = await git.raw(['stash', 'list', '--format=%H%x00%aI%x00%aN%x00%aE%x00%s']);
       const all = raw
         .trim()
-        .split("\n")
+        .split('\n')
         .filter(Boolean)
         .map((line) => {
-          const [hash, date, authorName, authorEmail, message] =
-            line.split("\u0000");
+          const [hash, date, authorName, authorEmail, message] = line.split('\u0000');
           return {
             hash,
             date,
@@ -1624,334 +1383,265 @@ export async function startGuitoServer({
             message,
           };
         });
-      return resp.type("application/json").send({
+      return resp.type('application/json').send({
         all,
         latest: all[0] ?? null,
         total: all.length,
       });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stash/save", async (req: any, resp) => {
+  app.post('/api/stash/save', async (req: any, resp) => {
     try {
       const { message, scope } = req.body ?? {};
       // 'staged' → index only (--staged, git ≥ 2.35); 'unstaged' → working tree only
       // (--keep-index leaves staged changes staged); 'all' → index + working tree.
       // Untracked files ride along for 'all'/'unstaged' since the panel lists them as unstaged.
-      const args = ["push"];
-      if (scope === "staged") {
-        args.push("--staged");
+      const args = ['push'];
+      if (scope === 'staged') {
+        args.push('--staged');
       } else {
-        if (scope === "unstaged") args.push("--keep-index");
-        args.push("-u");
+        if (scope === 'unstaged') args.push('--keep-index');
+        args.push('-u');
       }
-      if (message) args.push("-m", message);
+      if (message) args.push('-m', message);
       await git.stash(args);
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stash/apply", async (req: any, resp) => {
+  app.post('/api/stash/apply', async (req: any, resp) => {
     try {
       const { index } = req.body;
-      await git.stash(["apply", `stash@{${index}}`]);
-      return resp.type("application/json").send({ success: true });
+      await git.stash(['apply', `stash@{${index}}`]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stash/pop", async (req: any, resp) => {
+  app.post('/api/stash/pop', async (req: any, resp) => {
     try {
       const { index } = req.body;
-      await git.stash(["pop", `stash@{${index}}`]);
-      return resp.type("application/json").send({ success: true });
+      await git.stash(['pop', `stash@{${index}}`]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stash/drop", async (req: any, resp) => {
+  app.post('/api/stash/drop', async (req: any, resp) => {
     try {
       const { index } = req.body;
-      await git.stash(["drop", `stash@{${index}}`]);
-      return resp.type("application/json").send({ success: true });
+      await git.stash(['drop', `stash@{${index}}`]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/stash/show", async (req: any, resp) => {
+  app.post('/api/stash/show', async (req: any, resp) => {
     try {
       const { index } = req.body;
-      const show = await git.stash(["show", "-p", `stash@{${index}}`]);
-      return resp.type("application/json").send({ preview: show });
+      const show = await git.stash(['show', '-p', `stash@{${index}}`]);
+      return resp.type('application/json').send({ preview: show });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Tags ====================
   // All tags with the commit each points at (annotated tags are peeled, so the
   // client can always look the tagged commit up by hash). Sorted by name.
-  app.get("/api/tags", async (_req, resp) => {
+  app.get('/api/tags', async (_req, resp) => {
     try {
       const raw = await git.raw([
-        "tag",
-        "--list",
-        "--sort=refname",
-        "--format=%(refname:short)%09%(*objectname)%09%(objectname)",
+        'tag',
+        '--list',
+        '--sort=refname',
+        '--format=%(refname:short)%09%(*objectname)%09%(objectname)',
       ]);
       const tags = raw
-        .split("\n")
-        .map((line) => line.split("\t"))
+        .split('\n')
+        .map((line) => line.split('\t'))
         .filter(([name]) => Boolean(name.trim()))
         .map(([name, peeled, direct]) => ({ name, hash: peeled || direct }));
-      return resp.type("application/json").send(tags);
+      return resp.type('application/json').send(tags);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/tag/create", async (req: any, resp) => {
+  app.post('/api/tag/create', async (req: any, resp) => {
     try {
       const { name, message, commit } = req.body;
       if (message) {
-        await git.tag(["-a", name, "-m", message, ...(commit ? [commit] : [])]);
+        await git.tag(['-a', name, '-m', message, ...(commit ? [commit] : [])]);
       } else {
         await git.tag([name, ...(commit ? [commit] : [])]);
       }
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/tag/delete", async (req: any, resp) => {
+  app.post('/api/tag/delete', async (req: any, resp) => {
     try {
       const { name } = req.body;
-      await git.tag(["-d", name]);
-      return resp.type("application/json").send({ success: true });
+      await git.tag(['-d', name]);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/tag/push", async (req: any, resp) => {
+  app.post('/api/tag/push', async (req: any, resp) => {
     try {
       const { name, remote } = req.body;
       if (!name) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "name required" });
+        return resp.status(400).type('application/json').send({ error: 'name required' });
       }
-      await git.push(remote || "origin", `refs/tags/${name}`);
-      return resp.type("application/json").send({ success: true });
+      await git.push(remote || 'origin', `refs/tags/${name}`);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Remote Operations ====================
-  app.get("/api/fetch", async (req: any, resp) => {
+  app.get('/api/fetch', async (req: any, resp) => {
     try {
-      const prune = ["1", "true", "yes"].includes(
-        String(req.query?.prune ?? "").toLowerCase(),
-      );
-      await git.fetch(prune ? { "--prune": null } : {});
-      return resp.type("application/json").send({ success: true });
+      const prune = ['1', 'true', 'yes'].includes(String(req.query?.prune ?? '').toLowerCase());
+      await git.fetch(prune ? { '--prune': null } : {});
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/pull", async (req: any, resp) => {
+  app.post('/api/pull', async (req: any, resp) => {
     try {
       const { remote, branch, rebase } = req.body;
-      await git.pull(
-        remote || "origin",
-        branch || undefined,
-        rebase ? { "--rebase": null } : {},
-      );
-      return resp.type("application/json").send({ success: true });
+      await git.pull(remote || 'origin', branch || undefined, rebase ? { '--rebase': null } : {});
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/push", async (req: any, resp) => {
+  app.post('/api/push', async (req: any, resp) => {
     try {
       const { remote, branch, force } = req.body;
-      await git.push(
-        remote || "origin",
-        branch || undefined,
-        force ? { "-f": null } : {},
-      );
-      return resp.type("application/json").send({ success: true });
+      await git.push(remote || 'origin', branch || undefined, force ? { '-f': null } : {});
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/sync", async (_req, resp) => {
+  app.post('/api/sync', async (_req, resp) => {
     try {
-      await git.pull("origin", undefined, {});
-      await git.push("origin", undefined, {});
-      return resp.type("application/json").send({ success: true });
+      await git.pull('origin', undefined, {});
+      await git.push('origin', undefined, {});
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/prune", async (req: any, resp) => {
+  app.post('/api/prune', async (req: any, resp) => {
     try {
       const { remote } = req.body;
-      await git.remote(["prune", remote || "origin"]);
-      return resp.type("application/json").send({ success: true });
+      await git.remote(['prune', remote || 'origin']);
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   const listRemotes = async () => {
-    const names = (await git.raw(["remote"]))
+    const names = (await git.raw(['remote']))
       .split(/\r?\n/)
       .map((name) => name.trim())
       .filter(Boolean);
     return Promise.all(
       names.map(async (name) => {
-        const fetchUrl = (await git.raw(["remote", "get-url", name])).trim();
+        const fetchUrl = (await git.raw(['remote', 'get-url', name])).trim();
         const pushUrl = (
-          await git
-            .raw(["remote", "get-url", "--push", name])
-            .catch(() => fetchUrl)
+          await git.raw(['remote', 'get-url', '--push', name]).catch(() => fetchUrl)
         ).trim();
         return { name, fetchUrl, pushUrl };
       }),
     );
   };
 
-  app.get("/api/remotes", async (_req, resp) => {
+  app.get('/api/remotes', async (_req, resp) => {
     try {
-      return resp.type("application/json").send(await listRemotes());
+      return resp.type('application/json').send(await listRemotes());
     } catch (err: any) {
       return resp.status(400).send({ error: err.message });
     }
   });
 
-  app.post("/api/remotes", async (req: any, resp) => {
+  app.post('/api/remotes', async (req: any, resp) => {
     try {
-      const name = String(req.body?.name ?? "").trim();
-      const originalName = String(req.body?.originalName ?? "").trim();
-      const fetchUrl = String(req.body?.fetchUrl ?? "").trim();
-      const pushUrl = String(req.body?.pushUrl ?? "").trim() || fetchUrl;
+      const name = String(req.body?.name ?? '').trim();
+      const originalName = String(req.body?.originalName ?? '').trim();
+      const fetchUrl = String(req.body?.fetchUrl ?? '').trim();
+      const pushUrl = String(req.body?.pushUrl ?? '').trim() || fetchUrl;
       if (!/^[A-Za-z0-9._-]+$/.test(name) || !fetchUrl) {
-        return resp
-          .status(400)
-          .send({ error: "A valid remote name and fetch URL are required." });
+        return resp.status(400).send({ error: 'A valid remote name and fetch URL are required.' });
       }
       if (!originalName) {
-        await git.raw(["remote", "add", name, fetchUrl]);
+        await git.raw(['remote', 'add', name, fetchUrl]);
       } else {
-        if (originalName !== name)
-          await git.raw(["remote", "rename", originalName, name]);
-        await git.raw(["remote", "set-url", name, fetchUrl]);
+        if (originalName !== name) await git.raw(['remote', 'rename', originalName, name]);
+        await git.raw(['remote', 'set-url', name, fetchUrl]);
       }
-      await git.raw(["remote", "set-url", "--push", name, pushUrl]);
+      await git.raw(['remote', 'set-url', '--push', name, pushUrl]);
       return resp.send(await listRemotes());
     } catch (err: any) {
       return resp.status(400).send({ error: err.message });
     }
   });
 
-  app.delete("/api/remotes/:name", async (req: any, resp) => {
+  app.delete('/api/remotes/:name', async (req: any, resp) => {
     try {
-      const name = String(req.params?.name ?? "").trim();
+      const name = String(req.params?.name ?? '').trim();
       if (!/^[A-Za-z0-9._-]+$/.test(name)) {
-        return resp.status(400).send({ error: "Invalid remote name." });
+        return resp.status(400).send({ error: 'Invalid remote name.' });
       }
-      await git.raw(["remote", "remove", name]);
+      await git.raw(['remote', 'remove', name]);
       return resp.send(await listRemotes());
     } catch (err: any) {
       return resp.status(400).send({ error: err.message });
     }
   });
 
-  app.post("/api/identity", async (req: any, resp) => {
+  app.post('/api/identity', async (req: any, resp) => {
     try {
-      const name = String(req.body?.name ?? "").trim();
-      const email = String(req.body?.email ?? "").trim();
+      const name = String(req.body?.name ?? '').trim();
+      const email = String(req.body?.email ?? '').trim();
       if (!name || !email) {
-        return resp
-          .status(400)
-          .send({ error: "User name and email are required." });
+        return resp.status(400).send({ error: 'User name and email are required.' });
       }
-      await git.raw(["config", "--local", "user.name", name]);
-      await git.raw(["config", "--local", "user.email", email]);
+      await git.raw(['config', '--local', 'user.name', name]);
+      await git.raw(['config', '--local', 'user.email', email]);
       return resp.send(await configuredIdentity());
     } catch (err: any) {
       return resp.status(400).send({ error: err.message });
     }
   });
 
-  app.delete("/api/identity", async (_req, resp) => {
+  app.delete('/api/identity', async (_req, resp) => {
     try {
-      await git
-        .raw(["config", "--local", "--unset-all", "user.name"])
-        .catch(() => "");
-      await git
-        .raw(["config", "--local", "--unset-all", "user.email"])
-        .catch(() => "");
+      await git.raw(['config', '--local', '--unset-all', 'user.name']).catch(() => '');
+      await git.raw(['config', '--local', '--unset-all', 'user.email']).catch(() => '');
       return resp.send(await configuredIdentity());
     } catch (err: any) {
       return resp.status(400).send({ error: err.message });
@@ -1959,119 +1649,113 @@ export async function startGuitoServer({
   });
 
   // ==================== Settings ====================
-  app.get("/api/settings", async (_req, resp) => {
+  app.get('/api/settings', async (_req, resp) => {
     try {
       const settings = await effectiveSettings();
-      return resp.type("application/json").send(settings);
+      return resp.type('application/json').send(settings);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/settings", async (req: any, resp) => {
+  app.post('/api/settings', async (req: any, resp) => {
     try {
       const body = req.body ?? {};
       const settings = await readSettings();
-      if ("azureDevOpsUrl" in body) {
-        const url = String(body.azureDevOpsUrl ?? "").trim();
+      if ('azureDevOpsUrl' in body) {
+        const url = String(body.azureDevOpsUrl ?? '').trim();
         if (url && !/^https?:\/\//i.test(url)) {
-          return resp.status(400).type("application/json").send({
-            error: "The Azure DevOps URL must start with http:// or https://.",
+          return resp.status(400).type('application/json').send({
+            error: 'The Azure DevOps URL must start with http:// or https://.',
           });
         }
         settings.azureDevOpsUrl = url;
       }
-      if ("prBranchNameTemplate" in body) {
-        const template = String(body.prBranchNameTemplate ?? "").trim();
+      if ('prBranchNameTemplate' in body) {
+        const template = String(body.prBranchNameTemplate ?? '').trim();
         if (template.length > 200) {
           return resp.status(400).send({
-            error:
-              "The pull request branch template must be 200 characters or fewer.",
+            error: 'The pull request branch template must be 200 characters or fewer.',
           });
         }
         try {
           formatPrBranchName(template, {
-            username: "username",
-            randomstring: "randomstring",
-            branch: "branch",
-            targetbranch: "targetbranch",
-            title: "title",
-            repository: "repository",
-            date: "2026-09-12",
-            time: "120000",
-            timestamp: "1789214400000",
+            username: 'username',
+            randomstring: 'randomstring',
+            branch: 'branch',
+            targetbranch: 'targetbranch',
+            title: 'title',
+            repository: 'repository',
+            date: '2026-09-12',
+            time: '120000',
+            timestamp: '1789214400000',
           });
         } catch (error: any) {
           return resp.status(400).send({ error: error.message });
         }
-        settings.prBranchNameTemplate =
-          template || DEFAULT_PR_BRANCH_NAME_TEMPLATE;
+        settings.prBranchNameTemplate = template || DEFAULT_PR_BRANCH_NAME_TEMPLATE;
       }
-      if (typeof body.showGraph === "boolean") {
+      if (typeof body.showGraph === 'boolean') {
         settings.showGraph = body.showGraph;
       }
-      if (typeof body.autoReload === "boolean") {
+      if (typeof body.autoReload === 'boolean') {
         settings.autoReload = body.autoReload;
       }
-      if (typeof body.showStashes === "boolean") {
+      if (typeof body.showStashes === 'boolean') {
         settings.showStashes = body.showStashes;
       }
-      if (typeof body.showTags === "boolean") {
+      if (typeof body.showTags === 'boolean') {
         settings.showTags = body.showTags;
       }
-      if (typeof body.showRemoteBranches === "boolean") {
+      if (typeof body.showRemoteBranches === 'boolean') {
         settings.showRemoteBranches = body.showRemoteBranches;
       }
-      if (body.fileListView === "tree" || body.fileListView === "flat") {
+      if (body.fileListView === 'tree' || body.fileListView === 'flat') {
         settings.fileListView = body.fileListView;
       }
-      if (body.searchMode === "filter" || body.searchMode === "navigate") {
+      if (body.refListView === 'tree' || body.refListView === 'flat') {
+        settings.refListView = body.refListView;
+      }
+      if (body.searchMode === 'filter' || body.searchMode === 'navigate') {
         settings.searchMode = body.searchMode;
       }
-      if (typeof body.searchCaseSensitive === "boolean") {
+      if (typeof body.searchCaseSensitive === 'boolean') {
         settings.searchCaseSensitive = body.searchCaseSensitive;
       }
-      if (typeof body.allowMerge === "boolean") {
+      if (typeof body.allowMerge === 'boolean') {
         settings.allowMerge = body.allowMerge;
       }
-      if ("issueLinking" in body) {
+      if ('issueLinking' in body) {
         if (body.issueLinking === null) {
           if (body.issueLinkingGlobal) {
             await git
-              .raw(["config", "--global", "--unset-all", "guito.issueRegex"])
-              .catch(() => "");
-            await git
-              .raw(["config", "--global", "--unset-all", "guito.issueUrl"])
-              .catch(() => "");
+              .raw(['config', '--global', '--unset-all', 'guito.issueRegex'])
+              .catch(() => '');
+            await git.raw(['config', '--global', '--unset-all', 'guito.issueUrl']).catch(() => '');
           } else {
             delete settings.issueLinking;
           }
         } else {
-          const regex = String(body.issueLinking?.regex ?? "").trim();
-          const url = String(body.issueLinking?.url ?? "").trim();
+          const regex = String(body.issueLinking?.regex ?? '').trim();
+          const url = String(body.issueLinking?.url ?? '').trim();
           if (!regex || !url) {
-            return resp
-              .status(400)
-              .send({ error: "Issue regex and URL are required." });
+            return resp.status(400).send({ error: 'Issue regex and URL are required.' });
           }
           try {
             new RegExp(regex);
           } catch {
             return resp.status(400).send({
-              error: "Issue regex is not a valid regular expression.",
+              error: 'Issue regex is not a valid regular expression.',
             });
           }
           if (!/^https?:\/\//i.test(url)) {
             return resp.status(400).send({
-              error: "Issue URL must start with http:// or https://.",
+              error: 'Issue URL must start with http:// or https://.',
             });
           }
           if (body.issueLinking.useGlobally) {
-            await git.raw(["config", "--global", "guito.issueRegex", regex]);
-            await git.raw(["config", "--global", "guito.issueUrl", url]);
+            await git.raw(['config', '--global', 'guito.issueRegex', regex]);
+            await git.raw(['config', '--global', 'guito.issueUrl', url]);
             delete settings.issueLinking;
           } else {
             settings.issueLinking = { regex, url };
@@ -2080,43 +1764,36 @@ export async function startGuitoServer({
       }
       await writeSettings(settings);
       const effective = await effectiveSettings();
-      return resp.type("application/json").send(effective);
+      return resp.type('application/json').send(effective);
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Azure DevOps Pull Requests ====================
-  app.post("/api/azure-devops/pullrequest", async (req: any, resp) => {
+  app.post('/api/azure-devops/pullrequest', async (req: any, resp) => {
     try {
-      const { sourceBranch, targetBranch, title, description, newBranch } =
-        req.body ?? {};
+      const { sourceBranch, targetBranch, title, description, newBranch } = req.body ?? {};
       if (!targetBranch) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "targetBranch required" });
+        return resp.status(400).type('application/json').send({ error: 'targetBranch required' });
       }
 
       const { prefix, remoteUrl } = await azureProjectContext();
       const info = parseAzureRemoteUrl(remoteUrl);
       if (!info) {
-        return resp.status(400).type("application/json").send({
-          error: "Unable to build the Azure DevOps pull request URL.",
+        return resp.status(400).type('application/json').send({
+          error: 'Unable to build the Azure DevOps pull request URL.',
         });
       }
       const prUrl = `${prefix}/_apis/git/repositories/${encodeURIComponent(info.repo)}/pullrequests?api-version=${AZURE_API_VERSION}`;
 
-      let source = String(sourceBranch ?? "").trim();
+      let source = String(sourceBranch ?? '').trim();
       if (newBranch) {
         // Create a remote-only branch from the current HEAD; the local
         // repository and the checked-out branch stay untouched.
         const now = new Date();
         const currentSettings = await effectiveSettings();
-        let computerUsername = process.env.USERNAME || process.env.USER || "";
+        let computerUsername = process.env.USERNAME || process.env.USER || '';
         try {
           computerUsername = userInfo().username || computerUsername;
         } catch {
@@ -2125,43 +1802,40 @@ export async function startGuitoServer({
         const name = formatPrBranchName(currentSettings.prBranchNameTemplate, {
           username: computerUsername,
           randomstring: randomBranchSuffix(),
-          branch: (await git.revparse(["--abbrev-ref", "HEAD"])).trim(),
+          branch: (await git.revparse(['--abbrev-ref', 'HEAD'])).trim(),
           targetbranch: String(targetBranch)
-            .replace(/^refs\/heads\//, "")
-            .replace(/^origin\//, ""),
-          title: String(title ?? "").trim() || "pull-request",
+            .replace(/^refs\/heads\//, '')
+            .replace(/^origin\//, ''),
+          title: String(title ?? '').trim() || 'pull-request',
           repository: basename(await repoRoot()),
           date: now.toISOString().slice(0, 10),
-          time: now.toISOString().slice(11, 19).replace(/:/g, ""),
+          time: now.toISOString().slice(11, 19).replace(/:/g, ''),
           timestamp: String(now.getTime()),
         });
         try {
-          await git.raw(["check-ref-format", "--branch", name]);
+          await git.raw(['check-ref-format', '--branch', name]);
         } catch {
           return resp.status(400).send({
             error: `The pull request branch template produced an invalid Git branch name: ${name}`,
           });
         }
         const existingBranch = await git
-          .raw(["ls-remote", "--heads", "origin", `refs/heads/${name}`])
-          .catch(() => "");
+          .raw(['ls-remote', '--heads', 'origin', `refs/heads/${name}`])
+          .catch(() => '');
         if (existingBranch.trim()) {
           return resp.status(400).send({
             error: `The pull request branch already exists on origin: ${name}`,
           });
         }
-        await git.push(["origin", `HEAD:refs/heads/${name}`]);
+        await git.push(['origin', `HEAD:refs/heads/${name}`]);
         source = name;
       } else {
         if (!source) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "sourceBranch required" });
+          return resp.status(400).type('application/json').send({ error: 'sourceBranch required' });
         }
-        if (source.startsWith("origin/")) {
+        if (source.startsWith('origin/')) {
           // Remote-tracking branch: the PR source is the branch name on the remote.
-          source = source.slice("origin/".length);
+          source = source.slice('origin/'.length);
         } else {
           // Publish the branch first when the remote does not have it yet.
           // The remote-tracking ref is a local check; a redundant push is a
@@ -2169,15 +1843,15 @@ export async function startGuitoServer({
           // rev-parse --verify --quiet does not fail reliably through
           // simple-git, so list the tracking refs instead.
           const trackingRefs = await git.raw([
-            "for-each-ref",
-            "refs/remotes/origin",
-            "--format=%(refname)",
+            'for-each-ref',
+            'refs/remotes/origin',
+            '--format=%(refname)',
           ]);
           const published = trackingRefs
-            .split("\n")
+            .split('\n')
             .some((line) => line.trim() === `refs/remotes/origin/${source}`);
           if (!published) {
-            await git.push(["origin", source]);
+            await git.push(['origin', source]);
           }
         }
       }
@@ -2186,11 +1860,11 @@ export async function startGuitoServer({
         isDraft: req.body?.isDraft === true,
         sourceRefName: `refs/heads/${source}`,
         targetRefName: `refs/heads/${String(targetBranch)
-          .replace(/^refs\/heads\//, "")
-          .replace(/^origin\//, "")}`,
+          .replace(/^refs\/heads\//, '')
+          .replace(/^origin\//, '')}`,
       };
-      const trimmedTitle = String(title ?? "").trim();
-      const trimmedDescription = String(description ?? "").trim();
+      const trimmedTitle = String(title ?? '').trim();
+      const trimmedDescription = String(description ?? '').trim();
       if (trimmedTitle) {
         payload.title = trimmedTitle;
       }
@@ -2198,21 +1872,17 @@ export async function startGuitoServer({
         payload.description = trimmedDescription;
       }
 
-      const reviewerList = Array.isArray(req.body?.reviewers)
-        ? req.body.reviewers
-        : [];
+      const reviewerList = Array.isArray(req.body?.reviewers) ? req.body.reviewers : [];
       const payloadReviewers = reviewerList
         .map((entry: any) => ({
-          id: String(entry?.id ?? ""),
+          id: String(entry?.id ?? ''),
           isRequired: !!entry?.required,
         }))
         .filter((entry: { id: string }) => entry.id);
       if (payloadReviewers.length) {
         payload.reviewers = payloadReviewers;
       }
-      const workItemList = Array.isArray(req.body?.workItems)
-        ? req.body.workItems
-        : [];
+      const workItemList = Array.isArray(req.body?.workItems) ? req.body.workItems : [];
       const payloadWorkItems = workItemList
         .map((id: unknown) => Number(id))
         .filter((id: number) => Number.isInteger(id) && id > 0);
@@ -2222,24 +1892,20 @@ export async function startGuitoServer({
         }));
       }
 
-      const result = await azureRequest("POST", prUrl, JSON.stringify(payload));
+      const result = await azureRequest('POST', prUrl, JSON.stringify(payload));
       if (result.status < 200 || result.status >= 300) {
         return resp
           .status(400)
-          .type("application/json")
+          .type('application/json')
           .send({
-            error:
-              azureErrorMessage(result) ||
-              `Azure DevOps returned HTTP ${result.status}.`,
+            error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
           });
       }
 
       const created = JSON.parse(result.body);
       // Tags (labels) are a separate resource; add them after the PR exists.
-      const labelNames = (
-        Array.isArray(req.body?.labels) ? req.body.labels : []
-      )
-        .map((name: unknown) => String(name ?? "").trim())
+      const labelNames = (Array.isArray(req.body?.labels) ? req.body.labels : [])
+        .map((name: unknown) => String(name ?? '').trim())
         .filter(Boolean);
       const warnings: string[] = [];
       if (labelNames.length && created.pullRequestId) {
@@ -2249,15 +1915,9 @@ export async function startGuitoServer({
           `/pullrequests/${created.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`;
         for (const name of labelNames) {
           try {
-            const labelResult = await azureRequest(
-              "POST",
-              labelsUrl,
-              JSON.stringify({ name }),
-            );
+            const labelResult = await azureRequest('POST', labelsUrl, JSON.stringify({ name }));
             if (labelResult.status < 200 || labelResult.status >= 300) {
-              warnings.push(
-                `Could not add tag "${name}" (HTTP ${labelResult.status}).`,
-              );
+              warnings.push(`Could not add tag "${name}" (HTTP ${labelResult.status}).`);
             }
           } catch (err: any) {
             warnings.push(`Could not add tag "${name}": ${err.message}`);
@@ -2265,62 +1925,55 @@ export async function startGuitoServer({
         }
       }
 
-      return resp.type("application/json").send({
+      return resp.type('application/json').send({
         id: created.pullRequestId,
-        url: created._links?.web?.href ?? "",
+        url: created._links?.web?.href ?? '',
         branch: source,
         ...(warnings.length ? { warnings } : {}),
       });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Azure DevOps PR metadata ====================
   // Collection-scoped identity IDs can be passed directly as PR reviewers.
-  app.get("/api/azure-devops/reviewers", async (req: any, resp) => {
+  app.get('/api/azure-devops/reviewers', async (req: any, resp) => {
     try {
-      const query = String((req.query ?? {}).query ?? "").trim();
+      const query = String((req.query ?? {}).query ?? '').trim();
       if (!query) {
-        return resp.type("application/json").send({ reviewers: [] });
+        return resp.type('application/json').send({ reviewers: [] });
       }
       const { prefix } = await azureProjectContext();
-      const collection = prefix.slice(0, prefix.lastIndexOf("/"));
+      const collection = prefix.slice(0, prefix.lastIndexOf('/'));
       const identityBase = collection.replace(
-        "https://dev.azure.com/",
-        "https://vssps.dev.azure.com/",
+        'https://dev.azure.com/',
+        'https://vssps.dev.azure.com/',
       );
       const url =
         `${identityBase}/_apis/identities?api-version=5.0-preview` +
         `&searchFilter=General&filterValue=${encodeURIComponent(query)}&queryMembership=None`;
-      const result = await azureRequest("GET", url, "");
+      const result = await azureRequest('GET', url, '');
       if (result.status < 200 || result.status >= 300) {
         return resp
           .status(400)
-          .type("application/json")
+          .type('application/json')
           .send({
-            error:
-              azureErrorMessage(result) ||
-              `Azure DevOps returned HTTP ${result.status}.`,
+            error: azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
           });
       }
       const data = JSON.parse(result.body);
-      const list = Array.isArray(data)
-        ? data
-        : (data.value ?? data.identities ?? []);
+      const list = Array.isArray(data) ? data : (data.value ?? data.identities ?? []);
       const reviewers = list
         .map((entry: any) => ({
-          id: String(entry?.id ?? entry?.identity?.id ?? ""),
+          id: String(entry?.id ?? entry?.identity?.id ?? ''),
           label: String(
             entry?.customDisplayName ||
               entry?.providerDisplayName ||
               entry?.label ||
               entry?.displayName ||
               entry?.name ||
-              "",
+              '',
           ),
           description:
             entry?.properties?.Mail?.$value ??
@@ -2328,52 +1981,44 @@ export async function startGuitoServer({
             entry?.description ??
             undefined,
         }))
-        .filter(
-          (entry: { id: string; label: string }) => entry.id && entry.label,
-        );
-      return resp.type("application/json").send({ reviewers });
+        .filter((entry: { id: string; label: string }) => entry.id && entry.label);
+      return resp.type('application/json').send({ reviewers });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // Work item search by id or title: a WIQL query returns ids, a batch read
   // then fetches title/state for the first matches.
-  app.get("/api/azure-devops/workitems", async (req: any, resp) => {
+  app.get('/api/azure-devops/workitems', async (req: any, resp) => {
     try {
-      const query = String((req.query ?? {}).query ?? "")
+      const query = String((req.query ?? {}).query ?? '')
         .trim()
-        .replace(/^#(?=\d+$)/, "");
+        .replace(/^#(?=\d+$)/, '');
       if (!query) {
-        return resp.type("application/json").send({ workItems: [] });
+        return resp.type('application/json').send({ workItems: [] });
       }
       const { prefix } = await azureProjectContext();
-      const clauses = [
-        `[System.Title] CONTAINS '${query.replace(/'/g, "''")}'`,
-      ];
+      const clauses = [`[System.Title] CONTAINS '${query.replace(/'/g, "''")}'`];
       if (/^\d+$/.test(query)) {
         clauses.push(`[System.Id] = ${Number(query)}`);
       }
       const wiql =
-        "SELECT [System.Id], [System.Title], [System.State] FROM WorkItems " +
-        `WHERE [System.TeamProject] = @project AND (${clauses.map((clause) => `(${clause})`).join(" OR ")}) ` +
-        "ORDER BY [System.ChangedDate] DESC";
+        'SELECT [System.Id], [System.Title], [System.State] FROM WorkItems ' +
+        `WHERE [System.TeamProject] = @project AND (${clauses.map((clause) => `(${clause})`).join(' OR ')}) ` +
+        'ORDER BY [System.ChangedDate] DESC';
       const wiqlResult = await azureRequest(
-        "POST",
+        'POST',
         `${prefix}/_apis/wit/wiql?$top=20&api-version=${AZURE_API_VERSION}`,
         JSON.stringify({ query: wiql }),
       );
       if (wiqlResult.status < 200 || wiqlResult.status >= 300) {
         return resp
           .status(400)
-          .type("application/json")
+          .type('application/json')
           .send({
             error:
-              azureErrorMessage(wiqlResult) ||
-              `Azure DevOps returned HTTP ${wiqlResult.status}.`,
+              azureErrorMessage(wiqlResult) || `Azure DevOps returned HTTP ${wiqlResult.status}.`,
           });
       }
       const ids = (JSON.parse(wiqlResult.body).workItems ?? [])
@@ -2381,42 +2026,36 @@ export async function startGuitoServer({
         .filter((id: number) => Number.isInteger(id) && id > 0)
         .slice(0, 20);
       if (!ids.length) {
-        return resp.type("application/json").send({ workItems: [] });
+        return resp.type('application/json').send({ workItems: [] });
       }
       const batchResult = await azureRequest(
-        "GET",
-        `${prefix}/_apis/wit/workitems?ids=${ids.join(",")}` +
+        'GET',
+        `${prefix}/_apis/wit/workitems?ids=${ids.join(',')}` +
           `&fields=System.Id,System.Title,System.State&api-version=${AZURE_API_VERSION}`,
-        "",
+        '',
       );
       if (batchResult.status < 200 || batchResult.status >= 300) {
         return resp
           .status(400)
-          .type("application/json")
+          .type('application/json')
           .send({
             error:
-              azureErrorMessage(batchResult) ||
-              `Azure DevOps returned HTTP ${batchResult.status}.`,
+              azureErrorMessage(batchResult) || `Azure DevOps returned HTTP ${batchResult.status}.`,
           });
       }
-      const workItems = (JSON.parse(batchResult.body).value ?? []).map(
-        (item: any) => ({
-          id: Number(item?.id),
-          title: String(item?.fields?.["System.Title"] ?? ""),
-          state: String(item?.fields?.["System.State"] ?? ""),
-        }),
-      );
-      return resp.type("application/json").send({ workItems });
+      const workItems = (JSON.parse(batchResult.body).value ?? []).map((item: any) => ({
+        id: Number(item?.id),
+        title: String(item?.fields?.['System.Title'] ?? ''),
+        state: String(item?.fields?.['System.State'] ?? ''),
+      }));
+      return resp.type('application/json').send({ workItems });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // Existing pull request labels for the tag autocomplete.
-  app.get("/api/azure-devops/tags", async (_req, resp) => {
+  app.get('/api/azure-devops/tags', async (_req, resp) => {
     try {
       const { prefix, remoteUrl } = await azureProjectContext();
       const repo = parseAzureRemoteUrl(remoteUrl)!.repo;
@@ -2424,15 +2063,14 @@ export async function startGuitoServer({
       const names = new Set<string>();
       for (let skip = 0; ; skip += 100) {
         const result = await azureRequest(
-          "GET",
+          'GET',
           `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests` +
             `?searchCriteria.status=all&$top=100&$skip=${skip}&api-version=${AZURE_API_VERSION}`,
-          "",
+          '',
         );
         if (result.status < 200 || result.status >= 300) {
           throw new Error(
-            azureErrorMessage(result) ||
-              `Azure DevOps returned HTTP ${result.status}.`,
+            azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
           );
         }
         const data = JSON.parse(result.body);
@@ -2445,15 +2083,14 @@ export async function startGuitoServer({
               if (Array.isArray(request.labels)) return request.labels;
               if (!Number.isInteger(request.pullRequestId)) return [];
               const result = await azureRequest(
-                "GET",
+                'GET',
                 `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}` +
                   `/pullrequests/${request.pullRequestId}/labels?api-version=${AZURE_API_VERSION}`,
-                "",
+                '',
               );
               if (result.status < 200 || result.status >= 300) {
                 throw new Error(
-                  azureErrorMessage(result) ||
-                    `Azure DevOps returned HTTP ${result.status}.`,
+                  azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
                 );
               }
               const data = JSON.parse(result.body);
@@ -2461,19 +2098,15 @@ export async function startGuitoServer({
             }),
           );
           for (const label of labels.flat()) {
-            if (typeof label.name === "string" && label.name.trim())
-              names.add(label.name.trim());
+            if (typeof label.name === 'string' && label.name.trim()) names.add(label.name.trim());
           }
         }
         if (requests.length < 100) break;
       }
       const tags = [...names].sort((a, b) => a.localeCompare(b));
-      return resp.type("application/json").send({ tags });
+      return resp.type('application/json').send({ tags });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
@@ -2482,22 +2115,19 @@ export async function startGuitoServer({
   // listing, editing, votes, reviewers, auto-complete, completion, comment
   // threads, and per-file diffs.
 
-  app.get("/api/azure-devops/me", async (_req, resp) => {
+  app.get('/api/azure-devops/me', async (_req, resp) => {
     try {
-      return resp.type("application/json").send(await azureMe());
+      return resp.type('application/json').send(await azureMe());
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // Pull requests the current user created or reviews ("mine"), merged and
   // de-duplicated. Status defaults to active.
-  app.get("/api/azure-devops/pullrequests", async (req: any, resp) => {
+  app.get('/api/azure-devops/pullrequests', async (req: any, resp) => {
     try {
-      const status = String(req.query?.status ?? "active").trim() || "active";
+      const status = String(req.query?.status ?? 'active').trim() || 'active';
       const { prefix, remoteUrl } = await azureProjectContext();
       const repo = parseAzureRemoteUrl(remoteUrl)!.repo;
       const me = await azureMe();
@@ -2508,7 +2138,7 @@ export async function startGuitoServer({
             `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests` +
             `?searchCriteria.status=${encodeURIComponent(status)}&searchCriteria.${criteria}` +
             `&$top=100&$skip=${skip}&api-version=${AZURE_API_VERSION}`;
-          const data = await azureJson<any>("GET", url);
+          const data = await azureJson<any>('GET', url);
           const requests = Array.isArray(data?.value) ? data.value : [];
           for (const request of requests) {
             const id = Number(request?.pullRequestId);
@@ -2528,22 +2158,17 @@ export async function startGuitoServer({
       const pullRequests = [...merged.values()]
         .map((request) => mapAzurePullRequest(request, prefix, remoteUrl, me))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-      return resp.type("application/json").send({ pullRequests });
+      return resp.type('application/json').send({ pullRequests });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.get("/api/azure-devops/pullrequests/:id", async (req: any, resp) => {
+  app.get('/api/azure-devops/pullrequests/:id', async (req: any, resp) => {
     try {
-      const { base, prefix, remoteUrl } = await azurePrApiBase(
-        Number(req.params?.id),
-      );
+      const { base, prefix, remoteUrl } = await azurePrApiBase(Number(req.params?.id));
       const [pr, me] = await Promise.all([
-        azureJson<any>("GET", `${base}?api-version=${AZURE_API_VERSION}`),
+        azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`),
         azureMe(),
       ]);
       const summary = mapAzurePullRequest(pr, prefix, remoteUrl, me);
@@ -2551,13 +2176,13 @@ export async function startGuitoServer({
       // the labels resource explicitly in that case instead of reporting a
       // false empty tag list.
       let labels = (Array.isArray(pr?.labels) ? pr.labels : [])
-        .map((label: any) => String(label?.name ?? ""))
+        .map((label: any) => String(label?.name ?? ''))
         .filter(Boolean);
       if (!Array.isArray(pr?.labels)) {
         const labelsResult = await azureRequest(
-          "GET",
+          'GET',
           `${base}/labels?api-version=${AZURE_API_VERSION}`,
-          "",
+          '',
         );
         if (labelsResult.status < 200 || labelsResult.status >= 300) {
           throw new Error(
@@ -2566,41 +2191,32 @@ export async function startGuitoServer({
           );
         }
         const labelData = JSON.parse(labelsResult.body);
-        labels = (
-          Array.isArray(labelData) ? labelData : (labelData.value ?? [])
-        )
-          .map((label: any) => String(label?.name ?? ""))
+        labels = (Array.isArray(labelData) ? labelData : (labelData.value ?? []))
+          .map((label: any) => String(label?.name ?? ''))
           .filter(Boolean);
       }
-      return resp.type("application/json").send({
+      return resp.type('application/json').send({
         ...summary,
-        description: String(pr?.description ?? ""),
+        description: String(pr?.description ?? ''),
         autoCompleteSetBy: pr?.autoCompleteSetBy
           ? {
-              id: String(pr.autoCompleteSetBy.id ?? ""),
-              name: String(pr.autoCompleteSetBy.displayName ?? ""),
+              id: String(pr.autoCompleteSetBy.id ?? ''),
+              name: String(pr.autoCompleteSetBy.displayName ?? ''),
             }
           : null,
         completionOptions: pr?.completionOptions ?? null,
-        lastMergeSourceCommit: String(
-          pr?.lastMergeSourceCommit?.commitId ?? "",
-        ),
-        lastMergeTargetCommit: String(
-          pr?.lastMergeTargetCommit?.commitId ?? "",
-        ),
+        lastMergeSourceCommit: String(pr?.lastMergeSourceCommit?.commitId ?? ''),
+        lastMergeTargetCommit: String(pr?.lastMergeTargetCommit?.commitId ?? ''),
         labels,
         mergeStatus: azureMergeStatus(pr),
       });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // Edits title/description or flips the draft flag ("publish"/"convert to draft").
-  app.patch("/api/azure-devops/pullrequests/:id", async (req: any, resp) => {
+  app.patch('/api/azure-devops/pullrequests/:id', async (req: any, resp) => {
     try {
       const { title, description, isDraft } = req.body ?? {};
       const payload: Record<string, unknown> = {};
@@ -2608,102 +2224,77 @@ export async function startGuitoServer({
       if (description !== undefined) payload.description = String(description);
       if (isDraft !== undefined) payload.isDraft = isDraft === true;
       if (!Object.keys(payload).length) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "Nothing to update." });
+        return resp.status(400).type('application/json').send({ error: 'Nothing to update.' });
       }
       const { base } = await azurePrApiBase(Number(req.params?.id));
       await azureJson<any>(
-        "PATCH",
+        'PATCH',
         `${base}?api-version=${AZURE_API_VERSION}`,
         JSON.stringify(payload),
       );
-      return resp.type("application/json").send({ ok: true });
+      return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // Records the current user's vote on the pull request.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/vote",
-    async (req: any, resp) => {
-      try {
-        const vote = String(req.body?.vote ?? "");
-        if (!(vote in AZURE_VOTES)) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: `Unknown vote "${vote}".` });
-        }
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const me = await azureMe();
-        await azureJson<any>(
-          "PUT",
-          `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`,
-          JSON.stringify({ vote: AZURE_VOTES[vote] }),
-        );
-        return resp.type("application/json").send({ ok: true });
-      } catch (err: any) {
+  app.post('/api/azure-devops/pullrequests/:id/vote', async (req: any, resp) => {
+    try {
+      const vote = String(req.body?.vote ?? '');
+      if (!(vote in AZURE_VOTES)) {
         return resp
           .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+          .type('application/json')
+          .send({ error: `Unknown vote "${vote}".` });
       }
-    },
-  );
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const me = await azureMe();
+      await azureJson<any>(
+        'PUT',
+        `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`,
+        JSON.stringify({ vote: AZURE_VOTES[vote] }),
+      );
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Adds or updates a reviewer (optionally required), or removes one.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/reviewers",
-    async (req: any, resp) => {
-      try {
-        const id = String(req.body?.id ?? "");
-        if (!id) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "Reviewer id required." });
-        }
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const reviewerUrl = `${base}/reviewers/${encodeURIComponent(id)}?api-version=${AZURE_API_VERSION}`;
-        if (req.body?.remove === true) {
-          await azureJson<any>("DELETE", reviewerUrl);
-          return resp.type("application/json").send({ ok: true });
-        }
-        // The PUT replaces the reviewer record, so an existing vote is passed
-        // through to survive an isRequired toggle.
-        const payload: Record<string, unknown> = {
-          isRequired: req.body?.required === true,
-        };
-        if (
-          req.body?.vote !== undefined &&
-          Number.isFinite(Number(req.body.vote))
-        ) {
-          payload.vote = Number(req.body.vote);
-        }
-        await azureJson<any>("PUT", reviewerUrl, JSON.stringify(payload));
-        return resp.type("application/json").send({ ok: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.post('/api/azure-devops/pullrequests/:id/reviewers', async (req: any, resp) => {
+    try {
+      const id = String(req.body?.id ?? '');
+      if (!id) {
+        return resp.status(400).type('application/json').send({ error: 'Reviewer id required.' });
       }
-    },
-  );
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const reviewerUrl = `${base}/reviewers/${encodeURIComponent(id)}?api-version=${AZURE_API_VERSION}`;
+      if (req.body?.remove === true) {
+        await azureJson<any>('DELETE', reviewerUrl);
+        return resp.type('application/json').send({ ok: true });
+      }
+      // The PUT replaces the reviewer record, so an existing vote is passed
+      // through to survive an isRequired toggle.
+      const payload: Record<string, unknown> = {
+        isRequired: req.body?.required === true,
+      };
+      if (req.body?.vote !== undefined && Number.isFinite(Number(req.body.vote))) {
+        payload.vote = Number(req.body.vote);
+      }
+      await azureJson<any>('PUT', reviewerUrl, JSON.stringify(payload));
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   /** Maps dialog completion options onto the Azure DevOps payload shape. */
   const completionOptionsOf = (body: any): Record<string, unknown> | null => {
-    const strategies = ["noFastForward", "squash", "rebase", "rebaseMerge"];
-    const mergeStrategy = String(body?.mergeStrategy ?? "");
+    const strategies = ['noFastForward', 'squash', 'rebase', 'rebaseMerge'];
+    const mergeStrategy = String(body?.mergeStrategy ?? '');
     const options: Record<string, unknown> = {};
-    if (strategies.includes(mergeStrategy))
-      options.mergeStrategy = mergeStrategy;
+    if (strategies.includes(mergeStrategy)) options.mergeStrategy = mergeStrategy;
     if (body?.deleteSourceBranch !== undefined) {
       options.deleteSourceBranch = body.deleteSourceBranch === true;
     }
@@ -2711,315 +2302,255 @@ export async function startGuitoServer({
     if (completeWorkItems) {
       options.completeWorkItems = true;
       // Transitioning requires completion of linked work items.
-      if (body?.transitionWorkItems === true)
-        options.transitionWorkItems = true;
+      if (body?.transitionWorkItems === true) options.transitionWorkItems = true;
     }
     return Object.keys(options).length ? options : null;
   };
 
   // Sets or clears auto-complete with optional completion options.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/autocomplete",
-    async (req: any, resp) => {
-      try {
-        const enabled = req.body?.enabled === true;
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const buildPayload = (identity: Record<string, unknown> | null) => {
-          const payload: Record<string, unknown> = {
-            autoCompleteSetBy: identity,
-          };
-          if (enabled) {
-            const options = completionOptionsOf(req.body);
-            if (options) payload.completionOptions = options;
-          }
-          return JSON.stringify(payload);
+  app.post('/api/azure-devops/pullrequests/:id/autocomplete', async (req: any, resp) => {
+    try {
+      const enabled = req.body?.enabled === true;
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const buildPayload = (identity: Record<string, unknown> | null) => {
+        const payload: Record<string, unknown> = {
+          autoCompleteSetBy: identity,
         };
-        const url = `${base}?api-version=${AZURE_API_VERSION}`;
-        const me = enabled ? await azureMe() : null;
-        // Azure DevOps clears auto-complete for an empty identity; some Server
-        // releases only accept an explicit null, so retry that shape on failure.
-        try {
-          await azureJson<any>(
-            "PATCH",
-            url,
-            buildPayload(enabled && me ? { id: me.id } : { id: "" }),
-          );
-        } catch (firstError: any) {
-          if (enabled) throw firstError;
-          await azureJson<any>("PATCH", url, buildPayload(null));
+        if (enabled) {
+          const options = completionOptionsOf(req.body);
+          if (options) payload.completionOptions = options;
         }
-        return resp.type("application/json").send({ ok: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+        return JSON.stringify(payload);
+      };
+      const url = `${base}?api-version=${AZURE_API_VERSION}`;
+      const me = enabled ? await azureMe() : null;
+      // Azure DevOps clears auto-complete for an empty identity; some Server
+      // releases only accept an explicit null, so retry that shape on failure.
+      try {
+        await azureJson<any>(
+          'PATCH',
+          url,
+          buildPayload(enabled && me ? { id: me.id } : { id: '' }),
+        );
+      } catch (firstError: any) {
+        if (enabled) throw firstError;
+        await azureJson<any>('PATCH', url, buildPayload(null));
       }
-    },
-  );
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Completes the pull request (merge). Requires the merge source commit for
   // optimistic concurrency, exactly like the Azure DevOps web dialog.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/complete",
-    async (req: any, resp) => {
-      try {
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const pr = await azureJson<any>(
-          "GET",
-          `${base}?api-version=${AZURE_API_VERSION}`,
-        );
-        const commitId = String(pr?.lastMergeSourceCommit?.commitId ?? "");
-        if (!commitId) {
-          throw new Error(
-            "The pull request has no merge commit to complete yet.",
-          );
-        }
-        const payload: Record<string, unknown> = {
-          status: "completed",
-          lastMergeSourceCommit: { commitId },
-        };
-        const options = completionOptionsOf(req.body);
-        if (options) payload.completionOptions = options;
-        await azureJson<any>(
-          "PATCH",
-          `${base}?api-version=${AZURE_API_VERSION}`,
-          JSON.stringify(payload),
-        );
-        return resp.type("application/json").send({ ok: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.post('/api/azure-devops/pullrequests/:id/complete', async (req: any, resp) => {
+    try {
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const pr = await azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`);
+      const commitId = String(pr?.lastMergeSourceCommit?.commitId ?? '');
+      if (!commitId) {
+        throw new Error('The pull request has no merge commit to complete yet.');
       }
-    },
-  );
+      const payload: Record<string, unknown> = {
+        status: 'completed',
+        lastMergeSourceCommit: { commitId },
+      };
+      const options = completionOptionsOf(req.body);
+      if (options) payload.completionOptions = options;
+      await azureJson<any>(
+        'PATCH',
+        `${base}?api-version=${AZURE_API_VERSION}`,
+        JSON.stringify(payload),
+      );
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
-  app.get(
-    "/api/azure-devops/pullrequests/:id/threads",
-    async (req: any, resp) => {
-      try {
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const data = await azureJson<any>(
-          "GET",
-          `${base}/threads?api-version=${AZURE_API_VERSION}`,
-        );
-        const threads = (Array.isArray(data?.value) ? data.value : [])
-          .filter((thread: any) => thread?.isDeleted !== true)
-          .map((thread: any) => {
-            const context = thread?.threadContext ?? {};
-            const line =
-              context.rightFileStart?.line ??
-              context.leftFileStart?.line ??
-              null;
-            return {
-              id: Number(thread?.id ?? 0),
-              status: azureThreadStatusName(Number(thread?.status ?? 0)),
-              isDeleted: false,
-              filePath:
-                typeof context.filePath === "string"
-                  ? context.filePath.replace(/^\//, "")
-                  : null,
-              line: Number.isInteger(line) ? line : null,
-              side: context.rightFileStart
-                ? "right"
-                : context.leftFileStart
-                  ? "left"
-                  : null,
-              comments: (Array.isArray(thread?.comments) ? thread.comments : [])
-                .filter((comment: any) => comment?.isDeleted !== true)
-                .map((comment: any) => ({
-                  id: Number(comment?.id ?? 0),
-                  author: {
-                    name: String(comment?.author?.displayName ?? ""),
-                    email: String(comment?.author?.uniqueName ?? ""),
-                  },
-                  content: String(comment?.content ?? ""),
-                  createdAt: String(comment?.publishedDate ?? ""),
-                  isDeleted: false,
-                })),
-            };
-          });
-        return resp.type("application/json").send({ threads });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
-      }
-    },
-  );
+  app.get('/api/azure-devops/pullrequests/:id/threads', async (req: any, resp) => {
+    try {
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const data = await azureJson<any>('GET', `${base}/threads?api-version=${AZURE_API_VERSION}`);
+      const threads = (Array.isArray(data?.value) ? data.value : [])
+        .filter((thread: any) => thread?.isDeleted !== true)
+        .map((thread: any) => {
+          const context = thread?.threadContext ?? {};
+          const line = context.rightFileStart?.line ?? context.leftFileStart?.line ?? null;
+          return {
+            id: Number(thread?.id ?? 0),
+            status: azureThreadStatusName(Number(thread?.status ?? 0)),
+            isDeleted: false,
+            filePath:
+              typeof context.filePath === 'string' ? context.filePath.replace(/^\//, '') : null,
+            line: Number.isInteger(line) ? line : null,
+            side: context.rightFileStart ? 'right' : context.leftFileStart ? 'left' : null,
+            comments: (Array.isArray(thread?.comments) ? thread.comments : [])
+              .filter((comment: any) => comment?.isDeleted !== true)
+              .map((comment: any) => ({
+                id: Number(comment?.id ?? 0),
+                author: {
+                  name: String(comment?.author?.displayName ?? ''),
+                  email: String(comment?.author?.uniqueName ?? ''),
+                },
+                content: String(comment?.content ?? ''),
+                createdAt: String(comment?.publishedDate ?? ''),
+                isDeleted: false,
+              })),
+          };
+        });
+      return resp.type('application/json').send({ threads });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Adds a comment: a reply to a thread, a general PR comment, or an inline
   // comment anchored to a file line (thread context).
-  app.post(
-    "/api/azure-devops/pullrequests/:id/threads",
-    async (req: any, resp) => {
-      try {
-        const content = String(req.body?.content ?? "").trim();
-        if (!content) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "Comment text required." });
-        }
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const threadId = Number(req.body?.threadId ?? 0);
-        if (Number.isInteger(threadId) && threadId > 0) {
-          await azureJson<any>(
-            "POST",
-            `${base}/threads/${threadId}/comments?api-version=${AZURE_API_VERSION}`,
-            JSON.stringify({ content }),
-          );
-          return resp.type("application/json").send({ ok: true });
-        }
-        const payload: Record<string, unknown> = {
-          status: AZURE_THREAD_STATUSES.active,
-          comments: [{ content, parentCommentId: 0 }],
-        };
-        const filePath = String(req.body?.filePath ?? "").trim();
-        const line = Number(req.body?.line ?? 0);
-        const requestedEndLine = Number(req.body?.endLine ?? line);
-        const endLine =
-          Number.isInteger(requestedEndLine) && requestedEndLine >= line
-            ? requestedEndLine
-            : line;
-        const left = req.body?.side === "left";
-        if (filePath && Number.isInteger(line) && line > 0) {
-          // Azure anchors a whole-line comment from offset 1 to "end of line".
-          payload.threadContext = {
-            filePath: `/${filePath.replace(/^\//, "")}`,
-            [left ? "leftFileStart" : "rightFileStart"]: { line, offset: 1 },
-            [left ? "leftFileEnd" : "rightFileEnd"]: {
-              line: endLine,
-              offset: 2147483647,
-            },
-          };
-        }
-        await azureJson<any>(
-          "POST",
-          `${base}/threads?api-version=${AZURE_API_VERSION}`,
-          JSON.stringify(payload),
-        );
-        return resp.type("application/json").send({ ok: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.post('/api/azure-devops/pullrequests/:id/threads', async (req: any, resp) => {
+    try {
+      const content = String(req.body?.content ?? '').trim();
+      if (!content) {
+        return resp.status(400).type('application/json').send({ error: 'Comment text required.' });
       }
-    },
-  );
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const threadId = Number(req.body?.threadId ?? 0);
+      if (Number.isInteger(threadId) && threadId > 0) {
+        await azureJson<any>(
+          'POST',
+          `${base}/threads/${threadId}/comments?api-version=${AZURE_API_VERSION}`,
+          JSON.stringify({ content }),
+        );
+        return resp.type('application/json').send({ ok: true });
+      }
+      const payload: Record<string, unknown> = {
+        status: AZURE_THREAD_STATUSES.active,
+        comments: [{ content, parentCommentId: 0 }],
+      };
+      const filePath = String(req.body?.filePath ?? '').trim();
+      const line = Number(req.body?.line ?? 0);
+      const requestedEndLine = Number(req.body?.endLine ?? line);
+      const endLine =
+        Number.isInteger(requestedEndLine) && requestedEndLine >= line ? requestedEndLine : line;
+      const left = req.body?.side === 'left';
+      if (filePath && Number.isInteger(line) && line > 0) {
+        // Azure anchors a whole-line comment from offset 1 to "end of line".
+        payload.threadContext = {
+          filePath: `/${filePath.replace(/^\//, '')}`,
+          [left ? 'leftFileStart' : 'rightFileStart']: { line, offset: 1 },
+          [left ? 'leftFileEnd' : 'rightFileEnd']: {
+            line: endLine,
+            offset: 2147483647,
+          },
+        };
+      }
+      await azureJson<any>(
+        'POST',
+        `${base}/threads?api-version=${AZURE_API_VERSION}`,
+        JSON.stringify(payload),
+      );
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Resolves, reactivates or closes a comment thread.
   app.post(
-    "/api/azure-devops/pullrequests/:id/threads/:threadId/status",
+    '/api/azure-devops/pullrequests/:id/threads/:threadId/status',
     async (req: any, resp) => {
       try {
-        const status = String(req.body?.status ?? "");
-        if (!(status in AZURE_THREAD_STATUSES) || status === "unknown") {
+        const status = String(req.body?.status ?? '');
+        if (!(status in AZURE_THREAD_STATUSES) || status === 'unknown') {
           return resp
             .status(400)
-            .type("application/json")
+            .type('application/json')
             .send({ error: `Unknown thread status "${status}".` });
         }
         const { base } = await azurePrApiBase(Number(req.params?.id));
         await azureJson<any>(
-          "PATCH",
+          'PATCH',
           `${base}/threads/${Number(req.params?.threadId)}?api-version=${AZURE_API_VERSION}`,
           JSON.stringify({ status: AZURE_THREAD_STATUSES[status] }),
         );
-        return resp.type("application/json").send({ ok: true });
+        return resp.type('application/json').send({ ok: true });
       } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+        return resp.status(400).type('application/json').send({ error: err.message });
       }
     },
   );
 
   // Changed files of the latest PR iteration (names and change types only;
   // content is fetched per file on demand by /file-diff).
-  app.get(
-    "/api/azure-devops/pullrequests/:id/changes",
-    async (req: any, resp) => {
-      try {
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        const iterations = await azureJson<any>(
-          "GET",
-          `${base}/iterations?api-version=${AZURE_API_VERSION}`,
-        );
-        const list = Array.isArray(iterations?.value) ? iterations.value : [];
-        const latest = list.length
-          ? list.reduce((newest: any, entry: any) =>
-              String(entry?.createdDate ?? "") >
-              String(newest?.createdDate ?? "")
-                ? entry
-                : newest,
-            )
-          : null;
-        if (!latest) {
-          return resp.type("application/json").send({ files: [] });
-        }
-        const changeStatus: Record<string, string> = {
-          add: "added",
-          edit: "modified",
-          rename: "renamed",
-          delete: "deleted",
-          undelete: "added",
-        };
-        // Azure returns the changed files under "changeEntries" and pages
-        // them (nextSkip); some releases use "value" instead. Follow the
-        // paging until every page has been read, otherwise a PR with more
-        // changes than one page would show none at all.
-        const entries: any[] = [];
-        let skip = 0;
-        for (;;) {
-          const data = await azureJson<any>(
-            "GET",
-            `${base}/iterations/${latest.id}/changes?$top=1000&$skip=${skip}&api-version=${AZURE_API_VERSION}`,
-          );
-          const page = Array.isArray(data?.changeEntries)
-            ? data.changeEntries
-            : Array.isArray(data?.value)
-              ? data.value
-              : [];
-          entries.push(...page);
-          const nextSkip = Number(data?.nextSkip);
-          if (Number.isInteger(nextSkip) && nextSkip > skip && page.length) {
-            skip = nextSkip;
-            continue;
-          }
-          if (page.length >= 1000) {
-            skip += 1000;
-            continue;
-          }
-          break;
-        }
-        const files = entries
-          .filter((entry: any) => entry?.item?.isFolder !== true)
-          .map((entry: any) => {
-            const path = String(entry?.item?.path ?? "").replace(/^\//, "");
-            const changeType =
-              changeStatus[String(entry?.changeType ?? "")] ?? "modified";
-            const oldPath =
-              changeType === "renamed"
-                ? String(entry?.sourceServerItem ?? "").replace(/^\//, "")
-                : "";
-            return { path, oldPath, changeType };
-          })
-          .filter((file: any) => Boolean(file.path));
-        return resp.type("application/json").send({ files });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.get('/api/azure-devops/pullrequests/:id/changes', async (req: any, resp) => {
+    try {
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const iterations = await azureJson<any>(
+        'GET',
+        `${base}/iterations?api-version=${AZURE_API_VERSION}`,
+      );
+      const list = Array.isArray(iterations?.value) ? iterations.value : [];
+      const latest = list.length
+        ? list.reduce((newest: any, entry: any) =>
+            String(entry?.createdDate ?? '') > String(newest?.createdDate ?? '') ? entry : newest,
+          )
+        : null;
+      if (!latest) {
+        return resp.type('application/json').send({ files: [] });
       }
-    },
-  );
+      const changeStatus: Record<string, string> = {
+        add: 'added',
+        edit: 'modified',
+        rename: 'renamed',
+        delete: 'deleted',
+        undelete: 'added',
+      };
+      // Azure returns the changed files under "changeEntries" and pages
+      // them (nextSkip); some releases use "value" instead. Follow the
+      // paging until every page has been read, otherwise a PR with more
+      // changes than one page would show none at all.
+      const entries: any[] = [];
+      let skip = 0;
+      for (;;) {
+        const data = await azureJson<any>(
+          'GET',
+          `${base}/iterations/${latest.id}/changes?$top=1000&$skip=${skip}&api-version=${AZURE_API_VERSION}`,
+        );
+        const page = Array.isArray(data?.changeEntries)
+          ? data.changeEntries
+          : Array.isArray(data?.value)
+            ? data.value
+            : [];
+        entries.push(...page);
+        const nextSkip = Number(data?.nextSkip);
+        if (Number.isInteger(nextSkip) && nextSkip > skip && page.length) {
+          skip = nextSkip;
+          continue;
+        }
+        if (page.length >= 1000) {
+          skip += 1000;
+          continue;
+        }
+        break;
+      }
+      const files = entries
+        .filter((entry: any) => entry?.item?.isFolder !== true)
+        .map((entry: any) => {
+          const path = String(entry?.item?.path ?? '').replace(/^\//, '');
+          const changeType = changeStatus[String(entry?.changeType ?? '')] ?? 'modified';
+          const oldPath =
+            changeType === 'renamed'
+              ? String(entry?.sourceServerItem ?? '').replace(/^\//, '')
+              : '';
+          return { path, oldPath, changeType };
+        })
+        .filter((file: any) => Boolean(file.path));
+      return resp.type('application/json').send({ files });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // ==================== Pull request work items / checks / abandon ====================
 
@@ -3027,8 +2558,8 @@ export async function startGuitoServer({
   type AzureCheck = {
     id: string;
     name: string;
-    kind: "build" | "reviewer" | "policy" | "status";
-    state: "pending" | "succeeded" | "failed" | "notApplicable";
+    kind: 'build' | 'reviewer' | 'policy' | 'status';
+    state: 'pending' | 'succeeded' | 'failed' | 'notApplicable';
     required: boolean;
     detail?: string;
     url?: string;
@@ -3036,32 +2567,32 @@ export async function startGuitoServer({
   };
 
   /** Maps a policy evaluation status state onto the four UI states. */
-  const azurePolicyState = (state: any): AzureCheck["state"] => {
-    switch (String(state ?? "").toLowerCase()) {
-      case "approved":
-        return "succeeded";
-      case "rejected":
-      case "broken":
-        return "failed";
-      case "notapplicable":
-        return "notApplicable";
+  const azurePolicyState = (state: any): AzureCheck['state'] => {
+    switch (String(state ?? '').toLowerCase()) {
+      case 'approved':
+        return 'succeeded';
+      case 'rejected':
+      case 'broken':
+        return 'failed';
+      case 'notapplicable':
+        return 'notApplicable';
       default:
         // pending, deferred, queued and unknown states all still gate merges.
-        return "pending";
+        return 'pending';
     }
   };
 
   /** Maps a native PR status state onto the four UI states. */
-  const azureStatusState = (state: any): AzureCheck["state"] => {
-    switch (String(state ?? "").toLowerCase()) {
-      case "succeeded":
-        return "succeeded";
-      case "failed":
-      case "error":
-        return "failed";
+  const azureStatusState = (state: any): AzureCheck['state'] => {
+    switch (String(state ?? '').toLowerCase()) {
+      case 'succeeded':
+        return 'succeeded';
+      case 'failed':
+      case 'error':
+        return 'failed';
       default:
         // notSet and pending: posted but undecided.
-        return "pending";
+        return 'pending';
     }
   };
 
@@ -3072,7 +2603,7 @@ export async function startGuitoServer({
     prId: number,
   ): Promise<any[]> => {
     if (!projectId || !prId) {
-      throw new Error("The pull request does not expose its project identity.");
+      throw new Error('The pull request does not expose its project identity.');
     }
     // The artifact id Azure keys policy evaluations by. The documented
     // template is "CodeReviewId"; the "CodeReviewIdentity" spelling is
@@ -3082,7 +2613,7 @@ export async function startGuitoServer({
     let skip = 0;
     for (;;) {
       const data = await azureJson<any>(
-        "GET",
+        'GET',
         `${prefix}/_apis/policy/evaluations?artifactId=${encodeURIComponent(artifactId)}` +
           `&$skip=${skip}&$top=1000&api-version=5.0-preview.1`,
       );
@@ -3102,17 +2633,13 @@ export async function startGuitoServer({
       const total = Number(data?.count);
       const nextSkip = Number(data?.nextSkip);
       const moreByCount = Number.isInteger(total) && total > evaluations.length;
-      const moreBySkip =
-        Number.isInteger(nextSkip) && nextSkip > skip && page.length > 0;
+      const moreBySkip = Number.isInteger(nextSkip) && nextSkip > skip && page.length > 0;
       // Stop when complete, when a page added nothing new (the server ignored
       // our skip) or after a safety-capped number of pages.
       if (!(moreByCount || moreBySkip) || evaluations.length === before) {
         break;
       }
-      skip =
-        Number.isInteger(nextSkip) && nextSkip > skip
-          ? nextSkip
-          : evaluations.length;
+      skip = Number.isInteger(nextSkip) && nextSkip > skip ? nextSkip : evaluations.length;
       if (skip > 20000) {
         break;
       }
@@ -3122,19 +2649,12 @@ export async function startGuitoServer({
 
   /** Reads the native statuses posted directly on the pull request. */
   const fetchPullRequestStatuses = async (base: string): Promise<any[]> => {
-    const data = await azureJson<any>(
-      "GET",
-      `${base}/statuses?api-version=5.0-preview.1`,
-    );
+    const data = await azureJson<any>('GET', `${base}/statuses?api-version=5.0-preview.1`);
     return Array.isArray(data?.value) ? data.value : [];
   };
 
   /** Turns one policy evaluation into a check row (null when unnameable). */
-  const policyCheckOf = (
-    prefix: string,
-    evaluation: any,
-    index: number,
-  ): AzureCheck | null => {
+  const policyCheckOf = (prefix: string, evaluation: any, index: number): AzureCheck | null => {
     const configuration = evaluation?.configuration ?? {};
     const type = configuration.type ?? {};
     const settings = configuration.settings ?? {};
@@ -3142,48 +2662,40 @@ export async function startGuitoServer({
     const status = evaluation?.status;
     // 5.0-preview answers status as a plain state string; newer versions may
     // answer a { state, message } object. Support both.
-    const state = typeof status === "string" ? status : status?.state;
-    const message = typeof status === "string" ? "" : status?.message;
-    const typeName = String(type?.displayName ?? "").trim();
+    const state = typeof status === 'string' ? status : status?.state;
+    const message = typeof status === 'string' ? '' : status?.message;
+    const typeName = String(type?.displayName ?? '').trim();
     const isBuild = /build/i.test(typeName);
     const name =
-      String(settings?.displayName ?? "").trim() ||
-      (isBuild ? String(context?.buildDefinitionName ?? "").trim() : "") ||
+      String(settings?.displayName ?? '').trim() ||
+      (isBuild ? String(context?.buildDefinitionName ?? '').trim() : '') ||
       typeName ||
-      "Policy";
+      'Policy';
     if (!name) {
       return null;
     }
     const gate = `${typeName} ${name}`;
     const buildId = Number(context?.buildId ?? settings?.buildId);
-    const evaluationId = String(
-      evaluation?.evaluationId ?? status?.evaluationId ?? "",
-    ).trim();
+    const evaluationId = String(evaluation?.evaluationId ?? status?.evaluationId ?? '').trim();
     const check: AzureCheck = {
       id: `policy:${evaluationId || index}`,
       name,
-      kind: /build/i.test(gate)
-        ? "build"
-        : /reviewer/i.test(gate)
-          ? "reviewer"
-          : "policy",
+      kind: /build/i.test(gate) ? 'build' : /reviewer/i.test(gate) ? 'reviewer' : 'policy',
       state: azurePolicyState(state),
-      required:
-        configuration?.isBlocking === true ||
-        configuration?.isRequired === true,
+      required: configuration?.isBlocking === true || configuration?.isRequired === true,
     };
-    const detail = String(message ?? "").trim();
+    const detail = String(message ?? '').trim();
     if (detail) {
       check.detail = detail;
     }
     if (context?.isExpired === true) {
-      check.detail = detail ? `${detail} (build expired)` : "Build expired";
+      check.detail = detail ? `${detail} (build expired)` : 'Build expired';
     }
     if (Number.isInteger(buildId) && buildId > 0) {
       check.url = `${prefix}/_build/results?buildId=${buildId}`;
     }
     // Only build gates can be re-run, and only through their evaluation id.
-    if (check.kind === "build" && evaluationId) {
+    if (check.kind === 'build' && evaluationId) {
       check.evaluationId = evaluationId;
     }
     return check;
@@ -3191,642 +2703,536 @@ export async function startGuitoServer({
 
   // Related work items of the pull request, resolved to title/state through
   // the work-item batch API. Unresolvable refs degrade to an id-only row.
-  app.get(
-    "/api/azure-devops/pullrequests/:id/workitems",
-    async (req: any, resp) => {
-      try {
-        const { base, prefix } = await azurePrApiBase(Number(req.params?.id));
-        const refs = await azureJson<any>(
-          "GET",
-          `${base}/workitems?api-version=${AZURE_API_VERSION}`,
-        );
-        const ids = [
-          ...new Set(
-            (Array.isArray(refs?.value) ? refs.value : [])
-              .map((entry: any) => Number(entry?.id))
-              .filter((id: number) => Number.isInteger(id) && id > 0),
-          ),
-        ];
-        if (!ids.length) {
-          return resp.type("application/json").send({ workItems: [] });
-        }
-        const batch = await azureRequest(
-          "GET",
-          `${prefix}/_apis/wit/workitems?ids=${ids.join(",")}` +
-            `&fields=System.Id,System.Title,System.State&api-version=${AZURE_API_VERSION}`,
-          "",
-        );
-        const details = new Map<string, { title: string; state: string }>();
-        if (batch.status >= 200 && batch.status < 300) {
-          const data = JSON.parse(batch.body);
-          for (const item of Array.isArray(data?.value) ? data.value : []) {
-            details.set(String(item?.id ?? ""), {
-              title: String(item?.fields?.["System.Title"] ?? ""),
-              state: String(item?.fields?.["System.State"] ?? ""),
-            });
-          }
-        }
-        const workItems = ids.map((id) => ({
-          id,
-          title: details.get(String(id))?.title || `Work item ${id}`,
-          state: details.get(String(id))?.state ?? "",
-          url: `${prefix}/_workitems/edit/${id}`,
-        }));
-        return resp.type("application/json").send({ workItems });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.get('/api/azure-devops/pullrequests/:id/workitems', async (req: any, resp) => {
+    try {
+      const { base, prefix } = await azurePrApiBase(Number(req.params?.id));
+      const refs = await azureJson<any>(
+        'GET',
+        `${base}/workitems?api-version=${AZURE_API_VERSION}`,
+      );
+      const ids = [
+        ...new Set(
+          (Array.isArray(refs?.value) ? refs.value : [])
+            .map((entry: any) => Number(entry?.id))
+            .filter((id: number) => Number.isInteger(id) && id > 0),
+        ),
+      ];
+      if (!ids.length) {
+        return resp.type('application/json').send({ workItems: [] });
       }
-    },
-  );
+      const batch = await azureRequest(
+        'GET',
+        `${prefix}/_apis/wit/workitems?ids=${ids.join(',')}` +
+          `&fields=System.Id,System.Title,System.State&api-version=${AZURE_API_VERSION}`,
+        '',
+      );
+      const details = new Map<string, { title: string; state: string }>();
+      if (batch.status >= 200 && batch.status < 300) {
+        const data = JSON.parse(batch.body);
+        for (const item of Array.isArray(data?.value) ? data.value : []) {
+          details.set(String(item?.id ?? ''), {
+            title: String(item?.fields?.['System.Title'] ?? ''),
+            state: String(item?.fields?.['System.State'] ?? ''),
+          });
+        }
+      }
+      const workItems = ids.map((id) => ({
+        id,
+        title: details.get(String(id))?.title || `Work item ${id}`,
+        state: details.get(String(id))?.state ?? '',
+        url: `${prefix}/_workitems/edit/${id}`,
+      }));
+      return resp.type('application/json').send({ workItems });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Tags are the PR labels resource; the side panel adds and removes them
   // directly, so both directions are served here.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/labels",
-    async (req: any, resp) => {
-      try {
-        const name = String(req.body?.name ?? "").trim();
-        if (!name) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "A tag name is required." });
-        }
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        await azureJson(
-          "POST",
-          `${base}/labels?api-version=${AZURE_API_VERSION}`,
-          JSON.stringify({ name }),
-        );
-        return resp.type("application/json").send({ success: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.post('/api/azure-devops/pullrequests/:id/labels', async (req: any, resp) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      if (!name) {
+        return resp.status(400).type('application/json').send({ error: 'A tag name is required.' });
       }
-    },
-  );
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      await azureJson(
+        'POST',
+        `${base}/labels?api-version=${AZURE_API_VERSION}`,
+        JSON.stringify({ name }),
+      );
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
-  app.delete(
-    "/api/azure-devops/pullrequests/:id/labels/:name",
-    async (req: any, resp) => {
-      try {
-        const name = String(req.params?.name ?? "");
-        if (!name) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "A tag name is required." });
-        }
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        await azureJson(
-          "DELETE",
-          `${base}/labels/${encodeURIComponent(name)}?api-version=${AZURE_API_VERSION}`,
-          "",
-        );
-        return resp.type("application/json").send({ success: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+  app.delete('/api/azure-devops/pullrequests/:id/labels/:name', async (req: any, resp) => {
+    try {
+      const name = String(req.params?.name ?? '');
+      if (!name) {
+        return resp.status(400).type('application/json').send({ error: 'A tag name is required.' });
       }
-    },
-  );
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      await azureJson(
+        'DELETE',
+        `${base}/labels/${encodeURIComponent(name)}?api-version=${AZURE_API_VERSION}`,
+        '',
+      );
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Work items are linked from the work item side: the link lives on the work
   // item as an ArtifactLink relation pointing at the PR's artifact URI, so
   // linking and unlinking both patch the work item rather than the PR.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/workitems",
-    async (req: any, resp) => {
-      try {
-        const workItemId = Number(req.body?.id);
-        if (!Number.isInteger(workItemId) || workItemId <= 0) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "A work item id is required." });
-        }
-        const { prefix, artifactUrl } = await azurePrArtifactOf(
-          Number(req.params?.id),
-        );
-        const alreadyLinked = (
-          await azureWorkItemRelations(prefix, workItemId)
-        ).some(
-          (relation: any) =>
-            String(relation?.url ?? "").toLowerCase() ===
-            artifactUrl.toLowerCase(),
-        );
-        if (!alreadyLinked) {
-          await azurePatchWorkItemRelations(prefix, workItemId, [
-            {
-              op: "add",
-              path: "/relations/-",
-              value: {
-                rel: "ArtifactLink",
-                url: artifactUrl,
-                attributes: { name: "Pull Request" },
-              },
-            },
-          ]);
-        }
-        return resp.type("application/json").send({ success: true });
-      } catch (err: any) {
+  app.post('/api/azure-devops/pullrequests/:id/workitems', async (req: any, resp) => {
+    try {
+      const workItemId = Number(req.body?.id);
+      if (!Number.isInteger(workItemId) || workItemId <= 0) {
         return resp
           .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+          .type('application/json')
+          .send({ error: 'A work item id is required.' });
       }
-    },
-  );
+      const { prefix, artifactUrl } = await azurePrArtifactOf(Number(req.params?.id));
+      const alreadyLinked = (await azureWorkItemRelations(prefix, workItemId)).some(
+        (relation: any) => String(relation?.url ?? '').toLowerCase() === artifactUrl.toLowerCase(),
+      );
+      if (!alreadyLinked) {
+        await azurePatchWorkItemRelations(prefix, workItemId, [
+          {
+            op: 'add',
+            path: '/relations/-',
+            value: {
+              rel: 'ArtifactLink',
+              url: artifactUrl,
+              attributes: { name: 'Pull Request' },
+            },
+          },
+        ]);
+      }
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
-  app.delete(
-    "/api/azure-devops/pullrequests/:id/workitems/:workItemId",
-    async (req: any, resp) => {
-      try {
-        const workItemId = Number(req.params?.workItemId);
-        if (!Number.isInteger(workItemId) || workItemId <= 0) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "A work item id is required." });
-        }
-        const { prefix, artifactUrl } = await azurePrArtifactOf(
-          Number(req.params?.id),
-        );
-        // Relations are removed by index, so confirm the link and its index in
-        // the same read, then assert that url at the index before removing:
-        // Azure applies the patch atomically, so a relation list that moved
-        // underneath this call is rejected instead of removing a neighbour.
-        const relations = await azureWorkItemRelations(prefix, workItemId);
-        const index = relations.findIndex(
-          (relation: any) =>
-            String(relation?.url ?? "").toLowerCase() ===
-            artifactUrl.toLowerCase(),
-        );
-        if (index >= 0) {
-          await azurePatchWorkItemRelations(prefix, workItemId, [
-            {
-              op: "test",
-              path: `/relations/${index}/url`,
-              value: String(relations[index]?.url ?? ""),
-            },
-            { op: "remove", path: `/relations/${index}` },
-          ]);
-        }
-        return resp.type("application/json").send({ success: true });
-      } catch (err: any) {
+  app.delete('/api/azure-devops/pullrequests/:id/workitems/:workItemId', async (req: any, resp) => {
+    try {
+      const workItemId = Number(req.params?.workItemId);
+      if (!Number.isInteger(workItemId) || workItemId <= 0) {
         return resp
           .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+          .type('application/json')
+          .send({ error: 'A work item id is required.' });
       }
-    },
-  );
+      const { prefix, artifactUrl } = await azurePrArtifactOf(Number(req.params?.id));
+      // Relations are removed by index, so confirm the link and its index in
+      // the same read, then assert that url at the index before removing:
+      // Azure applies the patch atomically, so a relation list that moved
+      // underneath this call is rejected instead of removing a neighbour.
+      const relations = await azureWorkItemRelations(prefix, workItemId);
+      const index = relations.findIndex(
+        (relation: any) => String(relation?.url ?? '').toLowerCase() === artifactUrl.toLowerCase(),
+      );
+      if (index >= 0) {
+        await azurePatchWorkItemRelations(prefix, workItemId, [
+          {
+            op: 'test',
+            path: `/relations/${index}/url`,
+            value: String(relations[index]?.url ?? ''),
+          },
+          { op: 'remove', path: `/relations/${index}` },
+        ]);
+      }
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Merge gates of the pull request: Azure policy evaluations (builds,
   // required reviewers, comments, work items, ...) plus the native statuses
   // posted on the PR. One failing source degrades to a warning so the other
   // still reaches the dialog; only when both fail is the request an error.
-  app.get(
-    "/api/azure-devops/pullrequests/:id/checks",
-    async (req: any, resp) => {
-      const describe = (error: unknown): string =>
-        error instanceof Error ? error.message : String(error);
-      try {
-        const { base, prefix } = await azurePrApiBase(Number(req.params?.id));
-        const pr = await azureJson<any>(
-          "GET",
-          `${base}?api-version=${AZURE_API_VERSION}`,
+  app.get('/api/azure-devops/pullrequests/:id/checks', async (req: any, resp) => {
+    const describe = (error: unknown): string =>
+      error instanceof Error ? error.message : String(error);
+    try {
+      const { base, prefix } = await azurePrApiBase(Number(req.params?.id));
+      const pr = await azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`);
+      const warnings: string[] = [];
+      const checks = new Map<string, AzureCheck>();
+      const [evaluations, statuses] = await Promise.all([
+        fetchPolicyEvaluations(
+          prefix,
+          String(pr?.repository?.project?.id ?? ''),
+          Number(pr?.pullRequestId ?? 0),
+        ).catch((error: unknown) => ({ error })),
+        fetchPullRequestStatuses(base).catch((error: unknown) => ({ error })),
+      ]);
+      const policyError = 'error' in evaluations ? evaluations.error : null;
+      const statusError = 'error' in statuses ? statuses.error : null;
+      if (policyError && statusError) {
+        throw new Error(
+          `Policy evaluations failed (${describe(policyError)}); pull request statuses failed (${describe(statusError)}).`,
         );
-        const warnings: string[] = [];
-        const checks = new Map<string, AzureCheck>();
-        const [evaluations, statuses] = await Promise.all([
-          fetchPolicyEvaluations(
-            prefix,
-            String(pr?.repository?.project?.id ?? ""),
-            Number(pr?.pullRequestId ?? 0),
-          ).catch((error: unknown) => ({ error })),
-          fetchPullRequestStatuses(base).catch((error: unknown) => ({ error })),
-        ]);
-        const policyError = "error" in evaluations ? evaluations.error : null;
-        const statusError = "error" in statuses ? statuses.error : null;
-        if (policyError && statusError) {
-          throw new Error(
-            `Policy evaluations failed (${describe(policyError)}); pull request statuses failed (${describe(statusError)}).`,
-          );
-        }
-        if (policyError) {
-          warnings.push(
-            `Policy evaluations are unavailable (${describe(policyError)}). Showing pull request statuses only.`,
-          );
-        } else {
-          (evaluations as any[]).forEach((evaluation: any, index: number) => {
-            const check = policyCheckOf(prefix, evaluation, index);
-            if (check) {
-              checks.set(check.id, check);
-            }
-          });
-        }
-        if (statusError) {
-          warnings.push(
-            `Pull request statuses are unavailable (${describe(statusError)}). Showing policy evaluations only.`,
-          );
-        } else {
-          // Statuses repeat on re-post; keep only the latest per genre/name.
-          const latestStatuses = new Map<string, any>();
-          for (const status of statuses as any[]) {
-            const key = `${String(status?.context?.genre ?? "")}/${String(
-              status?.context?.name ?? "",
-            )}`;
-            const existing = latestStatuses.get(key);
-            if (
-              !existing ||
-              String(status?.creationDate ?? "") >
-                String(existing?.creationDate ?? "")
-            ) {
-              latestStatuses.set(key, status);
-            }
-          }
-          for (const [key, status] of latestStatuses) {
-            const name = String(status?.context?.name ?? "Status");
-            const row: AzureCheck = {
-              id: `status:${key}`,
-              name,
-              kind: "status",
-              state: azureStatusState(status?.state),
-              required: false,
-            };
-            const description = String(status?.description ?? "").trim();
-            if (description) {
-              row.detail = description;
-            }
-            const target = String(status?.targetUrl ?? "");
-            if (target) {
-              row.url = target;
-            }
-            checks.set(row.id, row);
-          }
-        }
-        return resp
-          .type("application/json")
-          .send({ checks: [...checks.values()], warnings });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
       }
-    },
-  );
+      if (policyError) {
+        warnings.push(
+          `Policy evaluations are unavailable (${describe(policyError)}). Showing pull request statuses only.`,
+        );
+      } else {
+        (evaluations as any[]).forEach((evaluation: any, index: number) => {
+          const check = policyCheckOf(prefix, evaluation, index);
+          if (check) {
+            checks.set(check.id, check);
+          }
+        });
+      }
+      if (statusError) {
+        warnings.push(
+          `Pull request statuses are unavailable (${describe(statusError)}). Showing policy evaluations only.`,
+        );
+      } else {
+        // Statuses repeat on re-post; keep only the latest per genre/name.
+        const latestStatuses = new Map<string, any>();
+        for (const status of statuses as any[]) {
+          const key = `${String(status?.context?.genre ?? '')}/${String(
+            status?.context?.name ?? '',
+          )}`;
+          const existing = latestStatuses.get(key);
+          if (
+            !existing ||
+            String(status?.creationDate ?? '') > String(existing?.creationDate ?? '')
+          ) {
+            latestStatuses.set(key, status);
+          }
+        }
+        for (const [key, status] of latestStatuses) {
+          const name = String(status?.context?.name ?? 'Status');
+          const row: AzureCheck = {
+            id: `status:${key}`,
+            name,
+            kind: 'status',
+            state: azureStatusState(status?.state),
+            required: false,
+          };
+          const description = String(status?.description ?? '').trim();
+          if (description) {
+            row.detail = description;
+          }
+          const target = String(status?.targetUrl ?? '');
+          if (target) {
+            row.url = target;
+          }
+          checks.set(row.id, row);
+        }
+      }
+      return resp.type('application/json').send({ checks: [...checks.values()], warnings });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Re-queues the build behind one build policy evaluation, the same action
   // the Azure DevOps checks list offers. The evaluation id comes from the
   // checks endpoint above; Azure answers the refreshed evaluation.
   app.post(
-    "/api/azure-devops/pullrequests/:id/checks/:evaluationId/requeue",
+    '/api/azure-devops/pullrequests/:id/checks/:evaluationId/requeue',
     async (req: any, resp) => {
       try {
-        const evaluationId = String(req.params?.evaluationId ?? "").trim();
+        const evaluationId = String(req.params?.evaluationId ?? '').trim();
         if (!evaluationId) {
-          throw new Error("A policy evaluation id is required.");
+          throw new Error('A policy evaluation id is required.');
         }
         const { prefix } = await azurePrApiBase(Number(req.params?.id));
         await azureJson<any>(
-          "POST",
+          'POST',
           `${prefix}/_apis/policy/evaluations/${encodeURIComponent(evaluationId)}` +
             `?api-version=5.0-preview.1`,
         );
-        return resp.type("application/json").send({ ok: true });
+        return resp.type('application/json').send({ ok: true });
       } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
+        return resp.status(400).type('application/json').send({ error: err.message });
       }
     },
   );
 
   // Abandons (closes) the pull request without merging.
-  app.post(
-    "/api/azure-devops/pullrequests/:id/abandon",
-    async (req: any, resp) => {
-      try {
-        const { base } = await azurePrApiBase(Number(req.params?.id));
-        await azureJson<any>(
-          "PATCH",
-          `${base}?api-version=${AZURE_API_VERSION}`,
-          JSON.stringify({ status: "abandoned" }),
-        );
-        return resp.type("application/json").send({ ok: true });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
-      }
-    },
-  );
+  app.post('/api/azure-devops/pullrequests/:id/abandon', async (req: any, resp) => {
+    try {
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      await azureJson<any>(
+        'PATCH',
+        `${base}?api-version=${AZURE_API_VERSION}`,
+        JSON.stringify({ status: 'abandoned' }),
+      );
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // Unified diff of one PR file, computed from the Azure item contents at the
   // PR merge commits. source/target are optional overrides; default comes from
   // the pull request detail.
-  app.get(
-    "/api/azure-devops/pullrequests/:id/file-diff",
-    async (req: any, resp) => {
-      try {
-        const path = String(req.query?.path ?? "").replace(/^\//, "");
-        if (!path) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "path required" });
+  app.get('/api/azure-devops/pullrequests/:id/file-diff', async (req: any, resp) => {
+    try {
+      const path = String(req.query?.path ?? '').replace(/^\//, '');
+      if (!path) {
+        return resp.status(400).type('application/json').send({ error: 'path required' });
+      }
+      const oldPath = String(req.query?.oldPath ?? '').replace(/^\//, '');
+      const { base, prefix, repo } = await azurePrApiBase(Number(req.params?.id));
+      let source = String(req.query?.source ?? '');
+      let target = String(req.query?.target ?? '');
+      if (!source || !target) {
+        const pr = await azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`);
+        source = source || String(pr?.lastMergeSourceCommit?.commitId ?? '');
+        target = target || String(pr?.lastMergeTargetCommit?.commitId ?? '');
+      }
+      if (!source || !target) {
+        throw new Error('The pull request does not have merge commits to diff yet.');
+      }
+      const fetchContent = async (itemPath: string, commit: string) => {
+        if (!itemPath) return { content: '', binary: false };
+        const url =
+          `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/items` +
+          `?path=${encodeURIComponent(`/${itemPath}`)}` +
+          `&versionDescriptor.version=${encodeURIComponent(commit)}` +
+          `&versionDescriptor.versionType=commit&includeContent=true` +
+          `&api-version=${AZURE_API_VERSION}`;
+        const result = await azureRequest('GET', url, '');
+        // 404/203: the file does not exist at that commit (added/deleted file).
+        if (result.status === 404 || result.status === 203) {
+          return { content: '', binary: false };
         }
-        const oldPath = String(req.query?.oldPath ?? "").replace(/^\//, "");
-        const { base, prefix, repo } = await azurePrApiBase(
-          Number(req.params?.id),
-        );
-        let source = String(req.query?.source ?? "");
-        let target = String(req.query?.target ?? "");
-        if (!source || !target) {
-          const pr = await azureJson<any>(
-            "GET",
-            `${base}?api-version=${AZURE_API_VERSION}`,
-          );
-          source = source || String(pr?.lastMergeSourceCommit?.commitId ?? "");
-          target = target || String(pr?.lastMergeTargetCommit?.commitId ?? "");
-        }
-        if (!source || !target) {
+        if (result.status < 200 || result.status >= 300) {
           throw new Error(
-            "The pull request does not have merge commits to diff yet.",
+            azureErrorMessage(result) || `Azure DevOps returned HTTP ${result.status}.`,
           );
         }
-        const fetchContent = async (itemPath: string, commit: string) => {
-          if (!itemPath) return { content: "", binary: false };
-          const url =
-            `${prefix}/_apis/git/repositories/${encodeURIComponent(repo)}/items` +
-            `?path=${encodeURIComponent(`/${itemPath}`)}` +
-            `&versionDescriptor.version=${encodeURIComponent(commit)}` +
-            `&versionDescriptor.versionType=commit&includeContent=true` +
-            `&api-version=${AZURE_API_VERSION}`;
-          const result = await azureRequest("GET", url, "");
-          // 404/203: the file does not exist at that commit (added/deleted file).
-          if (result.status === 404 || result.status === 203) {
-            return { content: "", binary: false };
-          }
-          if (result.status < 200 || result.status >= 300) {
-            throw new Error(
-              azureErrorMessage(result) ||
-                `Azure DevOps returned HTTP ${result.status}.`,
-            );
-          }
-          let data: any = null;
-          try {
-            data = JSON.parse(result.body);
-          } catch {
-            // Depending on the Azure deployment and file type, the Items API
-            // may return the file body directly instead of a JSON envelope.
-          }
-          const hasContentEnvelope =
-            data !== null &&
-            typeof data === "object" &&
-            (Object.prototype.hasOwnProperty.call(data, "content") ||
-              Object.prototype.hasOwnProperty.call(data, "isBinary"));
-          return {
-            content: hasContentEnvelope
-              ? typeof data.content === "string"
-                ? data.content
-                : ""
-              : result.body,
-            binary: hasContentEnvelope && data.isBinary === true,
-          };
+        let data: any = null;
+        try {
+          data = JSON.parse(result.body);
+        } catch {
+          // Depending on the Azure deployment and file type, the Items API
+          // may return the file body directly instead of a JSON envelope.
+        }
+        const hasContentEnvelope =
+          data !== null &&
+          typeof data === 'object' &&
+          (Object.prototype.hasOwnProperty.call(data, 'content') ||
+            Object.prototype.hasOwnProperty.call(data, 'isBinary'));
+        return {
+          content: hasContentEnvelope
+            ? typeof data.content === 'string'
+              ? data.content
+              : ''
+            : result.body,
+          binary: hasContentEnvelope && data.isBinary === true,
         };
-        const [oldFile, newFile] = await Promise.all([
-          fetchContent(oldPath || path, target),
-          fetchContent(path, source),
-        ]);
-        if (oldFile.binary || newFile.binary) {
-          return resp.type("application/json").send({
-            path,
-            oldPath,
-            status: "binary",
-            binary: true,
-            additions: 0,
-            deletions: 0,
-            lines: [],
-          });
-        }
-        const status =
-          String(req.query?.changeType ?? "") ||
-          (!oldFile.content
-            ? "added"
-            : !newFile.content
-              ? "deleted"
-              : "modified");
-        // jsdiff omits the "diff --git" header parseUnifiedDiff expects, and
-        // prefixing it lets the same parser serve both local and PR diffs.
-        const patch = createTwoFilesPatch(
-          `a/${oldPath || path}`,
-          `b/${path}`,
-          oldFile.content,
-          newFile.content,
-        );
-        const raw = `diff --git a/${oldPath || path} b/${path}\n${patch.replace(/^=+\n/, "")}`;
-        // The patch's trailing newline would surface as a phantom context row.
-        const [file] = parseUnifiedDiff(raw.replace(/\n+$/, ""));
-        const maxLines = 10000;
-        const lines = (file?.lines ?? []).slice(0, maxLines);
-        if ((file?.lines ?? []).length > maxLines) {
-          lines.push({
-            type: "hunk",
-            text: "Diff truncated (file too large).",
-          });
-        }
-        return resp.type("application/json").send({
+      };
+      const [oldFile, newFile] = await Promise.all([
+        fetchContent(oldPath || path, target),
+        fetchContent(path, source),
+      ]);
+      if (oldFile.binary || newFile.binary) {
+        return resp.type('application/json').send({
           path,
           oldPath,
-          status,
-          binary: false,
-          additions: file?.additions ?? 0,
-          deletions: file?.deletions ?? 0,
-          originalContent: oldFile.content,
-          modifiedContent: newFile.content,
-          lines,
+          status: 'binary',
+          binary: true,
+          additions: 0,
+          deletions: 0,
+          lines: [],
         });
-      } catch (err: any) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: err.message });
       }
-    },
-  );
+      const status =
+        String(req.query?.changeType ?? '') ||
+        (!oldFile.content ? 'added' : !newFile.content ? 'deleted' : 'modified');
+      // jsdiff omits the "diff --git" header parseUnifiedDiff expects, and
+      // prefixing it lets the same parser serve both local and PR diffs.
+      const patch = createTwoFilesPatch(
+        `a/${oldPath || path}`,
+        `b/${path}`,
+        oldFile.content,
+        newFile.content,
+      );
+      const raw = `diff --git a/${oldPath || path} b/${path}\n${patch.replace(/^=+\n/, '')}`;
+      // The patch's trailing newline would surface as a phantom context row.
+      const [file] = parseUnifiedDiff(raw.replace(/\n+$/, ''));
+      const maxLines = 10000;
+      const lines = (file?.lines ?? []).slice(0, maxLines);
+      if ((file?.lines ?? []).length > maxLines) {
+        lines.push({
+          type: 'hunk',
+          text: 'Diff truncated (file too large).',
+        });
+      }
+      return resp.type('application/json').send({
+        path,
+        oldPath,
+        status,
+        binary: false,
+        additions: file?.additions ?? 0,
+        deletions: file?.deletions ?? 0,
+        originalContent: oldFile.content,
+        modifiedContent: newFile.content,
+        lines,
+      });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
 
   // ==================== Commit Detail ====================
-  app.post("/api/commit/detail", async (req: any, resp) => {
+  app.post('/api/commit/detail', async (req: any, resp) => {
     try {
       const { hash } = req.body;
       if (!hash) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "hash required" });
+        return resp.status(400).type('application/json').send({ error: 'hash required' });
       }
 
       // Fields are NUL-separated; %b may span lines and contain anything
       // except NUL, so it cannot be split naively by newline.
       const raw = await git.raw([
-        "show",
-        "-s",
-        "--format=%H%x00%aI%x00%s%x00%b%x00%aN%x00%aE%x00%P",
+        'show',
+        '-s',
+        '--format=%H%x00%aI%x00%s%x00%b%x00%aN%x00%aE%x00%P',
         hash,
       ]);
-      const [fullHash, date, message, body, authorName, authorEmail, parents] =
-        raw.trimEnd().split("\u0000");
+      const [fullHash, date, message, body, authorName, authorEmail, parents] = raw
+        .trimEnd()
+        .split('\u0000');
 
-      return resp.type("application/json").send({
+      return resp.type('application/json').send({
         hash: fullHash,
         date,
         message,
-        refs: "",
-        body: body ?? "",
+        refs: '',
+        body: body ?? '',
         ...authorIdentity(authorName, authorEmail, await configuredIdentity()),
-        parents: String(parents ?? "")
-          .split(" ")
+        parents: String(parents ?? '')
+          .split(' ')
           .filter(Boolean),
       });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Diff Viewer ====================
-  app.post("/api/commit/diff", async (req: any, resp) => {
+  app.post('/api/commit/diff', async (req: any, resp) => {
     try {
       const { hash } = req.body;
       if (!hash) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "hash required" });
+        return resp.status(400).type('application/json').send({ error: 'hash required' });
       }
 
       // Get the raw unified diff (diff against the first parent for merges)
       const rawDiff = await git.raw([
-        "show",
-        "--no-color",
-        "--pretty=format:",
-        "--find-renames",
-        "--first-parent",
-        "-m",
+        'show',
+        '--no-color',
+        '--pretty=format:',
+        '--find-renames',
+        '--first-parent',
+        '-m',
         hash,
       ]);
 
-      return resp
-        .type("application/json")
-        .send({ hash, files: parseUnifiedDiff(rawDiff) });
+      return resp.type('application/json').send({ hash, files: parseUnifiedDiff(rawDiff) });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Working Changes ====================
-  app.get("/api/working-changes", async (_req, resp) => {
+  app.get('/api/working-changes', async (_req, resp) => {
     try {
       await mutationQueue;
-      return resp.type("application/json").send(await working.snapshot());
+      return resp.type('application/json').send(await working.snapshot());
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  app.get('/api/conflict', async (req: any, resp) => {
+    try {
+      await mutationQueue;
+      return resp.type('application/json').send(await working.conflict(req.query?.path));
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  app.post('/api/conflict/resolve', async (req: any, resp) => {
+    try {
+      const { path, resolution, content } = req.body ?? {};
+      await mutate(() => working.resolveConflict(path, resolution, content));
+      return resp.type('application/json').send({ success: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== File Content ====================
-  app.post("/api/file-content", async (req: any, resp) => {
+  app.post('/api/file-content', async (req: any, resp) => {
     try {
       const { path, ref } = req.body;
       if (!path || !ref) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "path and ref required" });
+        return resp.status(400).type('application/json').send({ error: 'path and ref required' });
       }
 
-      if (ref === "WORKING") {
+      if (ref === 'WORKING') {
         const root = await repoRoot();
         const abs = resolve(root, path);
         const rel = relative(root, abs);
-        if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-          return resp
-            .status(400)
-            .type("application/json")
-            .send({ error: "invalid path" });
+        if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+          return resp.status(400).type('application/json').send({ error: 'invalid path' });
         }
         try {
           const buffer = await readFile(abs);
           if (buffer.includes(0)) {
-            return resp
-              .type("application/json")
-              .send({ binary: true, content: "" });
+            return resp.type('application/json').send({ binary: true, content: '' });
           }
-          return resp
-            .type("application/json")
-            .send({ content: buffer.toString("utf8") });
+          return resp.type('application/json').send({ content: buffer.toString('utf8') });
         } catch {
           // File no longer exists on disk (deleted).
-          return resp.type("application/json").send({ content: "" });
+          return resp.type('application/json').send({ content: '' });
         }
       }
 
-      if (ref === "EMPTY") {
-        return resp.type("application/json").send({ content: "" });
+      if (ref === 'EMPTY') {
+        return resp.type('application/json').send({ content: '' });
       }
 
       try {
-        const content = await git.raw([
-          "show",
-          ref === "INDEX" ? `:${path}` : `${ref}:${path}`,
-        ]);
-        if (content.includes("\u0000")) {
-          return resp
-            .type("application/json")
-            .send({ binary: true, content: "" });
+        const content = await git.raw(['show', ref === 'INDEX' ? `:${path}` : `${ref}:${path}`]);
+        if (content.includes('\u0000')) {
+          return resp.type('application/json').send({ binary: true, content: '' });
         }
-        return resp.type("application/json").send({ content });
+        return resp.type('application/json').send({ content });
       } catch {
         // Path did not exist at that revision (added file).
-        return resp.type("application/json").send({ content: "" });
+        return resp.type('application/json').send({ content: '' });
       }
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Discard ====================
-  app.post("/api/discard", async (req: any, resp) => {
+  app.post('/api/discard', async (req: any, resp) => {
     try {
       const { files, mode } = req.body;
       if (!Array.isArray(files) || files.length === 0) {
-        return resp
-          .status(400)
-          .type("application/json")
-          .send({ error: "files required" });
+        return resp.status(400).type('application/json').send({ error: 'files required' });
       }
 
       const root = await repoRoot();
@@ -3837,59 +3243,44 @@ export async function startGuitoServer({
       const removed = files.filter((file: string) => untracked.has(file));
 
       if (tracked.length > 0) {
-        if (mode === "unstaged") {
+        if (mode === 'unstaged') {
           // Restore from the index so staged changes survive; unmerged (conflicted)
           // paths cannot be restored from the index and fall back to HEAD.
           const conflicted = new Set<string>(status.conflicted ?? []);
-          const restorable = tracked.filter(
-            (file: string) => !conflicted.has(file),
-          );
-          const unmerged = tracked.filter((file: string) =>
-            conflicted.has(file),
-          );
-          if (restorable.length > 0)
-            await git.raw(["checkout", "--", ...restorable]);
-          if (unmerged.length > 0)
-            await git.raw(["checkout", "HEAD", "--", ...unmerged]);
+          const restorable = tracked.filter((file: string) => !conflicted.has(file));
+          const unmerged = tracked.filter((file: string) => conflicted.has(file));
+          if (restorable.length > 0) await git.raw(['checkout', '--', ...restorable]);
+          if (unmerged.length > 0) await git.raw(['checkout', 'HEAD', '--', ...unmerged]);
         } else {
-          await git.raw(["checkout", "HEAD", "--", ...tracked]);
+          await git.raw(['checkout', 'HEAD', '--', ...tracked]);
         }
       }
       for (const file of removed) {
         await rm(join(root, file), { force: true, recursive: true });
       }
 
-      return resp.type("application/json").send({ success: true });
+      return resp.type('application/json').send({ success: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
   // ==================== Working Tree Actions ====================
-  app.post("/api/reset", async (_req, resp) => {
+  app.post('/api/reset', async (_req, resp) => {
     try {
-      await git.raw(["reset", "--hard", "HEAD"]);
-      return resp.type("application/json").send({ ok: true });
+      await git.raw(['reset', '--hard', 'HEAD']);
+      return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.post("/api/clean", async (_req, resp) => {
+  app.post('/api/clean', async (_req, resp) => {
     try {
-      await git.raw(["clean", "-fd"]);
-      return resp.type("application/json").send({ ok: true });
+      await git.raw(['clean', '-fd']);
+      return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
-      return resp
-        .status(400)
-        .type("application/json")
-        .send({ error: err.message });
+      return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 

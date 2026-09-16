@@ -2,7 +2,7 @@
   "name": "guito",
   "displayName": "Guito",
   "description": "Explore and manage the current Git repository with Guito inside VS Code.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "danisss9",
   "license": "MIT",
   "icon": "logo.png",
@@ -147,6 +147,20 @@
           "scope": "window",
           "description": "How changed-file lists are displayed."
         },
+        "guito.refListView": {
+          "type": "string",
+          "enum": [
+            "flat",
+            "tree"
+          ],
+          "enumDescriptions": [
+            "Show branches and tags with their full names.",
+            "Group branches and tags into collapsible namespace folders."
+          ],
+          "default": "flat",
+          "scope": "window",
+          "description": "How branches and tags are displayed in the repository panel."
+        },
         "guito.searchMode": {
           "type": "string",
           "enum": [
@@ -165,7 +179,7 @@
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "Match commit searches using the query's exact letter casing."
+          "description": "Match commit and repository panel searches using the query's exact letter casing and accents."
         },
         "guito.allowMerge": {
           "type": "boolean",

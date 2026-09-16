@@ -1,0 +1,21 @@
+.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.58); z-index: 210; }
+.dialog { position: fixed; inset: 4vh 4vw; z-index: 211; display: flex; flex-direction: column; min-height: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 48px rgba(0,0,0,.6); overflow: hidden; }
+header, footer, .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+header { padding: 10px 14px; background: var(--bg-alt); border-bottom: 1px solid var(--border); }
+h2, h3 { margin: 0; } h2 { font-size: 15px; } h3 { font-size: 12px; }
+.path { margin-top: 3px; font: 12px var(--mono); color: var(--text-dim); }
+button { font: inherit; color: var(--text); border: 1px solid var(--border); border-radius: 3px; background: var(--bg); padding: 5px 8px; cursor: pointer; }
+button:hover:not(:disabled) { background: var(--bg-hover); } button:disabled { opacity: .5; }
+.sources { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; height: 38%; border-bottom: 1px solid var(--border); }
+section { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 10px; gap: 7px; }
+section + section { border-left: 1px solid var(--border); }
+pre { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 8px; white-space: pre; background: var(--bg-alt); border: 1px solid var(--border); font: 12px/1.5 var(--mono); }
+section p, .deleted { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 12px; }
+.result { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px; gap: 7px; }
+.actions, footer { display: flex; gap: 7px; }
+textarea { flex: 1; min-height: 100px; resize: none; padding: 8px; box-sizing: border-box; color: var(--text); background: var(--bg-alt); border: 1px solid var(--border); border-radius: 3px; font: 12px/1.5 var(--mono); tab-size: 2; }
+.deleted { border: 1px dashed var(--border); gap: 10px; }
+.state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-dim); }
+footer { justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--bg-alt); }
+.primary { color: white; background: var(--accent); }
+@media (max-width: 700px) { .sources { grid-template-columns: 1fr; height: 45%; overflow: auto; } section + section { border-left: 0; border-top: 1px solid var(--border); } }

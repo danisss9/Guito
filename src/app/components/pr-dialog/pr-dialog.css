@@ -39,7 +39,6 @@ button:disabled { cursor: default; opacity: .55; }
 .tabs button { padding: 0 15px; border-width: 0 0 2px; border-radius: 0; background: transparent; color: var(--text-dim); }
 .tabs button.active { border-bottom-color: var(--accent); color: var(--text-bright); }
 .tabs span { margin-left: 4px; color: var(--text-dim); }
-.error-banner { flex: none; padding: 7px 14px; background: rgba(241,76,76,.12); color: #f48771; }
 .dialog-body { flex: 1; min-height: 0; overflow: hidden; }
 .content-pane { height: 100%; overflow: auto; padding: 18px; }
 .overview { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }

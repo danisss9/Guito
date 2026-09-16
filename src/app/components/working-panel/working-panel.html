@@ -10,6 +10,21 @@
     <app-error-banner [message]="statusError()" retryLabel="Retry status" [busy]="statusLoading()" (retry)="retry.emit()" />
   }
   <div class="changes">
+    @if (changes()?.conflicted?.length) {
+      <section class="conflicts" aria-label="Merge conflicts">
+        <h3>Merge conflicts ({{ changes()!.conflicted.length }})</h3>
+        <p class="conflict-help">Choose a file to resolve it before committing.</p>
+        <div class="file-list">
+          @for (path of changes()!.conflicted; track path) {
+            <button type="button" class="conflict-row" [disabled]="disabled()" (click)="openConflict(path)">
+              <span class="conflict-status">!</span>
+              <span class="file-path" [title]="path">{{ path }}</span>
+              <span>Resolve</span>
+            </button>
+          }
+        </div>
+      </section>
+    }
     @for (group of groups; track group) {
       <section [attr.aria-label]="group === 'staged' ? 'Staged changes' : 'Unstaged changes'">
         <h3>{{ group === 'staged' ? 'Staged changes' : 'Unstaged changes' }} ({{ files(group).length }})</h3>
@@ -72,3 +87,6 @@
     [modifiedRef]="value.group === 'staged' ? 'INDEX' : 'WORKING'" (closed)="dialog.set(null)" />
 }
 <app-context-menu [menu]="contextMenu()" (select)="runContextAction($event)" (closed)="closeContextMenu()" />
+@if (selectedConflict(); as path) {
+  <app-conflict-dialog [path]="path" (resolved)="onConflictResolved()" (closed)="selectedConflict.set(null)" />
+}

@@ -31,28 +31,35 @@
   }
 
   <div class="content-row">
-    @if (panelOpen()) {
+    @if (panelInitialized()) {
+    @for (renderVersion of [panelRenderVersion()]; track renderVersion) {
     <app-side-panel
-      animate.enter="panel-enter"
-      animate.leave="panel-leave"
+      [class.panel-open]="panelExpanded()"
+      [hidden]="!panelRendered()"
+      (transitionend)="onPanelTransitionEnd($event)"
+      (transitioncancel)="onPanelTransitionEnd($event)"
       [branches]="branches()"
-      [selectedBranch]="selectedBranch()"
+      [selectedBranches]="selectedBranches()"
       [showRemote]="showRemote()"
       [stashes]="stashes()"
       [worktrees]="worktrees()"
       [tags]="tags()"
+      [refListView]="refListView()"
+      [searchCaseSensitive]="searchCaseSensitive()"
       [selectedCommitHash]="selectedCommit()?.hash ?? ''"
       [loading]="panelLoading()"
       [azureEnabled]="hasAzureUrl()"
       [pullRequests]="pullRequests()"
       [prError]="pullRequestsError()"
-      (branchChange)="selectedBranch.set($event)"
+      (branchChange)="selectedBranches.set($event)"
       (tagSelect)="selectTag($event)"
       (contextMenu)="onContextMenu($event)"
       (worktreeCreate)="openWorktreeDialog()"
+      (worktreeOpen)="openWorktree($event)"
       (prSelect)="openPrDetail($event)"
       (prRefresh)="loadPullRequests()"
     />
+    }
     }
     <main class="content">
       <app-commit-table
@@ -62,7 +69,7 @@
         [selectedHash]="selectedCommit()?.hash ?? ''"
         [search]="search()"
         [showGraph]="showGraph() && !filterSearch()"
-        [selectedBranch]="selectedBranch()"
+        [selectedBranches]="selectedBranches()"
         [showRemote]="showRemote()"
         [workingChanges]="workingChanges()"
         [stashes]="stashes()"
@@ -94,6 +101,7 @@
         (stashChange)="stashChanges($event)"
         (discardRequest)="discardUnstaged($event)"
         (commitRequested)="commitChanges()"
+        (conflictResolved)="refreshWorking()"
         (retry)="refreshWorking()"
         (closed)="selectedCommit.set(null)"
       />
@@ -148,7 +156,7 @@
     [identity]="identity()"
     [saving]="settingsSaving()"
     (saved)="saveSettings($event)"
-    (settingsUpdated)="azureSettings.set($event); showRemote.set($event.showRemoteBranches !== false)"
+    (settingsUpdated)="applySettings($event)"
     (identityChanged)="identity.set($event)"
     (repositoryChanged)="refresh()"
     (closed)="settingsDialogOpen.set(false)"

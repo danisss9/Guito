@@ -18,13 +18,14 @@ import {
 import { VscodeService } from '../../services/vscode.service';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import { ContextMenu } from '../context-menu/context-menu';
+import { ConflictDialog } from '../conflict-dialog/conflict-dialog';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 
 type Group = 'staged' | 'unstaged';
 
 @Component({
   selector: 'app-working-panel',
-  imports: [ErrorBanner, ContextMenu, DiffDialog],
+  imports: [ErrorBanner, ContextMenu, ConflictDialog, DiffDialog],
   templateUrl: './working-panel.html',
   styleUrl: './working-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -46,6 +47,7 @@ export class WorkingPanel {
   readonly stashChange = output<StashScope>();
   readonly discardRequest = output<string[]>();
   readonly commitRequested = output<void>();
+  readonly conflictResolved = output<void>();
   readonly retry = output<void>();
   readonly closed = output<void>();
   protected readonly groups: Group[] = ['staged', 'unstaged'];
@@ -55,6 +57,7 @@ export class WorkingPanel {
   });
   private readonly anchors: Record<Group, string | null> = { staged: null, unstaged: null };
   protected readonly dialog = signal<{ file: FileDiff; group: Group } | null>(null);
+  protected readonly selectedConflict = signal<string | null>(null);
   protected readonly contextMenu = signal<ContextMenuState | null>(null);
   private contextMenuTarget: { file: FileDiff; group: Group } | null = null;
   /** Collapsed directory paths (shared by both groups); keyed by full path so
@@ -219,6 +222,16 @@ export class WorkingPanel {
   protected move(group: Group, paths: string[]): void {
     if (this.disabled() || !paths.length) return;
     this.stageChange.emit({ staged: group === 'staged', files: paths });
+  }
+
+  protected openConflict(path: string): void {
+    if (this.disabled()) return;
+    if (!this.vscode.openMergeConflict(path)) this.selectedConflict.set(path);
+  }
+
+  protected onConflictResolved(): void {
+    this.selectedConflict.set(null);
+    this.conflictResolved.emit();
   }
 
   protected moveSelected(group: Group): void {

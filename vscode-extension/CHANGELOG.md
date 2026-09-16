@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.0.3
+
+- Add the `guito.refListView` setting that shows branches and tags as a flat list or grouped into collapsible namespace folders.
+- Rebuild open repository panels when `guito.refListView` changes, and apply `guito.searchCaseSensitive` to repository-panel search as well as commit search, including accent sensitivity.
+- Switch the current Guito tab to a worktree by double-clicking it, or use its context menu to switch the current tab, open a separate Guito tab, or open the folder in a new VS Code window.
+- Resolve merge conflicts from a new section at the top of the Uncommitted changes panel; opening a conflicted file launches VS Code's merge editor.
+- Select several branches in the repository panel with Ctrl/Cmd-click and Shift-click, and the commit table shows the union of their histories.
+- Filter the repository panel with a search box that narrows branches, tags, stashes, worktrees, and pull requests as you type.
 
 ## 1.0.2
 

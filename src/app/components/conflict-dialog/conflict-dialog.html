@@ -1,0 +1,64 @@
+<div class="backdrop" (click)="closed.emit()"></div>
+<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
+  <header>
+    <div>
+      <h2 id="conflict-title">Resolve merge conflict</h2>
+      <div class="path" [title]="path()">{{ path() }}</div>
+    </div>
+    <button type="button" aria-label="Close conflict resolver" (click)="closed.emit()">×</button>
+  </header>
+
+  @if (loading()) {
+    <div class="state">Loading conflict…</div>
+  } @else if (conflict(); as value) {
+    <div class="sources">
+      <section>
+        <h3>Current (ours)</h3>
+        @if (value.ours.binary) { <p>Binary file</p> }
+        @else if (value.ours.content === null) { <p>File deleted</p> }
+        @else { <pre>{{ value.ours.content }}</pre> }
+        <button type="button" [disabled]="saving()" (click)="value.ours.binary ? resolve('ours') : use('ours')">
+          {{ value.ours.binary ? 'Resolve with current' : 'Use current' }}
+        </button>
+      </section>
+      <section>
+        <h3>Incoming (theirs)</h3>
+        @if (value.theirs.binary) { <p>Binary file</p> }
+        @else if (value.theirs.content === null) { <p>File deleted</p> }
+        @else { <pre>{{ value.theirs.content }}</pre> }
+        <button type="button" [disabled]="saving()" (click)="value.theirs.binary ? resolve('theirs') : use('theirs')">
+          {{ value.theirs.binary ? 'Resolve with incoming' : 'Use incoming' }}
+        </button>
+      </section>
+    </div>
+    @if (!value.ours.binary && !value.theirs.binary) {
+      <div class="result">
+        <div class="result-head">
+          <h3>Result</h3>
+          <div class="actions">
+            <button type="button" [disabled]="saving()" (click)="useBoth()">Use both</button>
+            <button type="button" [disabled]="saving()" (click)="deleted.set(true)">Delete file</button>
+          </div>
+        </div>
+        @if (deleted()) {
+          <div class="deleted">The resolved change will delete this file.
+            <button type="button" (click)="deleted.set(false)">Keep file</button>
+          </div>
+        } @else {
+          <textarea aria-label="Resolved file content" spellcheck="false" [value]="result()" (input)="updateResult($event)"></textarea>
+        }
+      </div>
+    }
+    @if (error()) { <app-error-banner [message]="error()" /> }
+    <footer>
+      <button type="button" (click)="closed.emit()">Cancel</button>
+      @if (!value.ours.binary && !value.theirs.binary) {
+        <button class="primary" type="button" [disabled]="saving()" (click)="resolve()">
+          {{ saving() ? 'Saving…' : 'Mark as resolved' }}
+        </button>
+      }
+    </footer>
+  } @else if (error()) {
+    <app-error-banner [message]="error()" retryLabel="Retry" (retry)="load()" />
+  }
+</div>

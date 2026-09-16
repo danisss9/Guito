@@ -19,6 +19,7 @@ import { VscodeService } from "../../services/vscode.service";
 import { AuthorAvatar } from "../author-avatar/author-avatar";
 import { ChipInput, ChipSuggestion } from "../create-pr-dialog/chip-input";
 import { MarkdownText } from "../markdown-text/markdown-text";
+import { ErrorBanner } from "../error-banner/error-banner";
 import { FileTreeRow, buildFileTreeRows } from "../../utils/file-tree";
 import {
   DiffFocus,
@@ -79,6 +80,7 @@ const CHECK_STATE_LABELS: Record<string, string> = {
   imports: [
     AuthorAvatar,
     ChipInput,
+    ErrorBanner,
     MarkdownText,
     NgTemplateOutlet,
     PrFileDiff,

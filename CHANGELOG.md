@@ -2,7 +2,26 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.0.3] - 2026-09-17
+
+### Fixed
+
+- Rebuild the open repository panel when the branch/tag flat-or-tree setting changes, including live changes from VS Code settings.
+- Apply the search sensitivity setting to both commit search and repository-panel search; insensitive matching now ignores casing and accents in both places.
+
+### Added
+
+- Switch the current Guito tab to a worktree by double-clicking it. The worktree context menu can also switch the current tab, open a separate Guito tab, or open the folder in a new VS Code window; every Guito context shows that worktree's graph, staging area, and unstaged changes.
+- Resolve merge conflicts without leaving Guito. Conflicted files are collected in a "Merge conflicts" section at the top of the Uncommitted changes panel, and opening one shows the current ("ours") and incoming ("theirs") versions side by side with the conflicted result below: take either side, combine both, edit the merged text, or delete the file, and confirming stages the file as resolved. Inside the VS Code extension, opening a conflict launches VS Code's own merge editor instead.
+- Select several branches at once in the repository side panel with Ctrl/Cmd-click and Shift-click, and the commit table shows the union of their histories. Clicking a branch without a modifier goes back to a single selection, and the "All Branches" row clears it.
+- Filter the repository side panel with a search box that narrows branches, tags, stashes, worktrees, and pull requests as you type.
+- Show branches and tags grouped into collapsible namespace folders. The new "Branches and tags" choice in the repository settings switches between the flat list and the directory tree, and is also available as `guito.refListView` in VS Code.
+
+## [1.0.2] - 2026-09-16
+
+### Added
+
+- Open Guito with a keyboard shortcut: Ctrl+Alt+G on Windows and Linux, Cmd+Alt+G on macOS. The shortcut works whenever a workspace folder is open and can be rebound in VS Code's Keyboard Shortcuts editor.
 
 ## [1.0.1] - 2026-09-14
 

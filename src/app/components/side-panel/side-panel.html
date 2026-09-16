@@ -1,29 +1,63 @@
 <aside class="side-panel" aria-label="Repository panel">
+  <div class="panel-filter" role="search">
+    <div class="filter-field">
+      <svg class="filter-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <line x1="16.25" y1="16.25" x2="21" y2="21" />
+      </svg>
+      <input
+        type="search"
+        class="filter-input"
+        placeholder="Search"
+        aria-label="Search branches, tags, stashes, worktrees and pull requests"
+        autocomplete="off"
+        spellcheck="false"
+        [value]="filter()"
+        (input)="onFilterInput($event)"
+        (keydown.escape)="clearFilter()"
+      />
+      @if (filter()) {
+        <button
+          type="button"
+          class="filter-clear"
+          title="Clear search"
+          aria-label="Clear search"
+          (click)="clearFilter()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      }
+    </div>
+  </div>
+
   <section class="tree">
     <button
       type="button"
       class="tree-head"
-      [attr.aria-expanded]="branchesOpen()"
+      [attr.aria-expanded]="branchesExpanded()"
       (click)="branchesOpen.set(!branchesOpen())"
     >
       <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-        @if (branchesOpen()) {
+        @if (branchesExpanded()) {
           <polyline points="6 9 12 15 18 9" />
         } @else {
           <polyline points="9 6 15 12 9 18" />
         }
       </svg>
       <span class="tree-title">Branches</span>
-      <span class="tree-count">{{ branches().length }}</span>
+      <span class="tree-count">{{ branchCount() }}</span>
     </button>
-    @if (branchesOpen()) {
+    @if (branchesExpanded()) {
       <div class="tree-body">
         <button
           type="button"
           class="row"
-          [class.selected]="selectedBranch() === ''"
+          [class.selected]="selectedBranches().length === 0"
           title="Show commits from all branches"
-          (click)="selectBranch('')"
+          (click)="selectAllBranches()"
         >
           <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
             <line x1="8" y1="6" x2="21" y2="6" />
@@ -35,38 +69,40 @@
           </svg>
           <span class="row-label">All Branches</span>
         </button>
-        <div class="group-label">Local</div>
-        @for (branch of localBranches(); track branch.name) {
-          <button
-            type="button"
-            class="row"
-            [class.selected]="selectedBranch() === branch.name"
-            [title]="branch.name"
-            (click)="selectBranch(branch.name)"
-            (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(branch) })"
-          >
-            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
-            <span class="row-label">{{ branch.name }}</span>
-            @if (branch.current) {
-              <span class="row-tag" title="Current branch">current</span>
-            }
-          </button>
-        }
-        @if (showRemote()) {
-          <div class="group-label">Remote</div>
-          @for (branch of remoteBranches(); track branch.name) {
+        <div
+          class="group-label"
+          [class.hidden]="filtering() && localBranchRows().length === 0"
+        >
+          Local
+        </div>
+        @for (row of localBranchRows(); track $index) {
+          @if (row.kind === 'dir') {
+            <button
+              type="button"
+              class="row dir-row"
+              [style.paddingLeft.px]="row.depth * 14 + 8"
+              [attr.aria-expanded]="!row.collapsed"
+              [title]="row.path"
+              (click)="toggleDir('local', row.path)"
+            >
+              <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                @if (row.collapsed) {
+                  <polyline points="9 6 15 12 9 18" />
+                } @else {
+                  <polyline points="6 9 12 15 18 9" />
+                }
+              </svg>
+              <span class="row-label">{{ row.name }}</span>
+            </button>
+          } @else {
             <button
               type="button"
               class="row"
-              [class.selected]="selectedBranch() === branch.name"
-              [title]="branch.name"
-              (click)="selectBranch(branch.name)"
-              (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(branch) })"
+              [class.selected]="selectedBranches().includes(row.ref.name)"
+              [style.paddingLeft.px]="row.depth * 14 + 8"
+              [title]="row.ref.name"
+              (click)="selectBranch(row.ref.name, $event)"
+              (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(row.ref) })"
             >
               <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <line x1="6" y1="3" x2="6" y2="15" />
@@ -74,9 +110,62 @@
                 <circle cx="6" cy="18" r="3" />
                 <path d="M18 9a9 9 0 0 1-9 9" />
               </svg>
-              <span class="row-label">{{ branch.name }}</span>
+              <span class="row-label">{{ row.name }}</span>
+              @if (row.ref.current) {
+                <span class="row-tag" title="Current branch">current</span>
+              }
             </button>
           }
+        }
+        @if (showRemote()) {
+          <div
+            class="group-label"
+            [class.hidden]="filtering() && remoteBranchRows().length === 0"
+          >
+            Remote
+          </div>
+          @for (row of remoteBranchRows(); track $index) {
+            @if (row.kind === 'dir') {
+              <button
+                type="button"
+                class="row dir-row"
+                [style.paddingLeft.px]="row.depth * 14 + 8"
+                [attr.aria-expanded]="!row.collapsed"
+                [title]="row.path"
+                (click)="toggleDir('remote', row.path)"
+              >
+                <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                  @if (row.collapsed) {
+                    <polyline points="9 6 15 12 9 18" />
+                  } @else {
+                    <polyline points="6 9 12 15 18 9" />
+                  }
+                </svg>
+                <span class="row-label">{{ row.name }}</span>
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="row"
+                [class.selected]="selectedBranches().includes(row.ref.name)"
+                [style.paddingLeft.px]="row.depth * 14 + 8"
+                [title]="row.ref.name"
+                (click)="selectBranch(row.ref.name, $event)"
+                (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(row.ref) })"
+              >
+                <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                <span class="row-label">{{ row.name }}</span>
+              </button>
+            }
+          }
+        }
+        @if (filtering() && branchCount() === 0) {
+          <div class="empty">No matching branches</div>
         }
       </div>
     }
@@ -86,40 +175,61 @@
     <button
       type="button"
       class="tree-head"
-      [attr.aria-expanded]="tagsOpen()"
+      [attr.aria-expanded]="tagsExpanded()"
       (click)="tagsOpen.set(!tagsOpen())"
     >
       <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-        @if (tagsOpen()) {
+        @if (tagsExpanded()) {
           <polyline points="6 9 12 15 18 9" />
         } @else {
           <polyline points="9 6 15 12 9 18" />
         }
       </svg>
       <span class="tree-title">Tags</span>
-      <span class="tree-count">{{ tags().length }}</span>
+      <span class="tree-count">{{ tagCount() }}</span>
     </button>
-    @if (tagsOpen()) {
+    @if (tagsExpanded()) {
       <div class="tree-body">
-        @for (tag of tags(); track tag.name) {
-          <button
-            type="button"
-            class="row"
-            [class.selected]="selectedCommitHash() === tag.hash"
-            [title]="tag.name"
-            (click)="selectTag(tag)"
-            (contextmenu)="onContextMenu($event, { kind: 'tag', branch: { type: 'tag', name: tag.name } })"
-          >
-            <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"
-              />
-              <line x1="7" y1="7" x2="7.01" y2="7" />
-            </svg>
-            <span class="row-label">{{ tag.name }}</span>
-          </button>
+        @for (row of tagRows(); track $index) {
+          @if (row.kind === 'dir') {
+            <button
+              type="button"
+              class="row dir-row"
+              [style.paddingLeft.px]="row.depth * 14 + 8"
+              [attr.aria-expanded]="!row.collapsed"
+              [title]="row.path"
+              (click)="toggleDir('tag', row.path)"
+            >
+              <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                @if (row.collapsed) {
+                  <polyline points="9 6 15 12 9 18" />
+                } @else {
+                  <polyline points="6 9 12 15 18 9" />
+                }
+              </svg>
+              <span class="row-label">{{ row.name }}</span>
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="row"
+              [class.selected]="selectedCommitHash() === row.ref.hash"
+              [style.paddingLeft.px]="row.depth * 14 + 8"
+              [title]="row.ref.name"
+              (click)="selectTag(row.ref)"
+              (contextmenu)="onContextMenu($event, { kind: 'tag', branch: { type: 'tag', name: row.ref.name } })"
+            >
+              <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"
+                />
+                <line x1="7" y1="7" x2="7.01" y2="7" />
+              </svg>
+              <span class="row-label">{{ row.name }}</span>
+            </button>
+          }
         } @empty {
-          <div class="empty">No tags</div>
+          <div class="empty">{{ filtering() ? 'No matching tags' : 'No tags' }}</div>
         }
       </div>
     }
@@ -129,22 +239,22 @@
     <button
       type="button"
       class="tree-head"
-      [attr.aria-expanded]="stashesOpen()"
+      [attr.aria-expanded]="stashesExpanded()"
       (click)="stashesOpen.set(!stashesOpen())"
     >
       <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-        @if (stashesOpen()) {
+        @if (stashesExpanded()) {
           <polyline points="6 9 12 15 18 9" />
         } @else {
           <polyline points="9 6 15 12 9 18" />
         }
       </svg>
       <span class="tree-title">Stashes</span>
-      <span class="tree-count">{{ stashes().length }}</span>
+      <span class="tree-count">{{ stashCount() }}</span>
     </button>
-    @if (stashesOpen()) {
+    @if (stashesExpanded()) {
       <div class="tree-body">
-        @for (stash of stashes(); track stash.index) {
+        @for (stash of filteredStashes(); track stash.index) {
           <button
             type="button"
             class="row"
@@ -159,7 +269,7 @@
             <span class="row-tag stash-message">{{ stash.message }}</span>
           </button>
         } @empty {
-          <div class="empty">No stashes</div>
+          <div class="empty">{{ filtering() ? 'No matching stashes' : 'No stashes' }}</div>
         }
       </div>
     }
@@ -170,18 +280,18 @@
       <button
         type="button"
         class="tree-head"
-        [attr.aria-expanded]="worktreesOpen()"
+        [attr.aria-expanded]="worktreesExpanded()"
         (click)="worktreesOpen.set(!worktreesOpen())"
       >
         <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-          @if (worktreesOpen()) {
+          @if (worktreesExpanded()) {
             <polyline points="6 9 12 15 18 9" />
           } @else {
             <polyline points="9 6 15 12 9 18" />
           }
         </svg>
         <span class="tree-title">Worktrees</span>
-        <span class="tree-count">{{ worktrees().length }}</span>
+        <span class="tree-count">{{ worktreeCount() }}</span>
       </button>
       <button
         type="button"
@@ -196,14 +306,15 @@
         </svg>
       </button>
     </div>
-    @if (worktreesOpen()) {
+    @if (worktreesExpanded()) {
       <div class="tree-body">
-        @for (worktree of worktrees(); track worktree.path) {
+        @for (worktree of filteredWorktrees(); track worktree.path) {
           <button
             type="button"
             class="row"
             [class.selected]="worktree.current"
             [title]="worktree.path"
+            (dblclick)="openWorktree(worktree)"
             (contextmenu)="onContextMenu($event, { kind: 'worktree', worktree })"
           >
             <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -215,7 +326,7 @@
             }
           </button>
         } @empty {
-          <div class="empty">No worktrees</div>
+          <div class="empty">{{ filtering() ? 'No matching worktrees' : 'No worktrees' }}</div>
         }
       </div>
     }
@@ -227,18 +338,18 @@
         <button
           type="button"
           class="tree-head"
-          [attr.aria-expanded]="prsOpen()"
+          [attr.aria-expanded]="prsExpanded()"
           (click)="prsOpen.set(!prsOpen())"
         >
           <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-            @if (prsOpen()) {
+            @if (prsExpanded()) {
               <polyline points="6 9 12 15 18 9" />
             } @else {
               <polyline points="9 6 15 12 9 18" />
             }
           </svg>
           <span class="tree-title">Pull Requests</span>
-          <span class="tree-count">{{ (pullRequests() ?? []).length }}</span>
+          <span class="tree-count">{{ prCount() }}</span>
         </button>
         <button
           type="button"
@@ -253,14 +364,14 @@
           </svg>
         </button>
       </div>
-      @if (prsOpen()) {
+      @if (prsExpanded()) {
         <div class="tree-body">
           @if (prError()) {
             <div class="pr-error" role="alert">{{ prError() }}</div>
           } @else if (pullRequests() === null) {
             <div class="empty">Loading pull requests...</div>
           } @else {
-            @for (pr of pullRequests()!; track pr.id) {
+            @for (pr of filteredPullRequests()!; track pr.id) {
               <button
                 type="button"
                 class="row pr-row"
@@ -305,7 +416,7 @@
                 </span>
               </button>
             } @empty {
-              <div class="empty">No active pull requests</div>
+              <div class="empty">{{ filtering() ? 'No matching pull requests' : 'No active pull requests' }}</div>
             }
           }
         </div>

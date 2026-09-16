@@ -15,7 +15,7 @@
         <label class="setting-row"><span><strong>Show tags</strong><small>Show tag badges attached to commits.</small></span><input type="checkbox" [checked]="showTags()" (change)="setChecked($event.target, 'showTags')" /></label>
         <label class="setting-row"><span><strong>Show remote branches</strong><small>Include remote branches in the repository panel and branch pills.</small></span><input type="checkbox" [checked]="showRemoteBranches()" (change)="setChecked($event.target, 'showRemoteBranches')" /></label>
         <label class="setting-row" for="search-mode"><span><strong>Search mode</strong><small>Navigate jumps between matches with arrows; filter shows only matching commits.</small></span><select id="search-mode" [value]="searchMode()" (change)="changeSearchMode($event.target)"><option value="navigate">Navigate matches</option><option value="filter">Filter matches</option></select></label>
-        <label class="setting-row"><span><strong>Case-sensitive search</strong><small>Only match commits with the same uppercase and lowercase letters.</small></span><input type="checkbox" [checked]="searchCaseSensitive()" (change)="setChecked($event.target, 'searchCaseSensitive')" /></label>
+        <label class="setting-row"><span><strong>Case-sensitive search</strong><small>Only match commits and repository panel items with the same uppercase and lowercase letters and accents.</small></span><input type="checkbox" [checked]="searchCaseSensitive()" (change)="setChecked($event.target, 'searchCaseSensitive')" /></label>
       </fieldset>
 
       <fieldset><legend>User details</legend>
@@ -41,6 +41,10 @@
         } @else { <div class="inline-actions"><button type="button" (click)="editIssueLinking()">+ Add Issue Linking</button></div> }
       </fieldset>
 
+      <fieldset><legend>Branches and tags</legend>
+        <label class="choice"><input type="radio" name="ref-view" [checked]="refListView() === 'flat'" (change)="refListView.set('flat')" /><span><strong>Flat list</strong><small>Show each branch and tag with its full name.</small></span></label>
+        <label class="choice"><input type="radio" name="ref-view" [checked]="refListView() === 'tree'" (change)="refListView.set('tree')" /><span><strong>Directory tree</strong><small>Group branches and tags into collapsible namespace folders.</small></span></label>
+      </fieldset>
       <fieldset><legend>Changed files</legend>
         <label class="choice"><input type="radio" name="file-view" [checked]="fileListView() === 'flat'" (change)="fileListView.set('flat')" /><span><strong>Flat list</strong><small>Show each file with its full path.</small></span></label>
         <label class="choice"><input type="radio" name="file-view" [checked]="fileListView() === 'tree'" (change)="fileListView.set('tree')" /><span><strong>Directory tree</strong><small>Group files into collapsible folders.</small></span></label>

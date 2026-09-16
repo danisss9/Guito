@@ -12,7 +12,9 @@
   color: var(--text-bright);
   font-size: 12px;
   line-height: 1.5;
+  animation: error-banner-enter 120ms ease-out;
 }
+.error-banner.closing { pointer-events: none; animation: error-banner-leave 100ms ease-in forwards; }
 .error-icon { width: 20px; height: 20px; flex: none; color: #f48771; stroke: currentColor; stroke-width: 1.5; }
 .error-content { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 p { flex: 1 1 220px; min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
@@ -24,4 +26,9 @@ button { font: inherit; cursor: pointer; border-radius: 4px; transition: backgro
 .close:hover { background: #f4877126; color: #fff; }
 .close svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+@keyframes error-banner-enter { from { opacity: 0; } }
+@keyframes error-banner-leave { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .error-banner, .error-banner.closing { animation: none; }
+  button { transition: none; }
+}

@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SimpleGit } from 'simple-git';
 
 type DiffParser = (patch: string) => any[];
@@ -137,5 +137,71 @@ export function workingTree(git: SimpleGit, parse: DiffParser) {
     await git.commit([message.trim(), ...(description ? [description as string] : [])]);
   }
 
-  return { snapshot, stage, unstage, commit };
+  async function conflictPath(path: unknown): Promise<string> {
+    const [selected] = await validate([path]);
+    const unmerged = await git.raw([
+      '--literal-pathspecs', 'ls-files', '--unmerged', '-z', '--', selected,
+    ]);
+    if (!unmerged) throw new Error(`File is no longer conflicted: ${selected}`);
+    return selected;
+  }
+
+  async function conflictStage(path: string, stage: 1 | 2 | 3) {
+    try {
+      const content = await git.raw(['show', `:${stage}:${path}`]);
+      return { content: content.includes('\0') ? '' : content, binary: content.includes('\0') };
+    } catch {
+      // A missing stage represents a deletion on that side of the merge.
+      return { content: null, binary: false };
+    }
+  }
+
+  /** Returns the three index stages and the current marker-filled worktree result. */
+  async function conflict(path: unknown) {
+    const selected = await conflictPath(path);
+    const root = (await git.revparse(['--show-toplevel'])).trim();
+    let result: string | null = null;
+    let resultBinary = false;
+    try {
+      const buffer = await readFile(join(root, selected));
+      resultBinary = buffer.includes(0);
+      if (!resultBinary) result = buffer.toString('utf8');
+    } catch {
+      // Delete/modify conflicts can currently have no worktree file.
+    }
+    const [base, ours, theirs] = await Promise.all([
+      conflictStage(selected, 1), conflictStage(selected, 2), conflictStage(selected, 3),
+    ]);
+    return { path: selected, base, ours, theirs, result: { content: result, binary: resultBinary } };
+  }
+
+  /** Writes or selects a result and stages it, which marks the path resolved. */
+  async function resolveConflict(path: unknown, resolution: unknown, content: unknown) {
+    const selected = await conflictPath(path);
+    if (!['content', 'ours', 'theirs', 'delete'].includes(String(resolution))) {
+      throw new Error('Choose a valid conflict resolution.');
+    }
+    const root = (await git.revparse(['--show-toplevel'])).trim();
+    const absolute = join(root, selected);
+    if (resolution === 'content') {
+      if (typeof content !== 'string' || content.includes('\0')) {
+        throw new Error('Conflict result must be text.');
+      }
+      await mkdir(dirname(absolute), { recursive: true });
+      await writeFile(absolute, content);
+    } else if (resolution === 'delete') {
+      await rm(absolute, { force: true, recursive: true });
+    } else {
+      const stage = resolution === 'ours' ? 2 : 3;
+      const selectedStage = await conflictStage(selected, stage);
+      if (selectedStage.content === null) {
+        await rm(absolute, { force: true, recursive: true });
+      } else {
+        await git.raw(['--literal-pathspecs', 'checkout', `--${resolution}`, '--', selected]);
+      }
+    }
+    await git.raw(['--literal-pathspecs', 'add', '-A', '--', selected]);
+  }
+
+  return { snapshot, stage, unstage, commit, conflict, resolveConflict };
 }

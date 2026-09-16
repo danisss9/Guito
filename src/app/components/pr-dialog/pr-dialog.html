@@ -139,7 +139,7 @@
   </nav>
 
   @if (error()) {
-  <div class="error-banner" role="alert">{{ error() }}</div>
+  <app-error-banner [message]="error()" />
   }
 
   <div class="dialog-body">
