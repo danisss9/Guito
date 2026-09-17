@@ -2,6 +2,15 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.4] - 2026-09-18
+
+### Added
+
+- Compare a staged or unstaged file with its version on another branch from the file's context menu. A searchable picker lists every other branch, and the comparison opens in VS Code's diff tab inside the extension or Guito's own diff dialog otherwise.
+- Collapse or expand every repository panel section at once with the button next to the panel's search field.
+- Choose whether the repository panel opens with all sections expanded through the "Expand repository panel sections" setting, available in the settings dialog and as the VS Code `guito.sidePanelSectionsExpanded` setting; changing it rebuilds an open panel immediately.
+- Click a stash in the repository panel to open its changed files in the commit detail panel, with the selected stash highlighted.
+
 ## [1.0.3] - 2026-09-17
 
 ### Fixed

@@ -35,6 +35,8 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
   readonly originalRef = input.required<string>();
   /** Git ref for the modified side (e.g. `abc`, `WORKING`). */
   readonly modifiedRef = input.required<string>();
+  /** Use the supplied original ref even when the working status is `added`. */
+  readonly exactOriginal = input(false);
   readonly closed = output<void>();
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
@@ -62,10 +64,18 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
       const monaco = await this.monacoService.load();
       if (this.destroyed) return;
       const file = this.file();
-      const originalRef = file.status === 'added' && !file.oldPath ? 'EMPTY' : this.originalRef();
+      const originalRef =
+        !this.exactOriginal() && file.status === 'added' && !file.oldPath
+          ? 'EMPTY'
+          : this.originalRef();
 
       const [original, modified] = await Promise.all([
-        firstValueFrom(this.git.getFileContent(file.oldPath || file.path, originalRef)),
+        firstValueFrom(
+          this.git.getFileContent(
+            this.exactOriginal() ? file.path : file.oldPath || file.path,
+            originalRef,
+          ),
+        ),
         firstValueFrom(this.git.getFileContent(file.path, this.modifiedRef())),
       ]);
 

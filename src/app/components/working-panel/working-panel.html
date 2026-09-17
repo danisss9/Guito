@@ -83,10 +83,11 @@
   </form>
 </aside>
 @if (dialog(); as value) {
-  <app-diff-dialog [file]="value.file" [originalRef]="value.group === 'staged' ? 'HEAD' : 'INDEX'"
-    [modifiedRef]="value.group === 'staged' ? 'INDEX' : 'WORKING'" (closed)="dialog.set(null)" />
+  <app-diff-dialog [file]="value.file" [originalRef]="value.originalRef"
+    [modifiedRef]="value.modifiedRef" [exactOriginal]="value.exactOriginal" (closed)="dialog.set(null)" />
 }
 <app-context-menu [menu]="contextMenu()" (select)="runContextAction($event)" (closed)="closeContextMenu()" />
+<app-prompt-dialog [state]="comparePrompt()" (confirmed)="compareWithBranch($event)" (cancelled)="closeComparePrompt()" />
 @if (selectedConflict(); as path) {
   <app-conflict-dialog [path]="path" (resolved)="onConflictResolved()" (closed)="selectedConflict.set(null)" />
 }

@@ -155,7 +155,12 @@ export class VscodeService {
    * Opens the diff in the VS Code diff tab; returns false when the caller
    * should fall back to Guito's own dialog (standalone usage, binary files).
    */
-  openDiff(file: FileDiff, originalRef: string, modifiedRef: string): boolean {
+  openDiff(
+    file: FileDiff,
+    originalRef: string,
+    modifiedRef: string,
+    exactOriginal = false,
+  ): boolean {
     if (
       !this.inVsCode ||
       this.diffViewer() !== "vscode" ||
@@ -165,7 +170,9 @@ export class VscodeService {
     }
     // Mirrors the diff dialog: an added file without a previous path diffs from nothing.
     const effectiveOriginalRef =
-      file.status === "added" && !file.oldPath ? "EMPTY" : originalRef;
+      !exactOriginal && file.status === "added" && !file.oldPath
+        ? "EMPTY"
+        : originalRef;
     window.parent.postMessage(
       {
         type: "guito/openDiff",
@@ -174,6 +181,7 @@ export class VscodeService {
         status: file.status,
         originalRef: effectiveOriginalRef,
         modifiedRef,
+        exactOriginal,
       },
       "*",
     );

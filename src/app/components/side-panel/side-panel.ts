@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
 import {
   BranchInfo,
   ContextMenuEvent,
@@ -34,6 +34,8 @@ export class SidePanel {
   readonly refListView = input<'flat' | 'tree'>('flat');
   /** Whether panel filtering preserves case and accents. */
   readonly searchCaseSensitive = input(false);
+  /** Initial state for every top-level section. */
+  readonly sectionsExpandedByDefault = input(true);
   /** Hash of the commit open in the detail panel; '' = none. */
   readonly selectedCommitHash = input('');
   readonly loading = input(false);
@@ -46,6 +48,8 @@ export class SidePanel {
 
   readonly branchChange = output<string[]>();
   readonly tagSelect = output<TagInfo>();
+  /** Opens a stash in the commit detail pane so its changed files are visible. */
+  readonly stashSelect = output<StashEntry>();
   readonly contextMenu = output<ContextMenuEvent>();
   readonly worktreeCreate = output<void>();
   /** Opens a worktree as its own repository context in the VS Code host. */
@@ -55,11 +59,11 @@ export class SidePanel {
   /** Reloads the pull request list. */
   readonly prRefresh = output<void>();
 
-  protected readonly prsOpen = signal(true);
-  protected readonly branchesOpen = signal(true);
-  protected readonly tagsOpen = signal(true);
-  protected readonly stashesOpen = signal(true);
-  protected readonly worktreesOpen = signal(true);
+  protected readonly prsOpen = linkedSignal(() => this.sectionsExpandedByDefault());
+  protected readonly branchesOpen = linkedSignal(() => this.sectionsExpandedByDefault());
+  protected readonly tagsOpen = linkedSignal(() => this.sectionsExpandedByDefault());
+  protected readonly stashesOpen = linkedSignal(() => this.sectionsExpandedByDefault());
+  protected readonly worktreesOpen = linkedSignal(() => this.sectionsExpandedByDefault());
 
   /** Current text of the panel search bar; empty = show everything. */
   protected readonly filter = signal('');
@@ -85,6 +89,26 @@ export class SidePanel {
   protected readonly stashesExpanded = computed(() => this.filtering() || this.stashesOpen());
   protected readonly worktreesExpanded = computed(() => this.filtering() || this.worktreesOpen());
   protected readonly prsExpanded = computed(() => this.filtering() || this.prsOpen());
+
+  /** Whether every currently available top-level section is open. */
+  protected readonly allSectionsOpen = computed(
+    () =>
+      this.branchesOpen() &&
+      this.tagsOpen() &&
+      this.stashesOpen() &&
+      this.worktreesOpen() &&
+      (!this.azureEnabled() || this.prsOpen()),
+  );
+
+  /** Opens every section, or closes every section when they are already open. */
+  protected toggleAllSections(): void {
+    const open = !this.allSectionsOpen();
+    this.branchesOpen.set(open);
+    this.tagsOpen.set(open);
+    this.stashesOpen.set(open);
+    this.worktreesOpen.set(open);
+    this.prsOpen.set(open);
+  }
 
   protected readonly localBranches = computed(() =>
     this.branches().filter((branch) => !branch.remote),

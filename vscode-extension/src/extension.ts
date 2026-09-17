@@ -39,6 +39,7 @@ interface OpenDiffMessage {
   status: string;
   originalRef: string;
   modifiedRef: string;
+  exactOriginal?: boolean;
 }
 
 interface OpenSettingsMessage {
@@ -649,6 +650,7 @@ function readHostSettings(): GuitoHostSettings {
     showRemoteBranches: configuration.get<boolean>('showRemoteBranches', true),
     fileListView: configuration.get<'flat' | 'tree'>('fileListView', 'flat'),
     refListView: configuration.get<'flat' | 'tree'>('refListView', 'flat'),
+    sidePanelSectionsExpanded: configuration.get<boolean>('sidePanelSectionsExpanded', true),
     searchMode: configuration.get<'navigate' | 'filter'>('searchMode', 'navigate'),
     searchCaseSensitive: configuration.get<boolean>('searchCaseSensitive', false),
     allowMerge: configuration.get<boolean>('allowMerge', true),
@@ -718,8 +720,14 @@ function refLabel(ref: string): string {
 async function openDiffInVsCode(root: string, message: OpenDiffMessage): Promise<void> {
   // Mirrors the diff dialog: an added file without a previous path diffs from nothing.
   const originalRef =
-    message.status === 'added' && !message.oldPath ? 'EMPTY' : message.originalRef;
-  const left = diffUri(root, originalRef, message.oldPath || message.path);
+    !message.exactOriginal && message.status === 'added' && !message.oldPath
+      ? 'EMPTY'
+      : message.originalRef;
+  const left = diffUri(
+    root,
+    originalRef,
+    message.exactOriginal ? message.path : message.oldPath || message.path,
+  );
   const right = diffUri(root, message.modifiedRef, message.path);
   const title = `${basename(message.path)} (${refLabel(originalRef)} ↔ ${refLabel(message.modifiedRef)})`;
   await vscode.commands.executeCommand('vscode.diff', left, right, title, {

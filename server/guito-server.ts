@@ -36,6 +36,7 @@ export interface GuitoHostSettings {
   issueUrl?: string;
   fileListView?: 'flat' | 'tree';
   refListView?: 'flat' | 'tree';
+  sidePanelSectionsExpanded?: boolean;
   searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
   allowMerge?: boolean;
@@ -80,6 +81,8 @@ export interface GuitoServerOptions {
   fileListView?: 'flat' | 'tree';
   /** How branches and tags in the repository panel are displayed. */
   refListView?: 'flat' | 'tree';
+  /** Whether repository-panel sections start expanded. */
+  sidePanelSectionsExpanded?: boolean;
   searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
   /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; wins over the settings file. */
@@ -377,6 +380,7 @@ export async function startGuitoServer({
   allowMerge,
   fileListView,
   refListView,
+  sidePanelSectionsExpanded,
   searchMode,
   searchCaseSensitive,
   azureRequestImpl,
@@ -808,6 +812,7 @@ export async function startGuitoServer({
     showRemoteBranches: boolean;
     fileListView: 'flat' | 'tree';
     refListView: 'flat' | 'tree';
+    sidePanelSectionsExpanded: boolean;
     searchMode: 'navigate' | 'filter';
     searchCaseSensitive: boolean;
     issueLinking: { regex: string; url: string; useGlobally: boolean } | null;
@@ -824,6 +829,10 @@ export async function startGuitoServer({
       file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
     const fileRefListView =
       file.refListView === 'tree' || file.refListView === 'flat' ? file.refListView : undefined;
+    const fileSidePanelSectionsExpanded =
+      typeof file.sidePanelSectionsExpanded === 'boolean'
+        ? file.sidePanelSectionsExpanded
+        : undefined;
     const fileSearchMode =
       file.searchMode === 'filter' || file.searchMode === 'navigate' ? file.searchMode : undefined;
     const fileAllowMerge = typeof file.allowMerge === 'boolean' ? file.allowMerge : undefined;
@@ -880,6 +889,10 @@ export async function startGuitoServer({
           : (fileShowRemoteBranches ?? true),
       fileListView: fileListView ?? fileFileListView ?? 'flat',
       refListView: refListView ?? fileRefListView ?? 'flat',
+      sidePanelSectionsExpanded:
+        typeof sidePanelSectionsExpanded === 'boolean'
+          ? sidePanelSectionsExpanded
+          : (fileSidePanelSectionsExpanded ?? true),
       searchMode: searchMode ?? fileSearchMode ?? 'navigate',
       searchCaseSensitive:
         typeof searchCaseSensitive === 'boolean'
@@ -1715,6 +1728,9 @@ export async function startGuitoServer({
       }
       if (body.refListView === 'tree' || body.refListView === 'flat') {
         settings.refListView = body.refListView;
+      }
+      if (typeof body.sidePanelSectionsExpanded === 'boolean') {
+        settings.sidePanelSectionsExpanded = body.sidePanelSectionsExpanded;
       }
       if (body.searchMode === 'filter' || body.searchMode === 'navigate') {
         settings.searchMode = body.searchMode;
@@ -3296,6 +3312,7 @@ export async function startGuitoServer({
       showGraph = settings.showGraph;
       showStashes = settings.showStashes;
       fileListView = settings.fileListView;
+      sidePanelSectionsExpanded = settings.sidePanelSectionsExpanded;
       searchMode = settings.searchMode;
       searchCaseSensitive = settings.searchCaseSensitive;
       showTags = settings.showTags;

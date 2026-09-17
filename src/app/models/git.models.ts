@@ -235,6 +235,8 @@ export interface AzureSettings {
   fileListView?: 'flat' | 'tree';
   /** How branches and tags in the repository panel are shown; defaults to flat. */
   refListView?: 'flat' | 'tree';
+  /** Whether repository-panel sections start expanded; defaults to true. */
+  sidePanelSectionsExpanded?: boolean;
   /** Whether commit search navigates through history or filters it; defaults to navigate. */
   searchMode?: 'navigate' | 'filter';
   /** Whether commit and repository-panel searches preserve casing and accents; defaults to false. */

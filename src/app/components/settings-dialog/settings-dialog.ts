@@ -27,6 +27,7 @@ export interface GuitoSettingsUpdate {
   showRemoteBranches: boolean;
   fileListView: 'flat' | 'tree';
   refListView: 'flat' | 'tree';
+  sidePanelSectionsExpanded: boolean;
   searchMode: 'navigate' | 'filter';
   searchCaseSensitive: boolean;
   allowMerge: boolean;
@@ -60,6 +61,7 @@ export class SettingsDialog {
   protected readonly showRemoteBranches = signal(true);
   protected readonly fileListView = signal<'flat' | 'tree'>('flat');
   protected readonly refListView = signal<'flat' | 'tree'>('flat');
+  protected readonly sidePanelSectionsExpanded = signal(true);
   protected readonly searchMode = signal<'navigate' | 'filter'>('navigate');
   protected readonly searchCaseSensitive = signal(false);
   protected readonly allowMerge = signal(true);
@@ -90,6 +92,7 @@ export class SettingsDialog {
       this.showRemoteBranches.set(settings.showRemoteBranches !== false);
       this.fileListView.set(settings.fileListView === 'tree' ? 'tree' : 'flat');
       this.refListView.set(settings.refListView === 'tree' ? 'tree' : 'flat');
+      this.sidePanelSectionsExpanded.set(settings.sidePanelSectionsExpanded !== false);
       this.searchMode.set(settings.searchMode === 'filter' ? 'filter' : 'navigate');
       this.searchCaseSensitive.set(settings.searchCaseSensitive === true);
       this.allowMerge.set(settings.allowMerge !== false);
@@ -115,6 +118,7 @@ export class SettingsDialog {
       | 'showStashes'
       | 'showTags'
       | 'showRemoteBranches'
+      | 'sidePanelSectionsExpanded'
       | 'searchCaseSensitive'
       | 'allowMerge',
   ): void {
@@ -132,6 +136,7 @@ export class SettingsDialog {
       showRemoteBranches: this.showRemoteBranches(),
       fileListView: this.fileListView(),
       refListView: this.refListView(),
+      sidePanelSectionsExpanded: this.sidePanelSectionsExpanded(),
       searchMode: this.searchMode(),
       searchCaseSensitive: this.searchCaseSensitive(),
       allowMerge: this.allowMerge(),

@@ -49,6 +49,9 @@
   position: sticky;
   top: 0;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 8px 8px;
   background: var(--bg-alt);
   border-bottom: 1px solid var(--border);
@@ -57,7 +60,8 @@
 .filter-field {
   display: flex;
   align-items: center;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 30px;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -153,6 +157,51 @@
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
+}
+
+.sections-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: none;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.sections-toggle:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-dim);
+  background: var(--bg-hover);
+}
+
+.sections-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sections-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sections-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Group labels vanish while filtering hides all of their rows. */

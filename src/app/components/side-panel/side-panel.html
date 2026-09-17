@@ -1,6 +1,6 @@
 <aside class="side-panel" aria-label="Repository panel">
-  <div class="panel-filter" role="search">
-    <div class="filter-field">
+  <div class="panel-filter">
+    <div class="filter-field" role="search">
       <svg class="filter-icon" viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="11" cy="11" r="7" />
         <line x1="16.25" y1="16.25" x2="21" y2="21" />
@@ -31,6 +31,25 @@
         </button>
       }
     </div>
+    <button
+      type="button"
+      class="sections-toggle"
+      [title]="filtering() ? 'Clear search to collapse or expand all sections' : allSectionsOpen() ? 'Collapse all sections' : 'Expand all sections'"
+      [attr.aria-label]="allSectionsOpen() ? 'Collapse all sections' : 'Expand all sections'"
+      [attr.aria-expanded]="allSectionsOpen()"
+      [disabled]="filtering()"
+      (click)="toggleAllSections()"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        @if (allSectionsOpen()) {
+          <polyline points="7 11 12 6 17 11" />
+          <polyline points="7 18 12 13 17 18" />
+        } @else {
+          <polyline points="7 6 12 11 17 6" />
+          <polyline points="7 13 12 18 17 13" />
+        }
+      </svg>
+    </button>
   </div>
 
   <section class="tree">
@@ -258,7 +277,9 @@
           <button
             type="button"
             class="row"
+            [class.selected]="selectedCommitHash() === stash.hash"
             [title]="stash.message"
+            (click)="stashSelect.emit(stash)"
             (contextmenu)="onContextMenu($event, { kind: 'stash', stash })"
           >
             <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">

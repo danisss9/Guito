@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4
+
+- Add a "Compare with Branch..." context-menu action for staged and unstaged files. A searchable picker lists every other branch, and the comparison opens in VS Code's diff tab or Guito's own diff dialog.
+- Add the `guito.sidePanelSectionsExpanded` setting that opens the repository panel with all sections expanded, alongside the same checkbox in Guito's settings dialog.
+- Collapse or expand every repository panel section at once with the button next to the panel's search field.
+- Click a stash in the repository panel to open its changed files in the commit detail panel, with the selected stash highlighted.
+
 ## 1.0.3
 
 - Add the `guito.refListView` setting that shows branches and tags as a flat list or grouped into collapsible namespace folders.

@@ -10,8 +10,10 @@ import {
   signal,
 } from '@angular/core';
 import {
+  BranchInfo,
   ContextMenuState,
   FileDiff,
+  PromptState,
   StashScope,
   WorkingChanges,
 } from '../../models/git.models';
@@ -20,12 +22,13 @@ import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import { ContextMenu } from '../context-menu/context-menu';
 import { ConflictDialog } from '../conflict-dialog/conflict-dialog';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
+import { PromptDialog } from '../prompt-dialog/prompt-dialog';
 
 type Group = 'staged' | 'unstaged';
 
 @Component({
   selector: 'app-working-panel',
-  imports: [ErrorBanner, ContextMenu, ConflictDialog, DiffDialog],
+  imports: [ErrorBanner, ContextMenu, ConflictDialog, DiffDialog, PromptDialog],
   templateUrl: './working-panel.html',
   styleUrl: './working-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -34,6 +37,7 @@ export class WorkingPanel {
   private readonly vscode = inject(VscodeService);
 
   readonly changes = input<WorkingChanges | null>(null);
+  readonly branches = input.required<BranchInfo[]>();
   readonly busy = input(false);
   readonly statusLoading = input(false);
   readonly statusError = input('');
@@ -56,7 +60,14 @@ export class WorkingPanel {
     unstaged: new Set(),
   });
   private readonly anchors: Record<Group, string | null> = { staged: null, unstaged: null };
-  protected readonly dialog = signal<{ file: FileDiff; group: Group } | null>(null);
+  protected readonly dialog = signal<{
+    file: FileDiff;
+    originalRef: string;
+    modifiedRef: string;
+    exactOriginal: boolean;
+  } | null>(null);
+  protected readonly comparePrompt = signal<PromptState | null>(null);
+  private compareTarget: { file: FileDiff; group: Group } | null = null;
   protected readonly selectedConflict = signal<string | null>(null);
   protected readonly contextMenu = signal<ContextMenuState | null>(null);
   private contextMenuTarget: { file: FileDiff; group: Group } | null = null;
@@ -138,7 +149,42 @@ export class WorkingPanel {
     if (this.vscode.openDiff(file, originalRef, modifiedRef)) {
       return;
     }
-    this.dialog.set({ file, group });
+    this.dialog.set({ file, originalRef, modifiedRef, exactOriginal: false });
+  }
+
+  private comparisonBranches(): BranchInfo[] {
+    return this.branches().filter((branch) => !branch.current && !branch.name.endsWith('/HEAD'));
+  }
+
+  private openBranchComparison(group: Group, file: FileDiff): void {
+    const branches = this.comparisonBranches();
+    if (this.busy() || !branches.length) return;
+    this.compareTarget = { file, group };
+    this.comparePrompt.set({
+      title: 'Compare with Branch',
+      label: `Select the branch version to compare with ${file.path}.`,
+      okLabel: 'Compare',
+      searchable: true,
+      options: branches.map((branch) => ({
+        value: branch.name,
+        label: branch.name,
+        description: branch.remote ? 'Remote branch' : 'Local branch',
+      })),
+    });
+  }
+
+  protected compareWithBranch(branch: string): void {
+    const target = this.compareTarget;
+    this.closeComparePrompt();
+    if (!target || !this.comparisonBranches().some((candidate) => candidate.name === branch)) return;
+    const modifiedRef = target.group === 'staged' ? 'INDEX' : 'WORKING';
+    if (this.vscode.openDiff(target.file, branch, modifiedRef, true)) return;
+    this.dialog.set({ file: target.file, originalRef: branch, modifiedRef, exactOriginal: true });
+  }
+
+  protected closeComparePrompt(): void {
+    this.comparePrompt.set(null);
+    this.compareTarget = null;
   }
 
   /** Shows file-specific actions without changing the current multi-selection. */
@@ -150,6 +196,11 @@ export class WorkingPanel {
       y: event.clientY,
       items: [
         { label: 'Open Diff', action: 'open-diff', disabled: this.busy() },
+        {
+          label: 'Compare with Branch...',
+          action: 'compare-branch',
+          disabled: this.busy() || !this.comparisonBranches().length,
+        },
         {
           label: 'Open File',
           action: 'open-file',
@@ -165,6 +216,8 @@ export class WorkingPanel {
     if (!target) return;
     if (action === 'open-diff') {
       this.openDiff(target.group, target.file);
+    } else if (action === 'compare-branch') {
+      this.openBranchComparison(target.group, target.file);
     } else if (action === 'open-file') {
       this.vscode.openFile(target.file.path);
     } else if (action === 'copy-file-path') {

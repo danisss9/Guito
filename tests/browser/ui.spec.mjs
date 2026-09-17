@@ -803,6 +803,42 @@ test('staged and unstaged file menus copy the repository-relative path', async (
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('a.txt');
 });
 
+test('staged and unstaged files can be compared with another branch', async ({ page }) => {
+  const { state } = await setup(page);
+  await page.locator('.working-row').click();
+
+  const staged = page.getByRole('listbox', {
+    name: 'staged files',
+    exact: true,
+  });
+  await staged
+    .getByRole('option', { name: 'partial.txt', exact: true })
+    .click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Compare with Branch...', exact: true }).click();
+  const branchDialog = page.getByRole('dialog');
+  await expect(branchDialog).toContainText('Compare with Branch');
+  await expect(branchDialog.locator('.option-label').filter({ hasText: /^main$/ })).toHaveCount(0);
+  await expect(branchDialog.locator('.option-label').filter({ hasText: /^origin\/main$/ })).toHaveCount(1);
+  await expect(branchDialog.getByRole('radio', { name: /feature/ })).toHaveCount(1);
+  await branchDialog.getByRole('radio', { name: /feature/ }).dblclick();
+  await expect.poll(() => state.contentRequests.length).toBe(2);
+  expect(state.contentRequests.map((request) => request.ref)).toEqual(['feature', 'INDEX']);
+  await page.getByRole('button', { name: 'Close diff', exact: true }).click();
+
+  const unstaged = page.getByRole('listbox', {
+    name: 'unstaged files',
+    exact: true,
+  });
+  await unstaged.getByRole('option', { name: 'a.txt', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Compare with Branch...', exact: true }).click();
+  await page.getByRole('radio', { name: /origin\/main/ }).dblclick();
+  await expect.poll(() => state.contentRequests.length).toBe(4);
+  expect(state.contentRequests.slice(2).map((request) => request.ref)).toEqual([
+    'origin/main',
+    'WORKING',
+  ]);
+});
+
 test('file lists render as a tree or flat list from the settings dialog', async ({ page }) => {
   const { state } = await setup(page, 700, {
     staged: ['src/app/app.ts', 'src/app/components/toolbar/toolbar.ts', 'README.md'],
@@ -909,6 +945,7 @@ test('full settings dialog saves repository and Azure DevOps preferences togethe
   await expect(dialog).toContainText('Repository preferences and Git configuration.');
   await page.getByLabel('Automatically refresh').uncheck();
   await page.getByLabel('Show Git graph').uncheck();
+  await page.getByLabel('Expand repository panel sections').uncheck();
   await page.getByLabel('Search mode').selectOption('filter');
   await page.getByLabel('Case-sensitive search').check();
   await page.getByLabel('Server URL').fill('https://devops.example/DefaultCollection');
@@ -924,9 +961,16 @@ test('full settings dialog saves repository and Azure DevOps preferences togethe
     showGraph: false,
     showStashes: false,
     fileListView: 'flat',
+    sidePanelSectionsExpanded: false,
     searchMode: 'filter',
     searchCaseSensitive: true,
   });
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const sectionHeaders = page.locator('.side-panel .tree-head');
+  await expect(sectionHeaders).toHaveCount(5);
+  for (let index = 0; index < 5; index += 1) {
+    await expect(sectionHeaders.nth(index)).toHaveAttribute('aria-expanded', 'false');
+  }
   expect(errors).toEqual([]);
 });
 
@@ -1391,11 +1435,35 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   await expect(panel.getByTitle('main', { exact: true })).toBeVisible();
   const feature = panel.getByTitle('feature', { exact: true });
   await expect(feature).toBeVisible();
-  await expect(panel.locator('.row').filter({ hasText: 'stash@{0}' })).toContainText(
-    'fixture stash',
-  );
+  const stash = panel.locator('.row').filter({ hasText: 'stash@{0}' });
+  await expect(stash).toContainText('fixture stash');
   await expect(panel.locator('.tree').filter({ hasText: 'Worktrees' })).toContainText('fixture');
   expect(state.worktreeRequests).toBeGreaterThan(0);
+
+  // The filter-bar action collapses and expands every repository section.
+  const sectionHeaders = panel.locator('.tree-head');
+  const collapseAll = panel.getByRole('button', { name: 'Collapse all sections' });
+  await expect(collapseAll).toBeVisible();
+  await expect(collapseAll).toHaveAttribute('aria-expanded', 'true');
+  await collapseAll.click();
+  await expect(sectionHeaders).toHaveCount(5);
+  for (let index = 0; index < 5; index += 1) {
+    await expect(sectionHeaders.nth(index)).toHaveAttribute('aria-expanded', 'false');
+  }
+  const expandAll = panel.getByRole('button', { name: 'Expand all sections' });
+  await expect(expandAll).toHaveAttribute('aria-expanded', 'false');
+  await expandAll.click();
+  for (let index = 0; index < 5; index += 1) {
+    await expect(sectionHeaders.nth(index)).toHaveAttribute('aria-expanded', 'true');
+  }
+
+  // Clicking a stash in the repository panel opens its changed-file list.
+  state.diffFiles = [file('stashed.txt')];
+  await stash.click();
+  const stashDetail = page.locator('app-commit-detail');
+  await expect(stash).toHaveClass(/selected/);
+  await expect(stashDetail.locator('.subject')).toContainText('fixture stash');
+  await expect(stashDetail.locator('.file-path', { hasText: 'stashed.txt' })).toBeVisible();
 
   // The section action creates a worktree from an available local branch.
   await panel.getByRole('button', { name: 'Create worktree' }).click();

@@ -302,6 +302,7 @@ export class GitService {
     showRemoteBranches?: boolean;
     fileListView?: 'flat' | 'tree';
     refListView?: 'flat' | 'tree';
+    sidePanelSectionsExpanded?: boolean;
     searchMode?: 'navigate' | 'filter';
     searchCaseSensitive?: boolean;
     allowMerge?: boolean;

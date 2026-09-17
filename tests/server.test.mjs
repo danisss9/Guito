@@ -1108,6 +1108,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showStashes: false,
     fileListView: 'flat',
     refListView: 'flat',
+    sidePanelSectionsExpanded: true,
     searchMode: 'navigate',
     searchCaseSensitive: false,
   });
@@ -1290,6 +1291,19 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   assert.equal(invalidRefView.status, 200);
   assert.equal((await invalidRefView.json()).refListView, 'tree');
 
+  // The repository panel's initial section state persists as a boolean.
+  const sectionsCollapsed = await fetch(`${server.address}/api/settings`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sidePanelSectionsExpanded: false }),
+  });
+  assert.equal(sectionsCollapsed.status, 200);
+  assert.equal((await sectionsCollapsed.json()).sidePanelSectionsExpanded, false);
+  const fileAfterSectionState = JSON.parse(
+    await readFile(join(gitDir, 'guito-settings.json'), 'utf8'),
+  );
+  assert.equal(fileAfterSectionState.sidePanelSectionsExpanded, false);
+
   const filtered = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -1372,6 +1386,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     azureDevOpsUrl: 'https://vscode/Collection',
     autoReload: false,
     diffViewer: 'vscode',
+    sidePanelSectionsExpanded: true,
     searchMode: 'navigate',
     searchCaseSensitive: false,
   });
@@ -1385,6 +1400,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: false,
     showStashes: false,
     fileListView: 'tree',
+    sidePanelSectionsExpanded: true,
     searchMode: 'navigate',
     searchCaseSensitive: false,
   });
@@ -1397,6 +1413,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    sidePanelSectionsExpanded: undefined,
     searchMode: undefined,
     searchCaseSensitive: undefined,
   });
@@ -1409,6 +1426,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     showGraph: true,
     showStashes: true,
     fileListView: 'flat',
+    sidePanelSectionsExpanded: false,
     searchMode: 'filter',
     searchCaseSensitive: true,
   });

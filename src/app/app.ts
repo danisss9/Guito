@@ -153,6 +153,10 @@ export class App implements OnDestroy {
   protected readonly refListView = computed(() =>
     this.azureSettings()?.refListView === 'tree' ? 'tree' : 'flat',
   );
+  /** Whether a newly created repository panel opens every section. */
+  protected readonly sidePanelSectionsExpanded = computed(
+    () => this.azureSettings()?.sidePanelSectionsExpanded !== false,
+  );
   /** Whether commit search shows only matches instead of navigating through history. */
   protected readonly filterSearch = computed(() => this.azureSettings()?.searchMode === 'filter');
   /** Whether commit and repository-panel searches preserve exact casing and accents. */
@@ -884,6 +888,8 @@ export class App implements OnDestroy {
     const previousSettings = this.azureSettings();
     const previousRefListView = previousSettings?.refListView === 'tree' ? 'tree' : 'flat';
     const nextRefListView = settings.refListView === 'tree' ? 'tree' : 'flat';
+    const previousSectionsExpanded = previousSettings?.sidePanelSectionsExpanded !== false;
+    const nextSectionsExpanded = settings.sidePanelSectionsExpanded !== false;
 
     this.azureSettings.set(settings);
     this.showRemote.set(settings.showRemoteBranches !== false);
@@ -891,7 +897,8 @@ export class App implements OnDestroy {
     if (
       reloadRefPanel &&
       previousSettings !== null &&
-      previousRefListView !== nextRefListView
+      (previousRefListView !== nextRefListView ||
+        previousSectionsExpanded !== nextSectionsExpanded)
     ) {
       // The panel deliberately stays mounted when hidden. Re-key it here so
       // both standalone and VS Code setting changes rebuild its UI state.
@@ -1080,6 +1087,19 @@ export class App implements OnDestroy {
   /** Jumps to the commit a tag points to; pages load until it appears. */
   protected selectTag(tag: TagInfo): void {
     this.pendingSearchHash.set(tag.hash);
+  }
+
+  /** Opens a stash through the existing commit detail and changed-file view. */
+  protected selectStash(stash: StashEntry): void {
+    this.selectedCommit.set({
+      hash: stash.hash,
+      date: stash.date ?? '',
+      message: stash.message,
+      refs: '',
+      author_name: stash.author_name ?? '',
+      author_email: stash.author_email ?? '',
+      parents: [],
+    });
   }
 
   protected openWorktreeDialog(): void {

@@ -235,7 +235,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, allowMerge, fileListView, refListView, searchMode, searchCaseSensitive, azureRequestImpl, avatarFetchImpl, onLog, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, azureRequestImpl, avatarFetchImpl, onLog, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -583,6 +583,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         const fileShowRemoteBranches = typeof file.showRemoteBranches === 'boolean' ? file.showRemoteBranches : undefined;
         const fileFileListView = file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
         const fileRefListView = file.refListView === 'tree' || file.refListView === 'flat' ? file.refListView : undefined;
+        const fileSidePanelSectionsExpanded = typeof file.sidePanelSectionsExpanded === 'boolean'
+            ? file.sidePanelSectionsExpanded
+            : undefined;
         const fileSearchMode = file.searchMode === 'filter' || file.searchMode === 'navigate' ? file.searchMode : undefined;
         const fileAllowMerge = typeof file.allowMerge === 'boolean' ? file.allowMerge : undefined;
         const fileSearchCaseSensitive = typeof file.searchCaseSensitive === 'boolean' ? file.searchCaseSensitive : undefined;
@@ -632,6 +635,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                 : (fileShowRemoteBranches ?? true),
             fileListView: fileListView ?? fileFileListView ?? 'flat',
             refListView: refListView ?? fileRefListView ?? 'flat',
+            sidePanelSectionsExpanded: typeof sidePanelSectionsExpanded === 'boolean'
+                ? sidePanelSectionsExpanded
+                : (fileSidePanelSectionsExpanded ?? true),
             searchMode: searchMode ?? fileSearchMode ?? 'navigate',
             searchCaseSensitive: typeof searchCaseSensitive === 'boolean'
                 ? searchCaseSensitive
@@ -1447,6 +1453,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             if (body.refListView === 'tree' || body.refListView === 'flat') {
                 settings.refListView = body.refListView;
+            }
+            if (typeof body.sidePanelSectionsExpanded === 'boolean') {
+                settings.sidePanelSectionsExpanded = body.sidePanelSectionsExpanded;
             }
             if (body.searchMode === 'filter' || body.searchMode === 'navigate') {
                 settings.searchMode = body.searchMode;
@@ -2877,6 +2886,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             showGraph = settings.showGraph;
             showStashes = settings.showStashes;
             fileListView = settings.fileListView;
+            sidePanelSectionsExpanded = settings.sidePanelSectionsExpanded;
             searchMode = settings.searchMode;
             searchCaseSensitive = settings.searchCaseSensitive;
             showTags = settings.showTags;
