@@ -3,7 +3,7 @@ name: Publish release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - 'v*.*.*'
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -47,6 +47,11 @@ jobs:
       - name: Package VS Code extension
         run: npm run package --workspace vscode-extension
 
+      - name: Prepare GitHub Release VSIX
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: cp vscode-extension/guito.vsix "guito-${RELEASE_TAG#v}.vsix"
+
       - name: Publish npm package
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
@@ -74,3 +79,4 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "Guito ${RELEASE_TAG#v}"
           fi
+          gh release upload "$RELEASE_TAG" "guito-${RELEASE_TAG#v}.vsix" --clobber
