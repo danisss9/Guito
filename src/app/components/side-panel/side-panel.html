@@ -1,4 +1,4 @@
-<aside class="side-panel" aria-label="Repository panel">
+<aside #panel class="side-panel" aria-label="Repository panel">
   <div class="panel-filter">
     <div class="filter-field" role="search">
       <svg class="filter-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -70,121 +70,85 @@
       <span class="tree-count">{{ branchCount() }}</span>
     </button>
     @if (branchesExpanded()) {
-      <div class="tree-body">
-        @if (loading()) {
-          <div class="empty section-loading" role="status">Loading...</div>
+      <div class="tree-body" #branchBody>
+        @if (branchPadTop() > 0) {
+          <div class="scroll-pad" [style.height.px]="branchPadTop()"></div>
         }
-        <button
-          type="button"
-          class="row"
-          [class.selected]="selectedBranches().length === 0"
-          title="Show commits from all branches"
-          (click)="selectAllBranches()"
-        >
-          <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <circle cx="3.5" cy="6" r="1.5" />
-            <circle cx="3.5" cy="12" r="1.5" />
-            <circle cx="3.5" cy="18" r="1.5" />
-          </svg>
-          <span class="row-label">All Branches</span>
-        </button>
-        <div
-          class="group-label"
-          [class.hidden]="filtering() && localBranchRows().length === 0"
-        >
-          Local
-        </div>
-        @for (row of localBranchRows(); track $index) {
-          @if (row.kind === 'dir') {
-            <button
-              type="button"
-              class="row dir-row"
-              [style.paddingLeft.px]="row.depth * 14 + 8"
-              [attr.aria-expanded]="!row.collapsed"
-              [title]="row.path"
-              (click)="toggleDir('local', row.path)"
-            >
-              <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
-                @if (row.collapsed) {
-                  <polyline points="9 6 15 12 9 18" />
-                } @else {
-                  <polyline points="6 9 12 15 18 9" />
-                }
-              </svg>
-              <span class="row-label">{{ row.name }}</span>
-            </button>
-          } @else {
-            <button
-              type="button"
-              class="row"
-              [class.selected]="selectedBranches().includes(row.ref.name)"
-              [style.paddingLeft.px]="row.depth * 14 + 8"
-              [title]="row.ref.name"
-              (click)="selectBranch(row.ref.name, $event)"
-              (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(row.ref) })"
-            >
-              <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <line x1="6" y1="3" x2="6" y2="15" />
-                <circle cx="18" cy="6" r="3" />
-                <circle cx="6" cy="18" r="3" />
-                <path d="M18 9a9 9 0 0 1-9 9" />
-              </svg>
-              <span class="row-label">{{ row.name }}</span>
-              @if (row.ref.current) {
-                <span class="row-tag" title="Current branch">current</span>
-              }
-            </button>
-          }
-        }
-        @if (showRemote()) {
-          <div
-            class="group-label"
-            [class.hidden]="filtering() && remoteBranchRows().length === 0"
-          >
-            Remote
-          </div>
-          @for (row of remoteBranchRows(); track $index) {
-            @if (row.kind === 'dir') {
-              <button
-                type="button"
-                class="row dir-row"
-                [style.paddingLeft.px]="row.depth * 14 + 8"
-                [attr.aria-expanded]="!row.collapsed"
-                [title]="row.path"
-                (click)="toggleDir('remote', row.path)"
-              >
-                <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
-                  @if (row.collapsed) {
-                    <polyline points="9 6 15 12 9 18" />
-                  } @else {
-                    <polyline points="6 9 12 15 18 9" />
-                  }
-                </svg>
-                <span class="row-label">{{ row.name }}</span>
-              </button>
-            } @else {
+        @for (item of branchSlice(); track trackBranchItem($index, item)) {
+          @switch (item.type) {
+            @case ('loading') {
+              <div class="empty section-loading" role="status">Loading...</div>
+            }
+            @case ('all') {
               <button
                 type="button"
                 class="row"
-                [class.selected]="selectedBranches().includes(row.ref.name)"
-                [style.paddingLeft.px]="row.depth * 14 + 8"
-                [title]="row.ref.name"
-                (click)="selectBranch(row.ref.name, $event)"
-                (contextmenu)="onContextMenu($event, { kind: 'branch', branch: badgeOf(row.ref) })"
+                [class.selected]="selectedBranches().length === 0"
+                title="Show commits from all branches"
+                (click)="selectAllBranches()"
               >
                 <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <line x1="6" y1="3" x2="6" y2="15" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                  <path d="M18 9a9 9 0 0 1-9 9" />
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <circle cx="3.5" cy="6" r="1.5" />
+                  <circle cx="3.5" cy="12" r="1.5" />
+                  <circle cx="3.5" cy="18" r="1.5" />
                 </svg>
-                <span class="row-label">{{ row.name }}</span>
+                <span class="row-label">All Branches</span>
               </button>
             }
+            @case ('label') {
+              <div class="group-label">{{ item.text }}</div>
+            }
+            @default {
+              @if (item.row.kind === 'dir') {
+                <button
+                  type="button"
+                  class="row dir-row"
+                  [style.paddingLeft.px]="item.row.depth * 14 + 8"
+                  [attr.aria-expanded]="!item.row.collapsed"
+                  [title]="item.row.path"
+                  (click)="toggleDir(item.group, item.row.path)"
+                >
+                  <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
+                    @if (item.row.collapsed) {
+                      <polyline points="9 6 15 12 9 18" />
+                    } @else {
+                      <polyline points="6 9 12 15 18 9" />
+                    }
+                  </svg>
+                  <span class="row-label">{{ item.row.name }}</span>
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="row"
+                  [class.selected]="selectedBranches().includes(item.row.ref.name)"
+                  [style.paddingLeft.px]="item.row.depth * 14 + 8"
+                  [title]="item.row.ref.name"
+                  (click)="selectBranch(item.row.ref.name, $event)"
+                  (contextmenu)="
+                    onContextMenu($event, { kind: 'branch', branch: badgeOf(item.row.ref) })
+                  "
+                >
+                  <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                  <span class="row-label">{{ item.row.name }}</span>
+                  @if (item.row.ref.current) {
+                    <span class="row-tag" title="Current branch">current</span>
+                  }
+                </button>
+              }
+            }
           }
+        }
+        @if (branchPadBottom() > 0) {
+          <div class="scroll-pad" [style.height.px]="branchPadBottom()"></div>
         }
         @if (!loading() && filtering() && branchCount() === 0) {
           <div class="empty">No matching branches</div>
@@ -211,38 +175,45 @@
       <span class="tree-count">{{ tagCount() }}</span>
     </button>
     @if (tagsExpanded()) {
-      <div class="tree-body">
-        @if (loading()) {
-          <div class="empty section-loading" role="status">Loading...</div>
+      <div class="tree-body" #tagBody>
+        @if (tagPadTop() > 0) {
+          <div class="scroll-pad" [style.height.px]="tagPadTop()"></div>
         }
-        @for (row of tagRows(); track $index) {
-          @if (row.kind === 'dir') {
+        @for (item of tagSlice(); track trackTagItem($index, item)) {
+          @if (item.type === 'loading') {
+            <div class="empty section-loading" role="status">Loading...</div>
+          } @else if (item.row.kind === 'dir') {
             <button
               type="button"
               class="row dir-row"
-              [style.paddingLeft.px]="row.depth * 14 + 8"
-              [attr.aria-expanded]="!row.collapsed"
-              [title]="row.path"
-              (click)="toggleDir('tag', row.path)"
+              [style.paddingLeft.px]="item.row.depth * 14 + 8"
+              [attr.aria-expanded]="!item.row.collapsed"
+              [title]="item.row.path"
+              (click)="toggleDir('tag', item.row.path)"
             >
               <svg class="row-chevron" viewBox="0 0 24 24" aria-hidden="true">
-                @if (row.collapsed) {
+                @if (item.row.collapsed) {
                   <polyline points="9 6 15 12 9 18" />
                 } @else {
                   <polyline points="6 9 12 15 18 9" />
                 }
               </svg>
-              <span class="row-label">{{ row.name }}</span>
+              <span class="row-label">{{ item.row.name }}</span>
             </button>
           } @else {
             <button
               type="button"
               class="row"
-              [class.selected]="selectedCommitHash() === row.ref.hash"
-              [style.paddingLeft.px]="row.depth * 14 + 8"
-              [title]="row.ref.name"
-              (click)="selectTag(row.ref)"
-              (contextmenu)="onContextMenu($event, { kind: 'tag', branch: { type: 'tag', name: row.ref.name } })"
+              [class.selected]="selectedCommitHash() === item.row.ref.hash"
+              [style.paddingLeft.px]="item.row.depth * 14 + 8"
+              [title]="item.row.ref.name"
+              (click)="selectTag(item.row.ref)"
+              (contextmenu)="
+                onContextMenu($event, {
+                  kind: 'tag',
+                  branch: { type: 'tag', name: item.row.ref.name },
+                })
+              "
             >
               <svg class="row-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -250,13 +221,14 @@
                 />
                 <line x1="7" y1="7" x2="7.01" y2="7" />
               </svg>
-              <span class="row-label">{{ row.name }}</span>
+              <span class="row-label">{{ item.row.name }}</span>
             </button>
           }
         } @empty {
-          @if (!loading()) {
-            <div class="empty">{{ filtering() ? 'No matching tags' : 'No tags' }}</div>
-          }
+          <div class="empty">{{ filtering() ? 'No matching tags' : 'No tags' }}</div>
+        }
+        @if (tagPadBottom() > 0) {
+          <div class="scroll-pad" [style.height.px]="tagPadBottom()"></div>
         }
       </div>
     }

@@ -4,6 +4,10 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Added
+
+- Virtual scrolling in the repository panel's branch and tag lists. Repositories with thousands of refs no longer render every row at once: only the rows around the viewport are materialized between two spacers, so the panel scrolls smoothly and the counts still report the full totals. Stashes, worktrees and pull requests stay fully rendered.
+
 ### Fixed
 
 - Slide the repository side panel in again when it opens. Inserting the panel and expanding it within the same rendering pass left the browser no collapsed width to transition from, so the panel appeared at full width instantly; opening now commits the collapsed width first and the slide-in always plays. Closing was unaffected.

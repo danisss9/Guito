@@ -88,6 +88,30 @@ async function setup(page, count = 700, overrides = {}) {
         current: true,
       },
     ],
+    branches: [
+      {
+        name: 'main',
+        commit: commits[0].hash,
+        current: true,
+        remote: false,
+      },
+      {
+        name: 'feature',
+        commit: commits[10].hash,
+        current: false,
+        remote: false,
+      },
+      {
+        name: 'origin/main',
+        commit: commits[0].hash,
+        current: false,
+        remote: true,
+      },
+    ],
+    tags: [
+      { name: 'v0.5.0', hash: commits[10].hash },
+      { name: 'v1.0.0', hash: commits[2].hash },
+    ],
     bodyMatchIndex: 600,
     stageRequests: [],
     stashRequests: [],
@@ -307,26 +331,7 @@ async function setup(page, count = 700, overrides = {}) {
           identity: state.identity,
         });
       case '/api/branches/all':
-        return send([
-          {
-            name: 'main',
-            commit: commits[0].hash,
-            current: true,
-            remote: false,
-          },
-          {
-            name: 'feature',
-            commit: commits[10].hash,
-            current: false,
-            remote: false,
-          },
-          {
-            name: 'origin/main',
-            commit: commits[0].hash,
-            current: false,
-            remote: true,
-          },
-        ]);
+        return send(state.branches);
       case '/api/stash/list':
         await delay(state.panelDelay);
         return send({
@@ -371,10 +376,7 @@ async function setup(page, count = 700, overrides = {}) {
         return send({ success: true });
       case '/api/tags':
         await delay(state.panelDelay);
-        return send([
-          { name: 'v0.5.0', hash: commits[10].hash },
-          { name: 'v1.0.0', hash: commits[2].hash },
-        ]);
+        return send(state.tags);
       case '/api/tag/delete':
       case '/api/tag/push':
         state.tagRequests.push({ path: parsed.pathname, ...body });
@@ -1684,6 +1686,75 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   await page.getByRole('menuitem', { name: 'Fetch (prune)' }).click();
   await expect.poll(() => state.fetchRequests.some((request) => request.prune === '1')).toBe(true);
   await expect(page.locator('.table-loading')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('repository panel virtualizes long branch and tag lists', async ({ page }) => {
+  // The panel data is part of the app's initial load, so the large ref lists
+  // have to come in through the fixture state rather than later routes.
+  const history700 = history(700);
+  const branches = [
+    { name: 'main', commit: history700[0].hash, current: true, remote: false },
+    ...Array.from({ length: 400 }, (_, i) => ({
+      name: `feature/branch-${String(i).padStart(3, '0')}`,
+      commit: history700[10].hash,
+      current: false,
+      remote: false,
+    })),
+    ...Array.from({ length: 300 }, (_, i) => ({
+      name: `origin/remote-${String(i).padStart(3, '0')}`,
+      commit: history700[0].hash,
+      current: false,
+      remote: true,
+    })),
+  ];
+  const tags = Array.from({ length: 250 }, (_, i) => ({
+    name: `v1.0.${String(i).padStart(3, '0')}`,
+    hash: i === 249 ? history700[2].hash : history700[10].hash,
+  }));
+  const { errors } = await setup(page, 700, { branches, tags });
+
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+  await expect(panel.getByTitle('main', { exact: true })).toBeVisible();
+
+  // Only a window of the 701 branches renders; the count still totals them
+  // and a spacer keeps the scrollbar sized for the full list.
+  const branchesSection = panel.locator('.tree').filter({ hasText: 'Branches' });
+  await expect(branchesSection.locator('.tree-count')).toHaveText('701');
+  const renderedBranches = await branchesSection.locator('button.row:not(.dir-row)').count();
+  expect(renderedBranches).toBeGreaterThan(0);
+  expect(renderedBranches).toBeLessThan(150);
+  await expect(panel.locator('.scroll-pad').first()).toBeVisible();
+
+  // Scrolling the branches body bottom into view materializes the last
+  // remote branch, which can then be selected.
+  const scrollToBodyBottom = (index) =>
+    panel.evaluate((el, i) => {
+      const body = el.querySelectorAll('.tree-body')[i];
+      el.scrollTop = body.offsetTop + body.scrollHeight - el.clientHeight;
+    }, index);
+  const lastBranch = panel.getByTitle('origin/remote-299', { exact: true });
+  await expect(lastBranch).toHaveCount(0);
+  await scrollToBodyBottom(0);
+  await expect(lastBranch).toBeVisible();
+  await lastBranch.click();
+  await expect(lastBranch).toHaveClass(/selected/);
+
+  // The tags section windows the same way; the last tag opens its commit.
+  const tagsSection = panel.locator('.tree').filter({ hasText: 'Tags' });
+  await expect(tagsSection.locator('.tree-count')).toHaveText('250');
+  const lastTag = panel.getByTitle('v1.0.249', { exact: true });
+  await expect(lastTag).toHaveCount(0);
+  await scrollToBodyBottom(1);
+  await expect(lastTag).toBeVisible();
+  await lastTag.click();
+  await expect(page.locator('app-commit-detail .subject')).toContainText('Commit 2');
+
+  // Filtering from the bottom re-clamps the scroll and windows the matches.
+  await panel.getByRole('searchbox', { name: 'Search' }).fill('remote-299');
+  await expect(branchesSection.locator('.tree-count')).toHaveText('1');
+  await expect(lastBranch).toBeVisible();
   expect(errors).toEqual([]);
 });
 

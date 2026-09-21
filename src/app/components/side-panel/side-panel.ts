@@ -1,4 +1,19 @@
-import { ChangeDetectionStrategy, Component, computed, input, linkedSignal, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  NgZone,
+  afterRenderEffect,
+  computed,
+  effect,
+  inject,
+  input,
+  linkedSignal,
+  output,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import {
   BranchInfo,
   ContextMenuEvent,
@@ -11,6 +26,54 @@ import {
 } from '../../models/git.models';
 import { RefTreeRow, buildRefTreeRows, flatRefRows } from '../../utils/ref-tree';
 import { normalizeSearchText } from '../../utils/search-text';
+
+/** Height of one row in a windowed section; must match `.row` in side-panel.css. */
+const PANEL_ROW_HEIGHT = 24;
+/** Extra rows rendered above and below the viewport in windowed sections. */
+const PANEL_WINDOW_BUFFER = 10;
+
+/** One uniformly tall line of the windowed branch section body. */
+type BranchSectionItem =
+  | { type: 'loading' }
+  | { type: 'all' }
+  | { type: 'label'; text: 'Local' | 'Remote' }
+  | { type: 'row'; group: 'local' | 'remote'; row: RefTreeRow<BranchInfo> };
+
+/** One uniformly tall line of the windowed tag section body. */
+type TagSectionItem = { type: 'loading' } | { type: 'row'; row: RefTreeRow<TagInfo> };
+
+/** Visible row range of a windowed section, with its spacer heights. */
+interface PanelWindow {
+  start: number;
+  end: number;
+  padTop: number;
+  padBottom: number;
+}
+
+/**
+ * Computes the row window of a virtualized section: the rows overlapping
+ * the panel viewport plus a buffer on both sides, with the spacer heights
+ * that stand in for the hidden rows. Results are clamped, so a stale body
+ * offset can only shift the window, never slice out of bounds.
+ */
+function panelWindowRange(
+  scrollTop: number,
+  viewportHeight: number,
+  offsetTop: number,
+  total: number,
+): PanelWindow {
+  const first = Math.floor((scrollTop - offsetTop) / PANEL_ROW_HEIGHT) - PANEL_WINDOW_BUFFER;
+  const last =
+    Math.ceil((scrollTop + viewportHeight - offsetTop) / PANEL_ROW_HEIGHT) + PANEL_WINDOW_BUFFER;
+  const start = Math.max(0, Math.min(first, total));
+  const end = Math.max(start, Math.min(Math.max(last, 0), total));
+  return {
+    start,
+    end,
+    padTop: start * PANEL_ROW_HEIGHT,
+    padBottom: (total - end) * PANEL_ROW_HEIGHT,
+  };
+}
 
 /**
  * Left sidebar with tree views for pull requests, branches, tags, stashes,
@@ -155,6 +218,141 @@ export class SidePanel {
       ? buildRefTreeRows(this.tags(), this.tagDirsCollapsed())
       : flatRefRows(this.tags());
   });
+
+  // ---- Virtual scrolling ----
+  // Repositories can hold thousands of branches and tags, so the branch and
+  // tag section bodies render only the rows overlapping the viewport (plus a
+  // buffer) between two spacer divs that keep the native scrollbar sized for
+  // the full list. Every other section stays small and fully rendered.
+
+  /**
+   * The branch body flattened into one stream of uniform 24px rows: the
+   * loading notice, the "All Branches" row, the Local/Remote labels and
+   * every branch row in display order. Labels of groups the filter emptied
+   * are left out instead of hidden, keeping the row math exact.
+   */
+  protected readonly branchSectionRows = computed<BranchSectionItem[]>(() => {
+    const items: BranchSectionItem[] = [];
+    if (this.loading()) items.push({ type: 'loading' });
+    items.push({ type: 'all' });
+    const local = this.localBranchRows();
+    if (!this.filtering() || local.length > 0) items.push({ type: 'label', text: 'Local' });
+    for (const row of local) items.push({ type: 'row', group: 'local', row });
+    if (this.showRemote()) {
+      const remote = this.remoteBranchRows();
+      if (!this.filtering() || remote.length > 0) items.push({ type: 'label', text: 'Remote' });
+      for (const row of remote) items.push({ type: 'row', group: 'remote', row });
+    }
+    return items;
+  });
+
+  /** The tag body flattened the same way; tags have no group labels. */
+  protected readonly tagSectionRows = computed<TagSectionItem[]>(() => {
+    const rows: TagSectionItem[] = this.tagRows().map((row) => ({ type: 'row', row }));
+    return this.loading() ? [{ type: 'loading' }, ...rows] : rows;
+  });
+
+  private readonly zone = inject(NgZone);
+  private readonly panelEl = viewChild.required<ElementRef<HTMLElement>>('panel');
+  private readonly branchBodyEl = viewChild<ElementRef<HTMLElement>>('branchBody');
+  private readonly tagBodyEl = viewChild<ElementRef<HTMLElement>>('tagBody');
+
+  private readonly scrollTop = signal(0);
+  /** Panel viewport height; 0 while the panel is hidden. */
+  private readonly panelHeight = signal(0);
+  /** Distance of each windowed body from the panel content top. */
+  private readonly branchBodyTop = signal(0);
+  private readonly tagBodyTop = signal(0);
+
+  private readonly branchWindow = computed(() =>
+    panelWindowRange(
+      this.scrollTop(),
+      this.panelHeight(),
+      this.branchBodyTop(),
+      this.branchSectionRows().length,
+    ),
+  );
+  private readonly tagWindow = computed(() =>
+    panelWindowRange(
+      this.scrollTop(),
+      this.panelHeight(),
+      this.tagBodyTop(),
+      this.tagSectionRows().length,
+    ),
+  );
+
+  /** Branch rows overlapping the viewport, shown between the two spacers. */
+  protected readonly branchSlice = computed(() => {
+    const win = this.branchWindow();
+    return this.branchSectionRows().slice(win.start, win.end);
+  });
+  protected readonly branchPadTop = computed(() => this.branchWindow().padTop);
+  protected readonly branchPadBottom = computed(() => this.branchWindow().padBottom);
+
+  protected readonly tagSlice = computed(() => {
+    const win = this.tagWindow();
+    return this.tagSectionRows().slice(win.start, win.end);
+  });
+  protected readonly tagPadTop = computed(() => this.tagWindow().padTop);
+  protected readonly tagPadBottom = computed(() => this.tagWindow().padBottom);
+
+  constructor() {
+    effect((onCleanup) => {
+      const element = this.panelEl().nativeElement;
+      const measure = () => this.measureScroll();
+      const observer = new ResizeObserver(() => this.zone.run(measure));
+      observer.observe(element);
+      element.addEventListener('scroll', measure, { passive: true });
+      onCleanup(() => {
+        observer.disconnect();
+        element.removeEventListener('scroll', measure);
+      });
+    });
+    // Section offsets shift whenever the layout above or inside the windowed
+    // bodies changes; re-measure once the DOM has settled. panelHeight covers
+    // the panel appearing from its hidden state.
+    afterRenderEffect(() => {
+      this.branchesExpanded();
+      this.tagsExpanded();
+      this.filtering();
+      this.branchCount();
+      this.branchSectionRows().length;
+      this.tagSectionRows().length;
+      this.panelHeight();
+      untracked(() => this.measureOffsets());
+    });
+  }
+
+  /** Stable row identity so scrolling reuses DOM nodes at the window edges. */
+  protected trackBranchItem(_index: number, item: BranchSectionItem): string {
+    switch (item.type) {
+      case 'loading':
+        return 'loading';
+      case 'all':
+        return 'all';
+      case 'label':
+        return `label:${item.text}`;
+      default:
+        return `${item.group}:${item.row.kind}:${item.row.path}`;
+    }
+  }
+
+  protected trackTagItem(_index: number, item: TagSectionItem): string {
+    return item.type === 'loading' ? 'loading' : `${item.row.kind}:${item.row.path}`;
+  }
+
+  private measureScroll(): void {
+    const element = this.panelEl().nativeElement;
+    this.scrollTop.set(element.scrollTop);
+    this.panelHeight.set(element.clientHeight);
+  }
+
+  private measureOffsets(): void {
+    const branch = this.branchBodyEl();
+    const tags = this.tagBodyEl();
+    if (branch) this.branchBodyTop.set(branch.nativeElement.offsetTop);
+    if (tags) this.tagBodyTop.set(tags.nativeElement.offsetTop);
+  }
 
   /** Section-header counts; while filtering, the number of visible matches. */
   protected readonly branchCount = computed(() => {
