@@ -6,6 +6,8 @@ The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese w
 
 [npm package](https://www.npmjs.com/package/guito) · [VS Code extension](https://marketplace.visualstudio.com/items?itemName=danisss9.guito) · [Issue tracker](https://github.com/danisss9/Guito/issues)
 
+<img width="1458" height="1011" alt="image" src="https://github.com/user-attachments/assets/3bb8df63-1699-429b-90e2-d729ecee1e62" />
+
 ## Features
 
 - Visual commit graph with branch and tag references.
