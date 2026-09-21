@@ -815,14 +815,14 @@ test('staged and unstaged files can be compared with another branch', async ({ p
     name: 'staged files',
     exact: true,
   });
-  await staged
-    .getByRole('option', { name: 'partial.txt', exact: true })
-    .click({ button: 'right' });
+  await staged.getByRole('option', { name: 'partial.txt', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Compare with Branch...', exact: true }).click();
   const branchDialog = page.getByRole('dialog');
   await expect(branchDialog).toContainText('Compare with Branch');
   await expect(branchDialog.locator('.option-label').filter({ hasText: /^main$/ })).toHaveCount(0);
-  await expect(branchDialog.locator('.option-label').filter({ hasText: /^origin\/main$/ })).toHaveCount(1);
+  await expect(
+    branchDialog.locator('.option-label').filter({ hasText: /^origin\/main$/ }),
+  ).toHaveCount(1);
   await expect(branchDialog.getByRole('radio', { name: /feature/ })).toHaveCount(1);
   await branchDialog.getByRole('radio', { name: /feature/ }).dblclick();
   await expect.poll(() => state.contentRequests.length).toBe(2);
@@ -1369,6 +1369,53 @@ test('changing the branch and tag layout reloads the repository panel', async ({
   expect(errors).toEqual([]);
 });
 
+/** Resolves true when the panel host next starts a width transition. */
+const watchPanelSlide = (page) =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const onRun = (event) => {
+          if (!(event.target instanceof Element)) return;
+          if (event.target.tagName !== 'APP-SIDE-PANEL' || event.propertyName !== 'width') return;
+          cleanup();
+          resolve(true);
+        };
+        const cleanup = () => {
+          clearTimeout(timer);
+          document.removeEventListener('transitionrun', onRun);
+        };
+        const timer = setTimeout(() => {
+          document.removeEventListener('transitionrun', onRun);
+          resolve(false);
+        }, 4000);
+        document.addEventListener('transitionrun', onRun);
+      }),
+  );
+
+test('repository panel slides in when opened', async ({ page }) => {
+  const { errors } = await setup(page);
+  const toggle = page.getByRole('button', { name: 'Toggle repository panel' });
+  const host = page.locator('app-side-panel');
+
+  // The first open must animate the host width from zero instead of showing
+  // the panel at full width instantly; transitionrun only fires when a
+  // transition actually starts.
+  const firstSlide = watchPanelSlide(page);
+  await toggle.click();
+  await expect(host).toBeVisible();
+  expect(await firstSlide).toBe(true);
+  await expect(host).toHaveCSS('width', '260px');
+
+  // Reopening after a fully completed close must slide in as well.
+  await toggle.click();
+  await expect(host).toBeHidden();
+  const reopenSlide = watchPanelSlide(page);
+  await toggle.click();
+  await expect(host).toBeVisible();
+  expect(await reopenSlide).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('repository panel animation follows live reduced-motion changes', async ({ page }) => {
   const { errors } = await setup(page);
   const toggle = page.getByRole('button', { name: 'Toggle repository panel' });
@@ -1389,17 +1436,53 @@ test('repository panel animation follows live reduced-motion changes', async ({ 
   await expect(host).toHaveCSS('width', '260px');
 
   // Reversing a close should continue from the current width instead of
-  // jumping to an animation endpoint.
+  // jumping to an animation endpoint. Both flights are sampled inside the
+  // page per animation frame; driving the clicks and samples from the test
+  // can miss the whole 150ms window under load.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await toggle.click();
-  await page.waitForTimeout(50);
-  const closingWidth = await host.evaluate((element) => element.getBoundingClientRect().width);
-  expect(closingWidth).toBeGreaterThan(0);
-  expect(closingWidth).toBeLessThan(260);
-  await toggle.click();
-  await page.waitForTimeout(50);
-  const reopeningWidth = await host.evaluate((element) => element.getBoundingClientRect().width);
-  expect(reopeningWidth).toBeGreaterThan(closingWidth);
+  // Commit the restored transition property before closing: the media flip
+  // alone triggers no style recalc, so without this the width change and the
+  // return of transition: width would land in one pass and the browser would
+  // skip the close transition entirely.
+  await host.evaluate((element) => void element.offsetWidth);
+  const reversal = await host.evaluate(async (element) => {
+    const toggle = document.querySelector('button[aria-label="Toggle repository panel"]');
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const width = () => Math.round(element.getBoundingClientRect().width * 10) / 10;
+    toggle.click();
+    let closingWidth = 0;
+    let closeDeadline = performance.now() + 1000;
+    while (performance.now() < closeDeadline) {
+      const current = width();
+      if (current > 0 && current < 260) {
+        closingWidth = current;
+        break;
+      }
+      if (current === 0) break; // The close finished (or never animated).
+      await nextFrame();
+    }
+    toggle.click();
+    let firstReopenWidth = null;
+    let minWidth = 260;
+    let settled = false;
+    const reopenDeadline = performance.now() + 1500;
+    while (performance.now() < reopenDeadline) {
+      const current = width();
+      if (firstReopenWidth === null) firstReopenWidth = current;
+      minWidth = Math.min(minWidth, current);
+      if (current >= 260) {
+        settled = true;
+        break;
+      }
+      await nextFrame();
+    }
+    return { closingWidth, firstReopenWidth, minWidth, settled };
+  });
+  expect(reversal.closingWidth).toBeGreaterThan(0);
+  expect(reversal.closingWidth).toBeLessThan(260);
+  expect(reversal.firstReopenWidth).toBeLessThan(260);
+  expect(reversal.minWidth).toBeGreaterThan(0);
+  expect(reversal.settled).toBe(true);
   await expect(host).toHaveCSS('width', '260px');
   expect(errors).toEqual([]);
 });

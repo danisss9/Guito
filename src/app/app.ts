@@ -453,12 +453,25 @@ export class App implements OnDestroy {
         // Reversing an in-flight close continues from its current width.
         this.panelExpanded.set(true);
       } else if (this.panelAnimationsEnabled()) {
-        // Let the browser establish width: 0 after removing [hidden], then
-        // transition to the full width on the next frame.
-        this.panelOpenFrame = window.requestAnimationFrame(() => {
+        // The width transition needs the browser to compute the collapsed
+        // width before the .panel-open class lands. Change detection inserts
+        // and unhides the panel in a later animation frame, so keep retrying
+        // until the unhidden host is in the DOM, commit its width-0 layout
+        // with a forced read, and only then expand: applying the class in
+        // the same change-detection pass as the insertion leaves no
+        // before-change style and the transition would never start.
+        const expandWhenLaidOut = (): void => {
           this.panelOpenFrame = null;
-          if (this.panelOpen() && this.panelRendered()) this.panelExpanded.set(true);
-        });
+          if (!this.panelOpen() || !this.panelRendered()) return;
+          const host = document.querySelector<HTMLElement>('app-side-panel');
+          if (!host || host.hidden) {
+            this.panelOpenFrame = window.requestAnimationFrame(expandWhenLaidOut);
+            return;
+          }
+          void host.offsetWidth;
+          this.panelExpanded.set(true);
+        };
+        this.panelOpenFrame = window.requestAnimationFrame(expandWhenLaidOut);
       } else {
         this.panelExpanded.set(true);
       }
@@ -485,8 +498,7 @@ export class App implements OnDestroy {
   /** Read at each toggle so a live reduced-motion preference change is honored. */
   private panelAnimationsEnabled(): boolean {
     return (
-      typeof matchMedia === 'undefined' ||
-      !matchMedia('(prefers-reduced-motion: reduce)').matches
+      typeof matchMedia === 'undefined' || !matchMedia('(prefers-reduced-motion: reduce)').matches
     );
   }
 
@@ -897,8 +909,7 @@ export class App implements OnDestroy {
     if (
       reloadRefPanel &&
       previousSettings !== null &&
-      (previousRefListView !== nextRefListView ||
-        previousSectionsExpanded !== nextSectionsExpanded)
+      (previousRefListView !== nextRefListView || previousSectionsExpanded !== nextSectionsExpanded)
     ) {
       // The panel deliberately stays mounted when hidden. Re-key it here so
       // both standalone and VS Code setting changes rebuild its UI state.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Slide the repository panel in from the left when it opens again; the width transition was skipped when the panel was inserted and expanded within the same rendering pass.
+
 ## 1.0.4
 
 - Add a "Compare with Branch..." context-menu action for staged and unstaged files. A searchable picker lists every other branch, and the comparison opens in VS Code's diff tab or Guito's own diff dialog.

@@ -2,6 +2,12 @@
 
 All notable changes to Guito are documented in this file. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and this changelog is structured around [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Slide the repository side panel in again when it opens. Inserting the panel and expanding it within the same rendering pass left the browser no collapsed width to transition from, so the panel appeared at full width instantly; opening now commits the collapsed width first and the slide-in always plays. Closing was unaffected.
+
 ## [1.0.4] - 2026-09-18
 
 ### Added
