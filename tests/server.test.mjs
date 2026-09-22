@@ -51,15 +51,21 @@ function assertSettings(actual, expected) {
   for (const [key, value] of Object.entries(expected)) assert.deepEqual(actual[key], value, key);
 }
 
-async function createRepository() {
-  const directory = await mkdtemp(join(tmpdir(), 'guito-test-'));
-  execFileSync('git', ['init'], { cwd: directory, stdio: 'ignore' });
+// Clones do not inherit user.* config, so every repository that receives a
+// commit needs an explicit identity (CI runners have no global git config).
+function configureIdentity(directory) {
   execFileSync('git', ['config', 'user.name', 'Guito Test'], {
     cwd: directory,
   });
   execFileSync('git', ['config', 'user.email', 'guito@example.test'], {
     cwd: directory,
   });
+}
+
+async function createRepository() {
+  const directory = await mkdtemp(join(tmpdir(), 'guito-test-'));
+  execFileSync('git', ['init'], { cwd: directory, stdio: 'ignore' });
+  configureIdentity(directory);
   execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], {
     cwd: directory,
     stdio: 'ignore',
@@ -792,6 +798,7 @@ test('creates annotated tags and warns when pushing fails', async (context) => {
   const clonePath = await mkdtemp(join(tmpdir(), 'guito-tag-clone-'));
   context.after(() => rm(clonePath, { recursive: true, force: true }));
   execFileSync('git', ['clone', remotePath, clonePath], { stdio: 'ignore' });
+  configureIdentity(clonePath);
   const cloneFile = join(clonePath, 'other.txt');
   await writeFile(cloneFile, 'other\n');
   execFileSync('git', ['add', 'other.txt'], { cwd: clonePath, stdio: 'ignore' });
@@ -1244,6 +1251,7 @@ test('merges, rebases and pulls with mode options', async (context) => {
   const clonePath = await mkdtemp(join(tmpdir(), 'guito-clone-'));
   context.after(() => rm(clonePath, { recursive: true, force: true }));
   git_(['clone', remotePath, clonePath]);
+  configureIdentity(clonePath);
   const remoteFile = join(clonePath, 'remote.txt');
   await writeFile(remoteFile, 'remote\n');
   git_(['add', 'remote.txt'], clonePath);
