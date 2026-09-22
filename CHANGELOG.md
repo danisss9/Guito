@@ -16,6 +16,7 @@ All notable changes to Guito are documented in this file. The project follows [S
 ### Fixed
 
 - Slide the repository side panel in again when it opens. Inserting the panel and expanding it within the same rendering pass left the browser no collapsed width to transition from, so the panel appeared at full width instantly; opening now commits the collapsed width first and the slide-in always plays. Closing was unaffected.
+- Stop the repository panel's sections from flashing "Loading..." when their data arrives quickly. The loading notices now appear only after a short grace period, so fast loads show the lists immediately while slow ones still get feedback.
 
 ### Changed
 

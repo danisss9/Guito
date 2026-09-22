@@ -150,7 +150,7 @@
         @if (branchPadBottom() > 0) {
           <div class="scroll-pad" [style.height.px]="branchPadBottom()"></div>
         }
-        @if (!loading() && filtering() && branchCount() === 0) {
+        @if (!showLoading() && filtering() && branchCount() === 0) {
           <div class="empty">No matching branches</div>
         }
       </div>
@@ -253,7 +253,7 @@
     </button>
     @if (stashesExpanded()) {
       <div class="tree-body">
-        @if (loading()) {
+        @if (showLoading()) {
           <div class="empty section-loading" role="status">Loading...</div>
         }
         @for (stash of filteredStashes(); track stash.index) {
@@ -273,7 +273,7 @@
             <span class="row-tag stash-message">{{ stash.message }}</span>
           </button>
         } @empty {
-          @if (!loading()) {
+          @if (!showLoading()) {
             <div class="empty">{{ filtering() ? 'No matching stashes' : 'No stashes' }}</div>
           }
         }
@@ -314,7 +314,7 @@
     </div>
     @if (worktreesExpanded()) {
       <div class="tree-body">
-        @if (loading()) {
+        @if (showLoading()) {
           <div class="empty section-loading" role="status">Loading...</div>
         }
         @for (worktree of filteredWorktrees(); track worktree.path) {
@@ -335,7 +335,7 @@
             }
           </button>
         } @empty {
-          @if (!loading()) {
+          @if (!showLoading()) {
             <div class="empty">{{ filtering() ? 'No matching worktrees' : 'No worktrees' }}</div>
           }
         }

@@ -6,6 +6,7 @@
 
 - Virtualize the repository panel's branch and tag lists so repositories with thousands of refs scroll smoothly; only the rows around the viewport are rendered, while counts keep reporting the full totals.
 - Slide the repository panel in from the left when it opens again; the width transition was skipped when the panel was inserted and expanded within the same rendering pass.
+- Stop the repository panel's sections from flashing "Loading..." when their data arrives quickly; the notices now appear only after a short delay.
 
 ## 1.0.4
 

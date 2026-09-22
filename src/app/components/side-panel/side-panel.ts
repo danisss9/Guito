@@ -102,6 +102,12 @@ export class SidePanel {
   /** Hash of the commit open in the detail panel; '' = none. */
   readonly selectedCommitHash = input('');
   readonly loading = input(false);
+  /**
+   * Loading flag delayed by a short grace period: fast loads (data already
+   * cached or a snappy repository) never flash the "Loading..." notices,
+   * while slow ones still get feedback after the delay elapses.
+   */
+  protected readonly showLoading = signal(false);
   /** Whether the Azure DevOps integration is configured (URL is set). */
   readonly azureEnabled = input(false);
   /** The signed-in user's pull requests; null while the first load is in flight. */
@@ -233,7 +239,7 @@ export class SidePanel {
    */
   protected readonly branchSectionRows = computed<BranchSectionItem[]>(() => {
     const items: BranchSectionItem[] = [];
-    if (this.loading()) items.push({ type: 'loading' });
+    if (this.showLoading()) items.push({ type: 'loading' });
     items.push({ type: 'all' });
     const local = this.localBranchRows();
     if (!this.filtering() || local.length > 0) items.push({ type: 'label', text: 'Local' });
@@ -249,7 +255,7 @@ export class SidePanel {
   /** The tag body flattened the same way; tags have no group labels. */
   protected readonly tagSectionRows = computed<TagSectionItem[]>(() => {
     const rows: TagSectionItem[] = this.tagRows().map((row) => ({ type: 'row', row }));
-    return this.loading() ? [{ type: 'loading' }, ...rows] : rows;
+    return this.showLoading() ? [{ type: 'loading' }, ...rows] : rows;
   });
 
   private readonly zone = inject(NgZone);
@@ -297,6 +303,16 @@ export class SidePanel {
   protected readonly tagPadBottom = computed(() => this.tagWindow().padBottom);
 
   constructor() {
+    // Raise the delayed loading flag only when loading outlasts the grace
+    // period; clearing stays immediate so rows appear the moment data lands.
+    effect((onCleanup) => {
+      if (!this.loading()) {
+        this.showLoading.set(false);
+        return;
+      }
+      const timer = setTimeout(() => this.zone.run(() => this.showLoading.set(true)), 200);
+      onCleanup(() => clearTimeout(timer));
+    });
     effect((onCleanup) => {
       const element = this.panelEl().nativeElement;
       const measure = () => this.measureScroll();
