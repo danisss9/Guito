@@ -3,6 +3,9 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Observable, defer, throwError, finalize } from 'rxjs';
 import { map } from 'rxjs/operators';
 import {
+  AiReviewOverview,
+  AiReviewSettings,
+  AiReviewState,
   AzureSettings,
   BranchInfo,
   CommitDiff,
@@ -399,6 +402,7 @@ export class GitService {
     searchMode?: 'navigate' | 'filter';
     searchCaseSensitive?: boolean;
     allowMerge?: boolean;
+    aiReview?: Partial<AiReviewSettings>;
     issueLinking?: IssueLinkingSettings | null;
     issueLinkingGlobal?: boolean;
   }): Observable<AzureSettings> {
@@ -647,5 +651,67 @@ export class GitService {
     return this.mutate(() =>
       this.http.post(`${this.base}/azure-devops/pullrequests/${id}/abandon`, {}),
     );
+  }
+
+  // ---- Automated pull request review ----
+  // Findings are produced by Claude Code running on this machine and stay
+  // local until they are posted from the Review tab.
+
+  /** The review queue across the repository's pull requests. */
+  getAiReviewOverview(): Observable<AiReviewOverview> {
+    return this.http.get<AiReviewOverview>(`${this.base}/azure-devops/ai-review`);
+  }
+
+  /** Runs one poll pass now instead of waiting for the interval. */
+  pollAiReviews(): Observable<number[]> {
+    return this.http
+      .post<{ reviewed: number[] }>(`${this.base}/azure-devops/ai-review/poll`, {})
+      .pipe(map((response) => response.reviewed));
+  }
+
+  /** The stored review of one pull request, or null if it has none yet. */
+  getAiReview(id: number): Observable<AiReviewState | null> {
+    return this.http
+      .get<{ state: AiReviewState | null }>(
+        `${this.base}/azure-devops/pullrequests/${id}/ai-review`,
+      )
+      .pipe(map((response) => response.state));
+  }
+
+  /** Reviews the pull request now; force re-reads the whole diff. */
+  runAiReview(id: number, force = false): Observable<AiReviewState> {
+    return this.http
+      .post<{ state: AiReviewState }>(
+        `${this.base}/azure-devops/pullrequests/${id}/ai-review`,
+        { force },
+      )
+      .pipe(map((response) => response.state));
+  }
+
+  /** Posts the selected findings to Azure DevOps as comment threads. */
+  postAiReviewFindings(id: number, findingIds: string[]): Observable<AiReviewState> {
+    return this.mutate(() =>
+      this.http
+        .post<{ state: AiReviewState }>(
+          `${this.base}/azure-devops/pullrequests/${id}/ai-review/post`,
+          { findingIds },
+        )
+        .pipe(map((response) => response.state)),
+    );
+  }
+
+  /** Dismisses findings; a dismissed point is never raised again. */
+  dismissAiReviewFindings(id: number, findingIds: string[]): Observable<AiReviewState> {
+    return this.http
+      .post<{ state: AiReviewState }>(
+        `${this.base}/azure-devops/pullrequests/${id}/ai-review/dismiss`,
+        { findingIds },
+      )
+      .pipe(map((response) => response.state));
+  }
+
+  /** Forgets everything remembered about a pull request's review. */
+  resetAiReview(id: number): Observable<unknown> {
+    return this.http.delete(`${this.base}/azure-devops/pullrequests/${id}/ai-review`);
   }
 }

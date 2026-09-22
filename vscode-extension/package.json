@@ -38,7 +38,8 @@
     "onStartupFinished",
     "onCommand:guito.open",
     "onCommand:guito.configureUserDetails",
-    "onCommand:guito.configureRemotes"
+    "onCommand:guito.configureRemotes",
+    "onCommand:guito.reviewPullRequests"
   ],
   "capabilities": {
     "virtualWorkspaces": false,
@@ -71,6 +72,12 @@
         "command": "guito.configureRemotes",
         "title": "Configure Remotes",
         "category": "Guito"
+      },
+      {
+        "command": "guito.reviewPullRequests",
+        "title": "Review Pull Requests Now",
+        "category": "Guito",
+        "icon": "$(comment-discussion)"
       }
     ],
     "configuration": {
@@ -192,6 +199,71 @@
           "default": true,
           "scope": "window",
           "description": "Offer the \"No fast-forward (merge commit)\" and \"Semi-linear merge\" pull request completion strategies."
+        },
+        "guito.aiReview.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Review Azure DevOps pull requests automatically with Claude Code. Guito polls for pull requests, reviews each new commit, and queues the comments in the pull request dialog's Review tab. Nothing is posted to Azure DevOps until you post it. Requires Claude Code to be installed and signed in on this machine."
+        },
+        "guito.aiReview.scope": {
+          "type": "string",
+          "enum": [
+            "reviewer",
+            "mine",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Review the active pull requests that list you as a reviewer.",
+            "Review the active pull requests you created.",
+            "Review every active pull request in the repository."
+          ],
+          "default": "reviewer",
+          "scope": "window",
+          "description": "Which pull requests the automated reviewer picks up."
+        },
+        "guito.aiReview.pollMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 240,
+          "scope": "window",
+          "description": "Minutes between checks for pull requests with new commits."
+        },
+        "guito.aiReview.includeDrafts": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Also review draft pull requests."
+        },
+        "guito.aiReview.claudePath": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Path to the Claude Code executable. Leave empty to look for it on PATH, in the standard install locations, and in the Claude Code VS Code extension's own bundled copy."
+        },
+        "guito.aiReview.claudeArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "description": "Extra arguments passed to Claude Code, for example [\"--model\", \"opus\"]. Guito always passes -p and --output-format json."
+        },
+        "guito.aiReview.timeoutSeconds": {
+          "type": "number",
+          "default": 600,
+          "minimum": 30,
+          "maximum": 3600,
+          "scope": "window",
+          "description": "How long one pull request review may take before it is cancelled."
+        },
+        "guito.aiReview.instructions": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Extra reviewing instructions handed to Claude Code, for example your team's conventions or the things you never want commented on."
         },
         "guito.issueRegex": {
           "type": "string",

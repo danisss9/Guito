@@ -394,6 +394,74 @@ export interface AzureSettings {
   issueLinking?: IssueLinkingSettings | null;
   /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; defaults to true. */
   allowMerge?: boolean;
+  /** Automated pull request review settings. */
+  aiReview?: AiReviewSettings;
+}
+
+/** How the automated pull request reviewer behaves. */
+export interface AiReviewSettings {
+  enabled: boolean;
+  /** Which pull requests the poller picks up. */
+  scope: 'reviewer' | 'mine' | 'all';
+  pollMinutes: number;
+  includeDrafts: boolean;
+  /** Claude Code executable; empty means Guito looks for it. */
+  claudePath: string;
+  /** Extra Claude Code arguments, e.g. ["--model", "opus"]. */
+  claudeArgs: string[];
+  timeoutSeconds: number;
+  maxDiffChars: number;
+  /** Extra reviewing instructions handed to the model. */
+  instructions: string;
+}
+
+export type AiReviewSeverity = 'blocker' | 'concern' | 'suggestion' | 'nit';
+
+/** One queued review comment, waiting to be posted or dismissed. */
+export interface AiReviewFinding {
+  id: string;
+  /** Repository-relative path, or '' for a comment on the pull request itself. */
+  file: string;
+  line: number | null;
+  endLine: number | null;
+  severity: AiReviewSeverity;
+  title: string;
+  comment: string;
+  /** Merge source commit the finding was made against. */
+  commit: string;
+  status: 'pending' | 'posted' | 'dismissed';
+  threadId?: number;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/** The automated review of one pull request. */
+export interface AiReviewState {
+  pullRequestId: number;
+  title: string;
+  reviewedCommit: string;
+  reviewedAt: string;
+  /** Completed review passes; one per reviewed commit. */
+  passes: number;
+  status: 'idle' | 'queued' | 'running' | 'error';
+  error: string;
+  summary: string;
+  findings: AiReviewFinding[];
+}
+
+/** The review queue across the repository's pull requests. */
+export interface AiReviewOverview {
+  enabled: boolean;
+  running: number;
+  config: AiReviewSettings;
+  pullRequests: {
+    pullRequestId: number;
+    title: string;
+    status: AiReviewState['status'];
+    pending: number;
+    reviewedCommit: string;
+    reviewedAt: string;
+  }[];
 }
 
 export interface CreatePrRequest {

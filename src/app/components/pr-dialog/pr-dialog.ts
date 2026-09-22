@@ -29,6 +29,8 @@ import {
   ThreadStatusRequest,
 } from "./pr-file-diff";
 import {
+  AiReviewFinding,
+  AiReviewState,
   AzureSettings,
   FileDiff,
   PrCheck,
@@ -43,7 +45,14 @@ import {
   PrWorkItemSuggestion,
 } from "../../models/git.models";
 
-type PrTab = "overview" | "files" | "comments";
+type PrTab = "overview" | "files" | "comments" | "review";
+
+const SEVERITY_LABELS: Record<string, string> = {
+  blocker: "Blocker",
+  concern: "Concern",
+  suggestion: "Suggestion",
+  nit: "Nit",
+};
 
 const THREAD_STATUS_LABELS: Record<string, string> = {
   active: "Active",
@@ -183,6 +192,26 @@ export class PrDialog implements OnInit {
 
   // Comment composer on the Comments tab.
   protected readonly newComment = signal("");
+
+  // Review tab: the queued findings from the automated reviewer, plus the
+  // ones the user has ticked for posting.
+  protected readonly review = signal<AiReviewState | null>(null);
+  protected readonly reviewLoading = signal(false);
+  protected readonly reviewRunning = signal(false);
+  protected readonly reviewError = signal("");
+  protected readonly selectedFindings = signal<Set<string>>(new Set());
+  protected readonly pendingFindings = computed(() =>
+    (this.review()?.findings ?? []).filter((finding) => finding.status === "pending"),
+  );
+  protected readonly resolvedFindings = computed(() =>
+    (this.review()?.findings ?? []).filter((finding) => finding.status !== "pending"),
+  );
+  /** True once the reviewed commit is behind the pull request's current one. */
+  protected readonly reviewStale = computed(() => {
+    const state = this.review();
+    const head = this.pr()?.lastMergeSourceCommit ?? "";
+    return Boolean(state?.reviewedCommit && head && state.reviewedCommit !== head);
+  });
 
   // Files tab state; per-file diffs are fetched lazily and cached.
   protected readonly selectedFile = signal<PrFileChange | null>(null);
@@ -358,6 +387,7 @@ export class PrDialog implements OnInit {
           this.loadFiles();
           this.loadWorkItems();
           this.loadChecks();
+          this.loadReview();
         },
         error: (err) => {
           this.loading.set(false);
@@ -846,6 +876,158 @@ export class PrDialog implements OnInit {
 
   protected checkStateLabel(state: string): string {
     return CHECK_STATE_LABELS[state] ?? state;
+  }
+
+
+  // ---- Review tab ----
+  // The reviewer runs Claude Code on this machine; its findings sit here until
+  // the user posts them, so nothing reaches Azure DevOps unreviewed.
+
+  /** Loads the queued review for this pull request. */
+  protected loadReview(): void {
+    this.reviewLoading.set(true);
+    this.reviewError.set("");
+    this.git
+      .getAiReview(this.prId())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (state) => {
+          this.review.set(state);
+          this.reviewLoading.set(false);
+          this.syncSelection(state);
+        },
+        error: (err) => {
+          this.reviewLoading.set(false);
+          this.reviewError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  /** Reviews the pull request now; force re-reads the whole diff. */
+  protected runReview(force = false): void {
+    if (this.reviewRunning()) {
+      return;
+    }
+    this.reviewRunning.set(true);
+    this.reviewError.set("");
+    this.git
+      .runAiReview(this.prId(), force)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (state) => {
+          this.review.set(state);
+          this.reviewRunning.set(false);
+          this.syncSelection(state);
+        },
+        error: (err) => {
+          this.reviewRunning.set(false);
+          this.reviewError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  /** Every new finding starts ticked, so "Post" is one click for a clean run. */
+  private syncSelection(state: AiReviewState | null): void {
+    this.selectedFindings.set(
+      new Set(
+        (state?.findings ?? [])
+          .filter((finding) => finding.status === "pending")
+          .map((finding) => finding.id),
+      ),
+    );
+  }
+
+  protected findingSelected(id: string): boolean {
+    return this.selectedFindings().has(id);
+  }
+
+  protected toggleFinding(id: string): void {
+    const next = new Set(this.selectedFindings());
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    this.selectedFindings.set(next);
+  }
+
+  protected toggleAllFindings(): void {
+    const pending = this.pendingFindings();
+    this.selectedFindings.set(
+      this.selectedFindings().size === pending.length
+        ? new Set()
+        : new Set(pending.map((finding) => finding.id)),
+    );
+  }
+
+  /** Posts the ticked findings to Azure DevOps as comment threads. */
+  protected postFindings(): void {
+    const ids = [...this.selectedFindings()];
+    if (!ids.length) {
+      return;
+    }
+    this.reviewRunning.set(true);
+    this.reviewError.set("");
+    this.git
+      .postAiReviewFindings(this.prId(), ids)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (state) => {
+          this.review.set(state);
+          this.reviewRunning.set(false);
+          this.syncSelection(state);
+          // The posted comments are now real threads on the pull request.
+          this.reload();
+        },
+        error: (err) => {
+          this.reviewRunning.set(false);
+          this.reviewError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  /** Dismisses the ticked findings; a dismissed point is never raised again. */
+  protected dismissFindings(): void {
+    const ids = [...this.selectedFindings()];
+    if (!ids.length) {
+      return;
+    }
+    this.reviewRunning.set(true);
+    this.reviewError.set("");
+    this.git
+      .dismissAiReviewFindings(this.prId(), ids)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (state) => {
+          this.review.set(state);
+          this.reviewRunning.set(false);
+          this.syncSelection(state);
+        },
+        error: (err) => {
+          this.reviewRunning.set(false);
+          this.reviewError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  /** Opens the Files tab at the line a finding is about. */
+  protected jumpToFinding(finding: AiReviewFinding): void {
+    if (!finding.file) {
+      return;
+    }
+    const file = this.files().find((entry) => entry.path === finding.file);
+    if (!file) {
+      return;
+    }
+    this.tab.set("files");
+    this.selectFile(file);
+    if (finding.line) {
+      this.fileFocus.set({ line: finding.line, side: "right" });
+    }
+  }
+
+  protected severityLabel(severity: string): string {
+    return SEVERITY_LABELS[severity] ?? severity;
   }
 
   protected formatDate(iso: string): string {

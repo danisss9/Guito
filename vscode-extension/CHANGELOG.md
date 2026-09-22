@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Review Azure DevOps pull requests automatically with Claude Code running on the extension host. Guito polls for the pull requests waiting on you, reviews every new commit, and queues the comments in the pull request dialog's new Review tab for you to post or dismiss; nothing is posted and no vote is cast without you. Configure it with the `guito.aiReview.*` settings, and check immediately with "Guito: Review Pull Requests Now".
+
 ## 1.0.5
 
 - Virtualize the repository panel's branch and tag lists so repositories with thousands of refs scroll smoothly; only the rows around the viewport are rendered, while counts keep reporting the full totals.
