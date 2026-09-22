@@ -20,6 +20,7 @@ The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese w
 - Working-tree actions for stashing changes, resetting tracked changes, and cleaning untracked files.
 - Stage and unstage files with multi-selection, preview staged and unstaged diffs, and commit staged changes.
 - Review your active Azure DevOps pull requests from the repository side panel: edit details, manage reviewers and votes, complete or auto-complete, discuss comment threads, and add inline comments on file diffs.
+- Have pull requests reviewed for you by Claude Code, re-reviewed on every new commit, with the comments queued for your approval before anything is posted.
 - Browser-based CLI and a VS Code extension with local, Remote SSH, Dev Container, and Codespaces support.
 
 > [!CAUTION]
@@ -81,6 +82,33 @@ Run the command from anywhere inside the Git worktree you want Guito to manage. 
 - Use the toolbar for remote operations and manual refreshes.
 
 The standalone server can execute Git commands against the current repository. Keep it on a trusted machine and do not expose its port to untrusted networks.
+
+## Automated pull request review
+
+Guito can hand your Azure DevOps pull requests to [Claude Code](https://claude.com/claude-code) running on your own machine, then queue what it finds for you to approve.
+
+Turn it on in **Settings** (gear icon), or with `guito.aiReview.enabled` in VS Code. Claude Code must be installed and signed in; no API key is configured in Guito, and no code leaves your machine except to the model Claude Code is already signed in to. Guito finds the CLI on `PATH`, in the standard install locations, and in the Claude Code VS Code extension's own bundled copy; set `guito.aiReview.claudePath` if yours lives somewhere else.
+
+How it works:
+
+- Guito checks Azure DevOps every few minutes for the pull requests in scope — by default the active ones that list you as a reviewer.
+- Each pull request is reviewed once per merge source commit. When the author pushes, only the files that commit touched are reviewed again, and Claude is told what it already raised so it does not repeat itself.
+- Findings land in the pull request dialog's **Review** tab, each with a severity, the file and line it is about, and the comment it would post. Tick the ones you want and choose **Post to pull request**; they become ordinary Azure DevOps comment threads from your account.
+- **Dismiss** removes a finding and stops it being raised again for that pull request.
+- Nothing is posted, and no vote is cast, without you clicking.
+
+Inside VS Code the reviewer also runs while no Guito panel is open, so pull requests are reviewed as you work; run **Guito: Review Pull Requests Now** from the Command Palette to check immediately. Reviews are stored per repository in `.git/guito-ai-reviews.json` and are never committed.
+
+| Setting                          | Description                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `guito.aiReview.enabled`         | Turns automated review on. Off by default.                                               |
+| `guito.aiReview.scope`           | `reviewer` (default), `mine`, or `all`.                                                  |
+| `guito.aiReview.pollMinutes`     | Minutes between checks. Defaults to 5.                                                   |
+| `guito.aiReview.includeDrafts`   | Also review draft pull requests. Off by default.                                         |
+| `guito.aiReview.claudePath`      | Path to the Claude Code executable. Empty means Guito looks for it (see above).           |
+| `guito.aiReview.claudeArgs`      | Extra Claude Code arguments, for example `["--model", "opus"]`.                          |
+| `guito.aiReview.timeoutSeconds`  | How long one review may take. Defaults to 600.                                           |
+| `guito.aiReview.instructions`    | Extra reviewing instructions, such as your team's conventions.                           |
 
 ## Development and contributing
 

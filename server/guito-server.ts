@@ -14,6 +14,14 @@ import { promisify } from 'node:util';
 import { workingTree } from './working-tree.js';
 import { avatarCache } from './avatars.js';
 import { repositoryState } from './repository-state.js';
+import {
+  createAiReviewer,
+  resolveAiReviewConfig,
+  type AiReviewConfig,
+  type AiReviewModelRunner,
+  type AiReviewStore,
+  type AiReviewer,
+} from './ai-review.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -21,6 +29,8 @@ export interface RunningGuitoServer {
   address: string;
   close(): Promise<void>;
   updateSettings(settings: GuitoHostSettings): void;
+  /** Automated pull request reviewer, for host notifications. */
+  aiReview: AiReviewer;
 }
 
 export interface GuitoHostSettings {
@@ -40,6 +50,8 @@ export interface GuitoHostSettings {
   searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
   allowMerge?: boolean;
+  /** Automated pull request review settings (guito.aiReview.*). */
+  aiReview?: Partial<AiReviewConfig>;
 }
 
 export interface AzureRequestResult {
@@ -87,8 +99,12 @@ export interface GuitoServerOptions {
   searchCaseSensitive?: boolean;
   /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; wins over the settings file. */
   allowMerge?: boolean;
+  /** Automated pull request review settings; win over the settings file. */
+  aiReview?: Partial<AiReviewConfig>;
   /** Injectable Azure DevOps HTTP runner; defaults to curl.exe with Windows integrated auth. */
   azureRequestImpl?: AzureRequestImpl;
+  /** Injectable review model runner; defaults to the Claude Code CLI. */
+  aiReviewModelImpl?: AiReviewModelRunner;
   avatarFetchImpl?: typeof fetch;
   /** Receives a line whenever the server produces an error response (status >= 400). */
   onLog?: (line: string) => void;
@@ -383,7 +399,9 @@ export async function startGuitoServer({
   sidePanelSectionsExpanded,
   searchMode,
   searchCaseSensitive,
+  aiReview,
   azureRequestImpl,
+  aiReviewModelImpl,
   avatarFetchImpl,
   onLog,
 }: GuitoServerOptions): Promise<RunningGuitoServer> {
@@ -659,11 +677,14 @@ export async function startGuitoServer({
   // never committed. The VS Code extension passes its own setting via
   // azureDevOpsUrl, which wins over the file.
   let settingsPath = '';
+  let reviewStorePath = '';
   try {
     const gitDir = (await git.revparse(['--absolute-git-dir'])).trim();
     settingsPath = join(gitDir, 'guito-settings.json');
+    reviewStorePath = join(gitDir, 'guito-ai-reviews.json');
   } catch {
     settingsPath = join(repositoryPath, '.git', 'guito-settings.json');
+    reviewStorePath = join(repositoryPath, '.git', 'guito-ai-reviews.json');
   }
 
   const readSettings = async (): Promise<Record<string, unknown>> => {
@@ -903,6 +924,7 @@ export async function startGuitoServer({
     searchCaseSensitive: boolean;
     issueLinking: { regex: string; url: string; useGlobally: boolean } | null;
     allowMerge: boolean;
+    aiReview: AiReviewConfig;
   }> => {
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
@@ -985,6 +1007,7 @@ export async function startGuitoServer({
           ? searchCaseSensitive
           : (fileSearchCaseSensitive ?? false),
       allowMerge: typeof allowMerge === 'boolean' ? allowMerge : (fileAllowMerge ?? true),
+      aiReview: resolveAiReviewConfig(file.aiReview as Partial<AiReviewConfig> | undefined, aiReview),
       issueLinking,
     };
   };
@@ -2082,6 +2105,14 @@ export async function startGuitoServer({
       if (typeof body.allowMerge === 'boolean') {
         settings.allowMerge = body.allowMerge;
       }
+      if (body.aiReview && typeof body.aiReview === 'object') {
+        // Only the keys the user actually sent are stored, so a VS Code
+        // override stays in charge of everything else.
+        settings.aiReview = resolveAiReviewConfig(
+          settings.aiReview as Partial<AiReviewConfig> | undefined,
+          body.aiReview as Partial<AiReviewConfig>,
+        );
+      }
       if ('issueLinking' in body) {
         if (body.issueLinking === null) {
           if (body.issueLinkingGlobal) {
@@ -2121,6 +2152,7 @@ export async function startGuitoServer({
       }
       await writeSettings(settings);
       const effective = await effectiveSettings();
+      await refreshAiReviewConfig();
       return resp.type('application/json').send(effective);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
@@ -2482,9 +2514,9 @@ export async function startGuitoServer({
 
   // Pull requests the current user created or reviews ("mine"), merged and
   // de-duplicated. Status defaults to active.
-  app.get('/api/azure-devops/pullrequests', async (req: any, resp) => {
-    try {
-      const status = String(req.query?.status ?? 'active').trim() || 'active';
+  /** Pull requests the current user created or is a reviewer on. */
+  const azurePrList = async (status: string) => {
+    {
       const { prefix, remoteUrl } = await azureProjectContext();
       const repo = parseAzureRemoteUrl(remoteUrl)!.repo;
       const me = await azureMe();
@@ -2512,18 +2544,35 @@ export async function startGuitoServer({
         collect(`reviewerId=${encodeURIComponent(me.id)}`),
       ]);
       const merged = new Map([...created, ...assigned]);
-      const pullRequests = [...merged.values()]
-        .map((request) => mapAzurePullRequest(request, prefix, remoteUrl, me))
+      return [...merged.values()]
+        .map((request) => ({
+          ...mapAzurePullRequest(request, prefix, remoteUrl, me),
+          description: String(request?.description ?? ''),
+          isMine: String(request?.createdBy?.id ?? '') === me.id,
+          isReviewer: (Array.isArray(request?.reviewers) ? request.reviewers : []).some(
+            (entry: any) => String(entry?.id ?? '') === me.id,
+          ),
+          sourceCommit: String(request?.lastMergeSourceCommit?.commitId ?? ''),
+          targetCommit: String(request?.lastMergeTargetCommit?.commitId ?? ''),
+        }))
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    }
+  };
+
+  app.get('/api/azure-devops/pullrequests', async (req: any, resp) => {
+    try {
+      const status = String(req.query?.status ?? 'active').trim() || 'active';
+      const pullRequests = await azurePrList(status);
       return resp.type('application/json').send({ pullRequests });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
   });
 
-  app.get('/api/azure-devops/pullrequests/:id', async (req: any, resp) => {
-    try {
-      const { base, prefix, remoteUrl } = await azurePrApiBase(Number(req.params?.id));
+  /** Full detail of one pull request, as the dialog and the reviewer see it. */
+  const azurePrDetail = async (id: number) => {
+    {
+      const { base, prefix, remoteUrl } = await azurePrApiBase(id);
       const [pr, me] = await Promise.all([
         azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`),
         azureMe(),
@@ -2552,9 +2601,13 @@ export async function startGuitoServer({
           .map((label: any) => String(label?.name ?? ''))
           .filter(Boolean);
       }
-      return resp.type('application/json').send({
+      return {
         ...summary,
         description: String(pr?.description ?? ''),
+        isMine: String(pr?.createdBy?.id ?? '') === me.id,
+        isReviewer: (Array.isArray(pr?.reviewers) ? pr.reviewers : []).some(
+          (entry: any) => String(entry?.id ?? '') === me.id,
+        ),
         autoCompleteSetBy: pr?.autoCompleteSetBy
           ? {
               id: String(pr.autoCompleteSetBy.id ?? ''),
@@ -2566,7 +2619,13 @@ export async function startGuitoServer({
         lastMergeTargetCommit: String(pr?.lastMergeTargetCommit?.commitId ?? ''),
         labels,
         mergeStatus: azureMergeStatus(pr),
-      });
+      };
+    }
+  };
+
+  app.get('/api/azure-devops/pullrequests/:id', async (req: any, resp) => {
+    try {
+      return resp.type('application/json').send(await azurePrDetail(Number(req.params?.id)));
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -2726,11 +2785,12 @@ export async function startGuitoServer({
     }
   });
 
-  app.get('/api/azure-devops/pullrequests/:id/threads', async (req: any, resp) => {
-    try {
-      const { base } = await azurePrApiBase(Number(req.params?.id));
+  /** Comment threads on a pull request, normalized for the UI and reviewer. */
+  const azurePrThreads = async (id: number) => {
+    {
+      const { base } = await azurePrApiBase(id);
       const data = await azureJson<any>('GET', `${base}/threads?api-version=${AZURE_API_VERSION}`);
-      const threads = (Array.isArray(data?.value) ? data.value : [])
+      return (Array.isArray(data?.value) ? data.value : [])
         .filter((thread: any) => thread?.isDeleted !== true)
         .map((thread: any) => {
           const context = thread?.threadContext ?? {};
@@ -2757,6 +2817,12 @@ export async function startGuitoServer({
               })),
           };
         });
+    }
+  };
+
+  app.get('/api/azure-devops/pullrequests/:id/threads', async (req: any, resp) => {
+    try {
+      const threads = await azurePrThreads(Number(req.params?.id));
       return resp.type('application/json').send({ threads });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
@@ -2765,32 +2831,46 @@ export async function startGuitoServer({
 
   // Adds a comment: a reply to a thread, a general PR comment, or an inline
   // comment anchored to a file line (thread context).
-  app.post('/api/azure-devops/pullrequests/:id/threads', async (req: any, resp) => {
-    try {
-      const content = String(req.body?.content ?? '').trim();
+  /**
+   * Adds a comment: a reply to a thread, a general pull request comment, or an
+   * inline comment anchored to a file line. Returns the thread it landed in.
+   */
+  const azurePrComment = async (
+    id: number,
+    body: {
+      content?: unknown;
+      threadId?: unknown;
+      filePath?: unknown;
+      line?: unknown;
+      endLine?: unknown;
+      side?: unknown;
+    },
+  ): Promise<{ threadId: number }> => {
+    {
+      const content = String(body?.content ?? '').trim();
       if (!content) {
-        return resp.status(400).type('application/json').send({ error: 'Comment text required.' });
+        throw new Error('Comment text required.');
       }
-      const { base } = await azurePrApiBase(Number(req.params?.id));
-      const threadId = Number(req.body?.threadId ?? 0);
+      const { base } = await azurePrApiBase(id);
+      const threadId = Number(body?.threadId ?? 0);
       if (Number.isInteger(threadId) && threadId > 0) {
         await azureJson<any>(
           'POST',
           `${base}/threads/${threadId}/comments?api-version=${AZURE_API_VERSION}`,
           JSON.stringify({ content }),
         );
-        return resp.type('application/json').send({ ok: true });
+        return { threadId };
       }
       const payload: Record<string, unknown> = {
         status: AZURE_THREAD_STATUSES.active,
         comments: [{ content, parentCommentId: 0 }],
       };
-      const filePath = String(req.body?.filePath ?? '').trim();
-      const line = Number(req.body?.line ?? 0);
-      const requestedEndLine = Number(req.body?.endLine ?? line);
+      const filePath = String(body?.filePath ?? '').trim();
+      const line = Number(body?.line ?? 0);
+      const requestedEndLine = Number(body?.endLine ?? line);
       const endLine =
         Number.isInteger(requestedEndLine) && requestedEndLine >= line ? requestedEndLine : line;
-      const left = req.body?.side === 'left';
+      const left = body?.side === 'left';
       if (filePath && Number.isInteger(line) && line > 0) {
         // Azure anchors a whole-line comment from offset 1 to "end of line".
         payload.threadContext = {
@@ -2802,12 +2882,19 @@ export async function startGuitoServer({
           },
         };
       }
-      await azureJson<any>(
+      const created = await azureJson<any>(
         'POST',
         `${base}/threads?api-version=${AZURE_API_VERSION}`,
         JSON.stringify(payload),
       );
-      return resp.type('application/json').send({ ok: true });
+      return { threadId: Number(created?.id ?? 0) };
+    }
+  };
+
+  app.post('/api/azure-devops/pullrequests/:id/threads', async (req: any, resp) => {
+    try {
+      const created = await azurePrComment(Number(req.params?.id), req.body ?? {});
+      return resp.type('application/json').send({ ok: true, ...created });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -2840,9 +2927,14 @@ export async function startGuitoServer({
 
   // Changed files of the latest PR iteration (names and change types only;
   // content is fetched per file on demand by /file-diff).
-  app.get('/api/azure-devops/pullrequests/:id/changes', async (req: any, resp) => {
-    try {
-      const { base } = await azurePrApiBase(Number(req.params?.id));
+  /**
+   * Changed files of the latest pull request iteration. With sinceCommit, only
+   * the files touched after the iteration that ended at that commit, which is
+   * how a re-review looks at nothing but the new work.
+   */
+  const azurePrChangedFiles = async (id: number, sinceCommit = '') => {
+    {
+      const { base } = await azurePrApiBase(id);
       const iterations = await azureJson<any>(
         'GET',
         `${base}/iterations?api-version=${AZURE_API_VERSION}`,
@@ -2854,8 +2946,20 @@ export async function startGuitoServer({
           )
         : null;
       if (!latest) {
-        return resp.type('application/json').send({ files: [] });
+        return [];
       }
+      // Azure compares iterations, not commits, so map the commit onto the
+      // iteration that produced it; an unknown commit falls back to the
+      // full change list rather than silently reviewing nothing.
+      const baseIteration = sinceCommit
+        ? list.find(
+            (entry: any) => String(entry?.sourceRefCommit?.commitId ?? '') === sinceCommit,
+          )
+        : null;
+      const compareTo =
+        baseIteration && Number(baseIteration.id) !== Number(latest.id)
+          ? `&$compareTo=${Number(baseIteration.id)}`
+          : '';
       const changeStatus: Record<string, string> = {
         add: 'added',
         edit: 'modified',
@@ -2872,7 +2976,8 @@ export async function startGuitoServer({
       for (;;) {
         const data = await azureJson<any>(
           'GET',
-          `${base}/iterations/${latest.id}/changes?$top=1000&$skip=${skip}&api-version=${AZURE_API_VERSION}`,
+          `${base}/iterations/${latest.id}/changes?$top=1000&$skip=${skip}${compareTo}` +
+            `&api-version=${AZURE_API_VERSION}`,
         );
         const page = Array.isArray(data?.changeEntries)
           ? data.changeEntries
@@ -2891,7 +2996,7 @@ export async function startGuitoServer({
         }
         break;
       }
-      const files = entries
+      return entries
         .filter((entry: any) => entry?.item?.isFolder !== true)
         .map((entry: any) => {
           const path = String(entry?.item?.path ?? '').replace(/^\//, '');
@@ -2903,6 +3008,15 @@ export async function startGuitoServer({
           return { path, oldPath, changeType };
         })
         .filter((file: any) => Boolean(file.path));
+    }
+  };
+
+  app.get('/api/azure-devops/pullrequests/:id/changes', async (req: any, resp) => {
+    try {
+      const files = await azurePrChangedFiles(
+        Number(req.params?.id),
+        String(req.query?.since ?? ''),
+      );
       return resp.type('application/json').send({ files });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
@@ -3338,16 +3452,26 @@ export async function startGuitoServer({
   // Unified diff of one PR file, computed from the Azure item contents at the
   // PR merge commits. source/target are optional overrides; default comes from
   // the pull request detail.
-  app.get('/api/azure-devops/pullrequests/:id/file-diff', async (req: any, resp) => {
-    try {
-      const path = String(req.query?.path ?? '').replace(/^\//, '');
+  /** One file's diff between the pull request's merge source and target. */
+  const azurePrFileDiff = async (
+    id: number,
+    query: {
+      path?: unknown;
+      oldPath?: unknown;
+      changeType?: unknown;
+      source?: unknown;
+      target?: unknown;
+    },
+  ) => {
+    {
+      const path = String(query?.path ?? '').replace(/^\//, '');
       if (!path) {
-        return resp.status(400).type('application/json').send({ error: 'path required' });
+        throw new Error('path required');
       }
-      const oldPath = String(req.query?.oldPath ?? '').replace(/^\//, '');
-      const { base, prefix, repo } = await azurePrApiBase(Number(req.params?.id));
-      let source = String(req.query?.source ?? '');
-      let target = String(req.query?.target ?? '');
+      const oldPath = String(query?.oldPath ?? '').replace(/^\//, '');
+      const { base, prefix, repo } = await azurePrApiBase(id);
+      let source = String(query?.source ?? '');
+      let target = String(query?.target ?? '');
       if (!source || !target) {
         const pr = await azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`);
         source = source || String(pr?.lastMergeSourceCommit?.commitId ?? '');
@@ -3400,18 +3524,18 @@ export async function startGuitoServer({
         fetchContent(path, source),
       ]);
       if (oldFile.binary || newFile.binary) {
-        return resp.type('application/json').send({
+        return {
           path,
           oldPath,
           status: 'binary',
           binary: true,
           additions: 0,
           deletions: 0,
-          lines: [],
-        });
+          lines: [] as any[],
+        };
       }
       const status =
-        String(req.query?.changeType ?? '') ||
+        String(query?.changeType ?? '') ||
         (!oldFile.content ? 'added' : !newFile.content ? 'deleted' : 'modified');
       // jsdiff omits the "diff --git" header parseUnifiedDiff expects, and
       // prefixing it lets the same parser serve both local and PR diffs.
@@ -3432,7 +3556,7 @@ export async function startGuitoServer({
           text: 'Diff truncated (file too large).',
         });
       }
-      return resp.type('application/json').send({
+      return {
         path,
         oldPath,
         status,
@@ -3442,7 +3566,187 @@ export async function startGuitoServer({
         originalContent: oldFile.content,
         modifiedContent: newFile.content,
         lines,
+      };
+    }
+  };
+
+  app.get('/api/azure-devops/pullrequests/:id/file-diff', async (req: any, resp) => {
+    try {
+      const diff = await azurePrFileDiff(Number(req.params?.id), req.query ?? {});
+      return resp.type('application/json').send(diff);
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // ==================== Automated pull request review ====================
+  // The poller watches the pull requests the user cares about and hands each
+  // new merge source commit to the Claude Code CLI installed on this machine.
+  // Findings are queued locally; posting them to Azure DevOps stays manual.
+
+  const readReviewStore = async (): Promise<AiReviewStore> => {
+    try {
+      const store = JSON.parse(await readFile(reviewStorePath, 'utf8')) as AiReviewStore;
+      return { version: 1, pullRequests: store?.pullRequests ?? {} };
+    } catch {
+      return { version: 1, pullRequests: {} };
+    }
+  };
+
+  const aiReviewer = createAiReviewer(
+    {
+      listPullRequests: async () =>
+        (await azurePrList('active')).map((pr) => ({
+          id: pr.id,
+          title: pr.title,
+          description: pr.description,
+          author: pr.author.name,
+          sourceBranch: pr.sourceBranch,
+          targetBranch: pr.targetBranch,
+          isDraft: pr.isDraft,
+          isReviewer: pr.isReviewer,
+          isMine: pr.isMine,
+          sourceCommit: pr.sourceCommit,
+          targetCommit: pr.targetCommit,
+        })),
+      loadPullRequest: async (id) => {
+        const pr = await azurePrDetail(id);
+        return {
+          id: pr.id,
+          title: pr.title,
+          description: pr.description,
+          author: pr.author.name,
+          sourceBranch: pr.sourceBranch,
+          targetBranch: pr.targetBranch,
+          isDraft: pr.isDraft,
+          isReviewer: pr.isReviewer,
+          isMine: pr.isMine,
+          sourceCommit: pr.lastMergeSourceCommit,
+          targetCommit: pr.lastMergeTargetCommit,
+        };
+      },
+      loadChanges: (id, sinceCommit) => azurePrChangedFiles(id, sinceCommit ?? ''),
+      loadFileDiff: async (id, file) => {
+        const diff = await azurePrFileDiff(id, {
+          path: file.path,
+          oldPath: file.oldPath,
+          changeType: file.changeType,
+        });
+        return {
+          path: diff.path,
+          oldPath: diff.oldPath,
+          status: diff.status,
+          binary: diff.binary,
+          lines: diff.lines,
+        };
+      },
+      loadThreads: async (id) =>
+        (await azurePrThreads(id)).map((thread: any) => ({
+          id: thread.id,
+          status: thread.status,
+          filePath: thread.filePath,
+          line: thread.line,
+          comments: thread.comments,
+        })),
+      postComment: (id, comment) => azurePrComment(id, comment),
+      readStore: readReviewStore,
+      writeStore: (store) =>
+        writeFile(reviewStorePath, JSON.stringify(store, null, 2) + '\n', 'utf8'),
+      runModel: aiReviewModelImpl,
+      log: (line) => onLog?.(line),
+    },
+    resolveAiReviewConfig(aiReview),
+    repositoryPath,
+  );
+
+  /** Re-reads the settings file so file-level review settings take effect. */
+  const refreshAiReviewConfig = async (): Promise<AiReviewConfig> => {
+    const file = await readSettings();
+    const config = resolveAiReviewConfig(
+      file.aiReview as Partial<AiReviewConfig> | undefined,
+      aiReview,
+    );
+    aiReviewer.updateConfig(config);
+    return config;
+  };
+  await refreshAiReviewConfig();
+  aiReviewer.start();
+
+  app.get('/api/azure-devops/ai-review', async (_req, resp) => {
+    try {
+      const overview = await aiReviewer.overview();
+      return resp.type('application/json').send({ ...overview, config: aiReviewer.config() });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Runs one poll pass immediately instead of waiting for the interval.
+  app.post('/api/azure-devops/ai-review/poll', async (_req, resp) => {
+    try {
+      const reviewed = await aiReviewer.poll();
+      return resp.type('application/json').send({ reviewed });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  app.get('/api/azure-devops/pullrequests/:id/ai-review', async (req: any, resp) => {
+    try {
+      const state = await aiReviewer.state(Number(req.params?.id));
+      return resp.type('application/json').send({ state });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Reviews the pull request now; "force" re-reviews the whole diff even when
+  // the merge source commit has not moved.
+  app.post('/api/azure-devops/pullrequests/:id/ai-review', async (req: any, resp) => {
+    try {
+      const state = await aiReviewer.review(Number(req.params?.id), {
+        force: req.body?.force === true,
       });
+      if (state.status === 'error') {
+        return resp.status(400).type('application/json').send({ error: state.error, state });
+      }
+      return resp.type('application/json').send({ state });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Posts the selected findings to Azure DevOps as comment threads.
+  app.post('/api/azure-devops/pullrequests/:id/ai-review/post', async (req: any, resp) => {
+    try {
+      const findingIds = (Array.isArray(req.body?.findingIds) ? req.body.findingIds : []).map(
+        (id: unknown) => String(id),
+      );
+      const state = await aiReviewer.post(Number(req.params?.id), findingIds);
+      return resp.type('application/json').send({ state });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Dismisses findings; a dismissed point is never raised again for this PR.
+  app.post('/api/azure-devops/pullrequests/:id/ai-review/dismiss', async (req: any, resp) => {
+    try {
+      const findingIds = (Array.isArray(req.body?.findingIds) ? req.body.findingIds : []).map(
+        (id: unknown) => String(id),
+      );
+      const state = await aiReviewer.dismiss(Number(req.params?.id), findingIds);
+      return resp.type('application/json').send({ state });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Drops everything remembered about a pull request, including dismissals.
+  app.delete('/api/azure-devops/pullrequests/:id/ai-review', async (req: any, resp) => {
+    try {
+      await aiReviewer.forget(Number(req.params?.id));
+      return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -3644,7 +3948,11 @@ export async function startGuitoServer({
   const address = await app.listen({ port, ...(host ? { host } : {}) });
   return {
     address,
-    close: () => app.close(),
+    aiReview: aiReviewer,
+    close: async () => {
+      aiReviewer.stop();
+      await app.close();
+    },
     updateSettings: (settings) => {
       azureDevOpsUrl = settings.azureDevOpsUrl;
       prBranchNameTemplate = settings.prBranchNameTemplate;
@@ -3661,6 +3969,8 @@ export async function startGuitoServer({
       issueRegex = settings.issueRegex;
       issueUrl = settings.issueUrl;
       allowMerge = settings.allowMerge;
+      aiReview = settings.aiReview;
+      void refreshAiReviewConfig();
     },
   };
 }

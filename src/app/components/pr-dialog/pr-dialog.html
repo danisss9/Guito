@@ -136,6 +136,15 @@
     >
       Comments <span>{{ threads().length }}</span>
     </button>
+    <button
+      type="button"
+      [class.active]="tab() === 'review'"
+      (click)="tab.set('review')"
+    >
+      Review @if (pendingFindings().length) {<span class="badge-pending">{{
+        pendingFindings().length
+      }}</span>} @else if (reviewRunning()) {<span>...</span>}
+    </button>
   </nav>
 
   @if (error()) {
@@ -533,6 +542,157 @@
       </article>
       } @empty {
       <div class="state inline">No comments yet.</div>
+      }
+    </div>
+    } @else if (tab() === 'review') {
+    <div class="review-pane content-pane">
+      <section class="review-header card">
+        <div class="review-summary">
+          @if (reviewLoading()) {
+          <div class="state inline" role="status">Loading the review...</div>
+          } @else if (review(); as state) {
+          <p class="review-line">
+            @if (state.summary) { {{ state.summary }} } @else { Reviewed at
+            commit {{ state.reviewedCommit.slice(0, 8) }}. }
+          </p>
+          <p class="review-meta">
+            {{ state.passes }} review{{ state.passes === 1 ? '' : 's' }} · last
+            run {{ formatDate(state.reviewedAt) }} @if (reviewStale()) {
+            <span class="review-stale"
+              >· new commits since this review</span
+            >
+            }
+          </p>
+          } @else {
+          <p class="review-line">
+            This pull request has not been reviewed yet. Guito reviews it
+            automatically while it is waiting on you, or you can run a review
+            now.
+          </p>
+          }
+        </div>
+        <div class="review-actions">
+          <button
+            type="button"
+            class="btn"
+            (click)="runReview(false)"
+            [disabled]="reviewRunning()"
+          >
+            {{ reviewRunning() ? 'Reviewing...' : review() ? 'Review new
+            commits' : 'Review now' }}
+          </button>
+          @if (review()) {
+          <button
+            type="button"
+            class="btn small"
+            (click)="runReview(true)"
+            [disabled]="reviewRunning()"
+            title="Review the whole diff again, ignoring what was already reviewed"
+          >
+            Review everything again
+          </button>
+          }
+        </div>
+      </section>
+
+      @if (reviewError()) {
+      <app-error-banner [message]="reviewError()" />
+      } @else if (review()?.status === 'error' && review()?.error) {
+      <app-error-banner [message]="review()!.error" />
+      }
+
+      @if (pendingFindings().length) {
+      <section class="findings-toolbar card">
+        <label class="select-all">
+          <input
+            type="checkbox"
+            [checked]="selectedFindings().size === pendingFindings().length"
+            (change)="toggleAllFindings()"
+          />
+          {{ selectedFindings().size }} of {{ pendingFindings().length }}
+          selected
+        </label>
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn small"
+            (click)="dismissFindings()"
+            [disabled]="reviewRunning() || !selectedFindings().size"
+          >
+            Dismiss
+          </button>
+          <button
+            type="button"
+            class="btn primary small"
+            (click)="postFindings()"
+            [disabled]="reviewRunning() || !selectedFindings().size"
+          >
+            Post to pull request
+          </button>
+        </div>
+      </section>
+      }
+
+      @for (finding of pendingFindings(); track finding.id) {
+      <article class="finding-card card" [class]="'severity-' + finding.severity">
+        <header>
+          <label class="finding-pick">
+            <input
+              type="checkbox"
+              [checked]="findingSelected(finding.id)"
+              (change)="toggleFinding(finding.id)"
+            />
+            <span [class]="'severity-badge severity-' + finding.severity">{{
+              severityLabel(finding.severity)
+            }}</span>
+            <strong>{{ finding.title }}</strong>
+          </label>
+          @if (finding.file) {
+          <button type="button" class="path-chip" (click)="jumpToFinding(finding)">
+            {{ finding.file }}@if (finding.line) {<span>:{{ finding.line }}</span>}
+          </button>
+          } @else {
+          <span class="path-chip muted">Pull request</span>
+          }
+        </header>
+        <app-markdown-text [markdown]="finding.comment" />
+      </article>
+      } @empty { @if (!reviewLoading() && review()) {
+      <div class="state inline">
+        Nothing to post. @if (resolvedFindings().length) { Every finding has
+        been posted or dismissed. } @else { The review found no problems worth
+        a comment. }
+      </div>
+      } }
+
+      @if (resolvedFindings().length) {
+      <section class="resolved-findings">
+        <h2>Already handled</h2>
+        @for (finding of resolvedFindings(); track finding.id) {
+        <article class="finding-card card resolved">
+          <header>
+            <span [class]="'severity-badge severity-' + finding.severity">{{
+              severityLabel(finding.severity)
+            }}</span>
+            <strong>{{ finding.title }}</strong>
+            <span class="finding-state">{{
+              finding.status === 'posted' ? 'Posted' : 'Dismissed'
+            }}</span>
+            @if (finding.file) {
+            <button
+              type="button"
+              class="path-chip"
+              (click)="jumpToFinding(finding)"
+            >
+              {{ finding.file }}@if (finding.line) {<span
+                >:{{ finding.line }}</span
+              >}
+            </button>
+            }
+          </header>
+        </article>
+        }
+      </section>
       }
     </div>
     } @else {

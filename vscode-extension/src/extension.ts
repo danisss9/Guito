@@ -117,24 +117,47 @@ export function activate(context: vscode.ExtensionContext): void {
   const configureRemotesCommand = vscode.commands.registerCommand('guito.configureRemotes', () =>
     runRepositoryCommand('configure remotes', configureRemotes),
   );
+  const reviewPullRequestsCommand = vscode.commands.registerCommand(
+    'guito.reviewPullRequests',
+    () =>
+      reviewPullRequestsNow(context).catch((error) => {
+        void vscode.window.showErrorMessage(
+          `Guito could not review pull requests: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }),
+  );
 
   updateStatusBar();
+  // Pull requests are reviewed while Guito is closed too, so the reviewers
+  // start with the extension rather than with the first panel.
+  void syncBackgroundReviewers(context);
   context.subscriptions.push(
     outputChannel,
     statusBar,
     openCommand,
     configureUserDetailsCommand,
     configureRemotesCommand,
-    vscode.workspace.onDidChangeWorkspaceFolders(updateStatusBar),
+    reviewPullRequestsCommand,
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      updateStatusBar();
+      void syncBackgroundReviewers(context);
+    }),
     vscode.workspace.registerTextDocumentContentProvider('guito-diff', {
       provideTextDocumentContent: (uri: vscode.Uri) => provideDiffContent(uri),
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('guito')) return;
+      if (event.affectsConfiguration('guito.aiReview')) {
+        void syncBackgroundReviewers(context);
+      }
       const settings = readHostSettings();
-      for (const repositorySessions of sessions.values()) {
+      for (const [key, repositorySessions] of sessions) {
+        // Applies the new settings to every server of this repository and
+        // keeps exactly one of them polling.
+        updatePollingOwner(key);
         for (const session of repositorySessions) {
-          session.server.updateSettings(settings);
           void session.panel.webview.postMessage({
             type: 'guito/config',
             diffViewer: settings.diffViewer,
@@ -142,12 +165,17 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }
     }),
-    { dispose: () => void closeAllSessions() },
+    {
+      dispose: () => {
+        void closeAllSessions();
+        void stopBackgroundReviewers();
+      },
+    },
   );
 }
 
 export async function deactivate(): Promise<void> {
-  await closeAllSessions();
+  await Promise.allSettled([closeAllSessions(), stopBackgroundReviewers()]);
 }
 
 async function runRepositoryCommand(
@@ -434,6 +462,7 @@ async function openRepository(
       },
     );
     const session: RepositorySession = { panel, server, repository };
+    watchFindings(server, repository);
     // Shows the extension logo on the webview's editor tab.
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
     panel.webview.html = webviewHtml(started.externalUri, randomBytes(16).toString('hex'));
@@ -617,6 +646,7 @@ function addSession(session: RepositorySession): void {
   const repositorySessions = sessions.get(session.repository.key) ?? new Set();
   repositorySessions.add(session);
   sessions.set(session.repository.key, repositorySessions);
+  updatePollingOwner(session.repository.key);
 }
 
 function removeSession(session: RepositorySession): void {
@@ -624,6 +654,175 @@ function removeSession(session: RepositorySession): void {
   if (!repositorySessions) return;
   repositorySessions.delete(session);
   if (repositorySessions.size === 0) sessions.delete(session.repository.key);
+  // The background reviewer takes polling back when the last panel closes.
+  updatePollingOwner(session.repository.key);
+}
+
+// ==================== Automated pull request review ====================
+// The reviewer lives in the Guito server, which normally starts with a panel.
+// So that pull requests are still reviewed while Guito is closed, each
+// repository also gets a headless server whose only job is the poller. Exactly
+// one server per repository polls at a time: a panel takes over when it opens,
+// and hands back when the last one closes.
+
+const backgroundReviewers = new Map<string, RunningGuitoServer>();
+
+/** Whether the automated reviewer is switched on in the settings. */
+function aiReviewEnabled(): boolean {
+  return vscode.workspace.getConfiguration('guito').get<boolean>('aiReview.enabled', false);
+}
+
+/** Offers to open Guito on the pull request whose review just produced work. */
+function watchFindings(server: RunningGuitoServer, repository: RepositoryChoice): void {
+  server.aiReview.onFindings((state) => {
+    const pending = state.findings.filter((finding) => finding.status === 'pending').length;
+    if (!pending) return;
+    outputChannel?.appendLine(
+      `[${repository.label}] Pull request ${state.pullRequestId} has ${pending} review comment(s) ready.`,
+    );
+    void vscode.window
+      .showInformationMessage(
+        `Guito reviewed pull request #${state.pullRequestId} (${state.title}): ${pending} comment${
+          pending === 1 ? '' : 's'
+        } ready for you.`,
+        'Open Guito',
+      )
+      .then((choice) => {
+        if (choice === 'Open Guito') {
+          void vscode.commands.executeCommand('guito.open');
+        }
+      });
+  });
+}
+
+/**
+ * Decides which server polls for this repository: a panel's if one is open,
+ * otherwise the background one. Every other server keeps its routes (so a
+ * manual review still works) but stops its timer, so one repository is never
+ * reviewed twice over. The decision is pushed through updateSettings because
+ * the server re-reads its review config there.
+ */
+function pollingServers(repositoryKey: string): RunningGuitoServer[] {
+  const panels = [...(sessions.get(repositoryKey) ?? [])];
+  const background = backgroundReviewers.get(repositoryKey);
+  // A panel's server comes first, so it owns polling while Guito is open.
+  return [...panels.map((session) => session.server), ...(background ? [background] : [])];
+}
+
+function updatePollingOwner(repositoryKey: string): void {
+  const servers = pollingServers(repositoryKey);
+  if (!servers.length) return;
+  const owner = servers[0];
+  const settings = readHostSettings();
+  const enabled = settings.aiReview?.enabled === true;
+  for (const server of servers) {
+    server.updateSettings({
+      ...settings,
+      aiReview: { ...settings.aiReview, enabled: enabled && server === owner },
+    });
+  }
+}
+
+/** Starts, or stops, the headless reviewer for one repository. */
+async function syncBackgroundReviewer(
+  context: vscode.ExtensionContext,
+  repository: RepositoryChoice,
+): Promise<void> {
+  const existing = backgroundReviewers.get(repository.key);
+  if (!aiReviewEnabled()) {
+    if (existing) {
+      backgroundReviewers.delete(repository.key);
+      await existing.close().catch(() => {});
+    }
+    return;
+  }
+  if (existing) {
+    updatePollingOwner(repository.key);
+    return;
+  }
+  try {
+    const server = await startGuitoServer({
+      repositoryPath: repository.root,
+      uiRoot: vscode.Uri.joinPath(context.extensionUri, 'dist', 'ui').fsPath,
+      host: '127.0.0.1',
+      port: 0,
+      apiToken: randomBytes(32).toString('hex'),
+      ...readHostSettings(),
+      onLog: (line) => outputChannel?.appendLine(`[${repository.label}] ${line}`),
+    });
+    backgroundReviewers.set(repository.key, server);
+    watchFindings(server, repository);
+    updatePollingOwner(repository.key);
+    // Catch up on anything pushed while VS Code was closed. This has to go to
+    // whichever server owns polling: if a Guito panel is already open, the
+    // background one was just switched off and would do nothing.
+    void pollingServers(repository.key)[0]?.aiReview.poll();
+  } catch (error) {
+    outputChannel?.appendLine(
+      `[${repository.label}] Could not start the pull request reviewer: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+/** Brings the background reviewers in line with the current workspace. */
+async function syncBackgroundReviewers(context: vscode.ExtensionContext): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (!vscode.workspace.isTrusted || folders.length === 0) {
+    await stopBackgroundReviewers();
+    return;
+  }
+  const repositories = await discoverRepositories(folders);
+  const wanted = new Set(repositories.map((repository) => repository.key));
+  for (const [key, server] of [...backgroundReviewers]) {
+    if (!wanted.has(key)) {
+      backgroundReviewers.delete(key);
+      await server.close().catch(() => {});
+    }
+  }
+  await Promise.allSettled(
+    repositories.map((repository) => syncBackgroundReviewer(context, repository)),
+  );
+}
+
+async function stopBackgroundReviewers(): Promise<void> {
+  const servers = [...backgroundReviewers.values()];
+  backgroundReviewers.clear();
+  await Promise.allSettled(servers.map((server) => server.close()));
+}
+
+/** Reviews every pull request with new commits, across the workspace, now. */
+async function reviewPullRequestsNow(context: vscode.ExtensionContext): Promise<void> {
+  await syncBackgroundReviewers(context);
+  const servers = new Map<string, RunningGuitoServer>();
+  for (const [key, server] of backgroundReviewers) servers.set(key, server);
+  for (const [key, repositorySessions] of sessions) {
+    const first = [...repositorySessions][0];
+    if (first) servers.set(key, first.server);
+  }
+  if (servers.size === 0) {
+    void vscode.window.showInformationMessage(
+      'Guito found no Git repository in this workspace to review pull requests for.',
+    );
+    return;
+  }
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Guito: reviewing pull requests' },
+    async () => {
+      const reviewed = await Promise.all(
+        [...servers.values()].map((server) => server.aiReview.poll().catch(() => [] as number[])),
+      );
+      const total = reviewed.flat().length;
+      if (total === 0) {
+        void vscode.window.showInformationMessage(
+          aiReviewEnabled()
+            ? 'Guito: no pull request has new commits to review.'
+            : 'Guito: automated pull request review is off (guito.aiReview.enabled).',
+        );
+      }
+    },
+  );
 }
 
 function repositoryKey(root: string): string {
@@ -656,6 +855,16 @@ function readHostSettings(): GuitoHostSettings {
     allowMerge: configuration.get<boolean>('allowMerge', true),
     issueRegex: configuration.get<string>('issueRegex')?.trim() || undefined,
     issueUrl: configuration.get<string>('issueUrl')?.trim() || undefined,
+    aiReview: {
+      enabled: configuration.get<boolean>('aiReview.enabled', false),
+      scope: configuration.get<'reviewer' | 'mine' | 'all'>('aiReview.scope', 'reviewer'),
+      pollMinutes: configuration.get<number>('aiReview.pollMinutes', 5),
+      includeDrafts: configuration.get<boolean>('aiReview.includeDrafts', false),
+      claudePath: configuration.get<string>('aiReview.claudePath', '').trim(),
+      claudeArgs: configuration.get<string[]>('aiReview.claudeArgs', []),
+      timeoutSeconds: configuration.get<number>('aiReview.timeoutSeconds', 600),
+      instructions: configuration.get<string>('aiReview.instructions', ''),
+    },
   };
 }
 

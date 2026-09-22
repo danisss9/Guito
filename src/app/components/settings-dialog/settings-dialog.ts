@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  AiReviewSettings,
   AzureSettings,
   GitIdentity,
   GitRemote,
@@ -31,6 +32,7 @@ export interface GuitoSettingsUpdate {
   searchMode: 'navigate' | 'filter';
   searchCaseSensitive: boolean;
   allowMerge: boolean;
+  aiReview: Partial<AiReviewSettings>;
 }
 
 type EditorMode = 'main' | 'identity' | 'remote' | 'issue';
@@ -65,6 +67,14 @@ export class SettingsDialog {
   protected readonly searchMode = signal<'navigate' | 'filter'>('navigate');
   protected readonly searchCaseSensitive = signal(false);
   protected readonly allowMerge = signal(true);
+  // Automated pull request review; the VS Code settings win over these when
+  // Guito runs inside the extension.
+  protected readonly aiReviewEnabled = signal(false);
+  protected readonly aiReviewScope = signal<'reviewer' | 'mine' | 'all'>('reviewer');
+  protected readonly aiReviewPollMinutes = signal(5);
+  protected readonly aiReviewIncludeDrafts = signal(false);
+  protected readonly aiReviewClaudePath = signal('');
+  protected readonly aiReviewInstructions = signal('');
   protected readonly remotes = signal<GitRemote[]>([]);
   protected readonly busy = signal(false);
   protected readonly error = signal('');
@@ -96,6 +106,13 @@ export class SettingsDialog {
       this.searchMode.set(settings.searchMode === 'filter' ? 'filter' : 'navigate');
       this.searchCaseSensitive.set(settings.searchCaseSensitive === true);
       this.allowMerge.set(settings.allowMerge !== false);
+      const review = settings.aiReview;
+      this.aiReviewEnabled.set(review?.enabled === true);
+      this.aiReviewScope.set(review?.scope ?? 'reviewer');
+      this.aiReviewPollMinutes.set(review?.pollMinutes ?? 5);
+      this.aiReviewIncludeDrafts.set(review?.includeDrafts === true);
+      this.aiReviewClaudePath.set(review?.claudePath ?? '');
+      this.aiReviewInstructions.set(review?.instructions ?? '');
       if (!this.remotesLoaded) {
         this.remotesLoaded = true;
         this.loadRemotes();
@@ -120,7 +137,9 @@ export class SettingsDialog {
       | 'showRemoteBranches'
       | 'sidePanelSectionsExpanded'
       | 'searchCaseSensitive'
-      | 'allowMerge',
+      | 'allowMerge'
+      | 'aiReviewEnabled'
+      | 'aiReviewIncludeDrafts',
   ): void {
     this[setting].set((target as HTMLInputElement).checked);
   }
@@ -140,7 +159,20 @@ export class SettingsDialog {
       searchMode: this.searchMode(),
       searchCaseSensitive: this.searchCaseSensitive(),
       allowMerge: this.allowMerge(),
+      aiReview: {
+        enabled: this.aiReviewEnabled(),
+        scope: this.aiReviewScope(),
+        pollMinutes: Number(this.aiReviewPollMinutes()) || 5,
+        includeDrafts: this.aiReviewIncludeDrafts(),
+        claudePath: this.aiReviewClaudePath().trim(),
+        instructions: this.aiReviewInstructions(),
+      },
     });
+  }
+
+  protected changeAiReviewScope(target: EventTarget | null): void {
+    const value = (target as HTMLSelectElement).value;
+    this.aiReviewScope.set(value === 'mine' || value === 'all' ? value : 'reviewer');
   }
 
   protected changeSearchMode(target: EventTarget | null): void {
