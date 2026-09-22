@@ -2,7 +2,7 @@
   "name": "guito",
   "displayName": "Guito",
   "description": "Explore and manage the current Git repository with Guito inside VS Code.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "danisss9",
   "license": "MIT",
   "icon": "logo.png",

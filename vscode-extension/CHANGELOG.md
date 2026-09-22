@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.5
+
 - Virtualize the repository panel's branch and tag lists so repositories with thousands of refs scroll smoothly; only the rows around the viewport are rendered, while counts keep reporting the full totals.
 - Slide the repository panel in from the left when it opens again; the width transition was skipped when the panel was inserted and expanded within the same rendering pass.
 

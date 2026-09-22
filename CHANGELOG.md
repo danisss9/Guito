@@ -4,6 +4,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-09-22
+
 ### Added
 
 - A unified Git operation dialog for every mutating context action. Adding a tag (lightweight or annotated, with an optional push), creating a branch (with checkout and publish-and-set-upstream), checking out commits (detached or as a new branch) and remote branches (tracking branch or detached), cherry-picking and reverting (no-commit, sign-off, source recording, and the mainline parent for merge commits), merging (default, no-fast-forward, fast-forward-only, squash, no-commit, autostash), rebasing (autostash, preserved merges), resetting (soft/mixed/hard), pushing tags (remote picker, force), deleting tags and branches (optional remote deletion), renaming branches (publish the new name, delete the old remote ref), pulling remote branches (merge, rebase, or fast-forward-only), and stashing (message, scope, untracked files, staged-state restoration on apply/pop) all collect their options before running. Every menu item that ends in "..." now opens its dialog, including the working panel's stash buttons, and dialogs show the target commit or ref plus the current branch, disable remote-dependent options when no remotes are configured, and reset their options each time they open.
