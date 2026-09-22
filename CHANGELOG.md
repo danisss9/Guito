@@ -6,11 +6,18 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ### Added
 
+- A unified Git operation dialog for every mutating context action. Adding a tag (lightweight or annotated, with an optional push), creating a branch (with checkout and publish-and-set-upstream), checking out commits (detached or as a new branch) and remote branches (tracking branch or detached), cherry-picking and reverting (no-commit, sign-off, source recording, and the mainline parent for merge commits), merging (default, no-fast-forward, fast-forward-only, squash, no-commit, autostash), rebasing (autostash, preserved merges), resetting (soft/mixed/hard), pushing tags (remote picker, force), deleting tags and branches (optional remote deletion), renaming branches (publish the new name, delete the old remote ref), pulling remote branches (merge, rebase, or fast-forward-only), and stashing (message, scope, untracked files, staged-state restoration on apply/pop) all collect their options before running. Every menu item that ends in "..." now opens its dialog, including the working panel's stash buttons, and dialogs show the target commit or ref plus the current branch, disable remote-dependent options when no remotes are configured, and reset their options each time they open.
+- The server now validates and serializes these operations: enum options are allowlisted, branch and tag names are checked with Git's own ref-format rules, remotes must be configured, merge commits require an in-bounds mainline parent, and all rewritten mutations run through the server's mutation queue. Dropping a commit no longer hard-resets the branch to the parent (which lost every descendant); it now rebases the descendants onto the dropped commit's parent and refuses dirty, detached, root, merge, or unreachable commits. Pulling a specific remote branch sends the chosen remote and branch instead of the defaults.
+- Composite actions report partial failures as warnings instead of failing overall: a created tag or branch whose push was rejected, or a rename or deletion whose remote step failed, keeps the local change and returns a precise warning that Guito shows after refreshing. Remote steps resolve to the explicitly chosen remote, else "origin", else the first configured remote.
 - Virtual scrolling in the repository panel's branch and tag lists. Repositories with thousands of refs no longer render every row at once: only the rows around the viewport are materialized between two spacers, so the panel scrolls smoothly and the counts still report the full totals. Stashes, worktrees and pull requests stay fully rendered.
 
 ### Fixed
 
 - Slide the repository side panel in again when it opens. Inserting the panel and expanding it within the same rendering pass left the browser no collapsed width to transition from, so the panel appeared at full width instantly; opening now commits the collapsed width first and the slide-in always plays. Closing was unaffected.
+
+### Changed
+
+- "Pull into current branch..." and "Delete Remote Branch..." now appear only on remote-tracking branches, where they apply, and the working-panel and history reset/clean confirmations report the affected tracked and untracked file counts.
 
 ## [1.0.4] - 2026-09-18
 

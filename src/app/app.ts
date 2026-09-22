@@ -17,6 +17,7 @@ import { CommitDetail } from './components/commit-detail/commit-detail';
 import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
 import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
+import { GitOperationDialog } from './components/git-operation-dialog/git-operation-dialog';
 import { GuitoSettingsUpdate, SettingsDialog } from './components/settings-dialog/settings-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
 import { PrDialog } from './components/pr-dialog/pr-dialog';
@@ -31,6 +32,9 @@ import {
   ContextMenuState,
   GitCommit,
   GitIdentity,
+  GitMutationResult,
+  GitOperationDialogState,
+  GitOperationRequest,
   RepositoryState,
   MenuItem,
   PromptState,
@@ -77,6 +81,7 @@ function loadCommitDraft(): CommitDraft {
     CommitDetail,
     ContextMenu,
     PromptDialog,
+    GitOperationDialog,
     WorkingPanel,
     CreatePrDialog,
     SettingsDialog,
@@ -134,6 +139,10 @@ export class App implements OnDestroy {
   protected readonly contextMenuState = signal<ContextMenuState | null>(null);
   protected readonly contextMenuTarget = signal<any>(null);
   protected readonly promptState = signal<PromptState | null>(null);
+  /** Open Git-operation dialog state; null = closed. */
+  protected readonly gitOperationState = signal<GitOperationDialogState | null>(null);
+  /** Failure of the Git operation behind the open dialog, shown inline. */
+  protected readonly gitOperationError = signal('');
   /** Azure DevOps integration settings; null until the first refresh. */
   protected readonly azureSettings = signal<AzureSettings | null>(null);
   protected readonly hasAzureUrl = computed(() => !!this.azureSettings()?.azureDevOpsUrl);
@@ -675,9 +684,10 @@ export class App implements OnDestroy {
 
   protected stashChanges(scope: StashScope): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading() || this.statusError()) return;
-    this.git.stashSave(undefined, scope).subscribe({
-      next: () => this.refresh(),
-      error: (err) => this.error.set(this.errorMessage(err)),
+    this.openGitOperation({
+      action: 'stash-save',
+      stashScope: scope,
+      currentBranch: this.currentBranchName(),
     });
   }
 
@@ -837,7 +847,7 @@ export class App implements OnDestroy {
         : action === 'pull'
           ? this.git.pull()
           : action === 'pull-rebase'
-            ? this.git.pull(true)
+            ? this.git.pull({ mode: 'rebase' })
             : action === 'push'
               ? this.git.push()
               : this.git.sync();
@@ -982,6 +992,7 @@ export class App implements OnDestroy {
     } else if (event.target.kind === 'branch') {
       const badgeType = event.target.branch.type;
       const isLocal = badgeType === 'head' || badgeType === 'local';
+      const isRemote = badgeType === 'remote';
       items.push({ label: 'Checkout Branch...', action: 'checkout-branch' });
       if (isLocal) {
         items.push({ label: 'Rename Branch...', action: 'rename-branch' });
@@ -993,19 +1004,24 @@ export class App implements OnDestroy {
           disabled: badgeType === 'head',
         });
       }
-      items.push({
-        label: 'Delete Remote Branch...',
-        action: 'delete-remote-branch',
-        danger: true,
-      });
+      if (isRemote) {
+        items.push({
+          label: 'Delete Remote Branch...',
+          action: 'delete-remote-branch',
+          danger: true,
+        });
+      }
       items.push({
         label: 'Merge into current branch...',
         action: 'merge-branch',
       });
-      items.push({
-        label: 'Pull into current branch...',
-        action: 'pull-branch',
-      });
+      // Pulling makes sense only for refs that live on a remote.
+      if (isRemote) {
+        items.push({
+          label: 'Pull into current branch...',
+          action: 'pull-branch',
+        });
+      }
       items.push({ separator: true });
       items.push({ label: 'Create Archive', action: 'create-archive' });
       items.push({
@@ -1018,8 +1034,8 @@ export class App implements OnDestroy {
         action: 'copy-branch-name',
       });
     } else if (event.target.kind === 'stash') {
-      items.push({ label: 'Apply Stash', action: 'stash-apply' });
-      items.push({ label: 'Pop Stash', action: 'stash-pop' });
+      items.push({ label: 'Apply Stash...', action: 'stash-apply' });
+      items.push({ label: 'Pop Stash...', action: 'stash-pop' });
       items.push({ separator: true });
       items.push({
         label: 'Drop Stash...',
@@ -1118,6 +1134,222 @@ export class App implements OnDestroy {
     this.worktreeDialogOpen.set(true);
   }
 
+  /** Name of the checked-out branch; '' when HEAD is detached. */
+  private currentBranchName(): string {
+    return this.branches().find((branch) => branch.current)?.name ?? '';
+  }
+
+  /** Opens the Git operation dialog for a context-menu target. */
+  private openGitOperation(state: GitOperationDialogState): void {
+    this.gitOperationError.set('');
+    this.gitOperationState.set(state);
+  }
+
+  /** Closes the Git operation dialog. */
+  protected closeGitOperation(): void {
+    if (this.mutationBusy()) return;
+    this.gitOperationState.set(null);
+    this.gitOperationError.set('');
+  }
+
+  /** Runs the confirmed Git operation, showing warnings and refreshing state. */
+  protected onGitOperationConfirm(request: GitOperationRequest): void {
+    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
+    this.gitOperationError.set('');
+    const done = (result: GitMutationResult) => {
+      this.gitOperationState.set(null);
+      // Partial remote failures keep the local change; surface the warning.
+      if (result?.warnings?.length) {
+        this.error.set(result.warnings.join(' '));
+      }
+      this.refresh();
+    };
+    const fail = (err: unknown) => {
+      // Keep the dialog open with the error so options can be adjusted.
+      this.gitOperationError.set(this.errorMessage(err));
+      this.refreshWorking();
+    };
+
+    switch (request.action) {
+      case 'add-tag':
+        this.git
+          .createTag({
+            name: request.name,
+            ...(request.commit ? { commit: request.commit } : {}),
+            annotate: request.annotate,
+            ...(request.annotate ? { message: request.message } : {}),
+            push: request.push,
+            remote: request.remote,
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'create-branch':
+        this.git
+          .createBranch({
+            name: request.name,
+            ...(request.commit ? { startPoint: request.commit } : {}),
+            checkout: request.checkout,
+            publish: request.publish,
+            remote: request.remote,
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'checkout-commit':
+        this.git
+          .checkoutRef({
+            ref: request.hash,
+            ...(request.mode === 'branch'
+              ? { newBranch: request.branchName, publish: request.publish, remote: request.remote }
+              : { detach: true }),
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'checkout-branch':
+        if (request.isRemote) {
+          this.git
+            .checkoutRef(
+              request.mode === 'track'
+                ? { ref: request.branch, newBranch: request.branchName, track: true }
+                : { ref: request.branch, detach: true },
+            )
+            .subscribe({ next: done, error: fail });
+        } else {
+          this.git.checkoutRef({ ref: request.branch }).subscribe({ next: done, error: fail });
+        }
+        return;
+      case 'cherry-pick':
+        this.git
+          .cherryPick({
+            commit: request.hash,
+            noCommit: request.noCommit,
+            recordSource: request.recordSource,
+            signoff: request.signoff,
+            ...(request.mainline !== undefined ? { mainline: request.mainline } : {}),
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'revert':
+        this.git
+          .revertCommit({
+            commit: request.hash,
+            noCommit: request.noCommit,
+            signoff: request.signoff,
+            ...(request.mainline !== undefined ? { mainline: request.mainline } : {}),
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'drop-commit':
+        this.git.dropCommit(request.hash).subscribe({ next: done, error: fail });
+        return;
+      case 'merge':
+        this.git
+          .mergeRef({
+            branch: request.source,
+            mode: request.mode,
+            noCommit: request.noCommit,
+            autostash: request.autostash,
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'rebase':
+        this.git
+          .rebaseRef({
+            branch: request.onto,
+            autostash: request.autostash,
+            preserveMerges: request.preserveMerges,
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'reset-commit':
+        this.git.resetToCommit(request.hash, request.mode).subscribe({ next: done, error: fail });
+        return;
+      case 'push-tag':
+        this.git
+          .pushTag({ name: request.name, remote: request.remote, force: request.force })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'delete-tag':
+        this.git
+          .deleteTag({
+            name: request.name,
+            deleteRemote: request.deleteRemote,
+            remote: request.remote,
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'rename-branch':
+        this.git
+          .renameBranch({
+            oldName: request.oldName,
+            newName: request.newName,
+            publish: request.publish,
+            deleteRemoteOld: request.deleteRemoteOld,
+            remote: request.remote,
+          })
+          .subscribe({
+            next: (result) => {
+              // Keep the branch selection on the renamed branch.
+              this.selectedBranches.update((names) =>
+                names.map((selected) =>
+                  selected === request.oldName ? request.newName : selected,
+                ),
+              );
+              done(result);
+            },
+            error: fail,
+          });
+        return;
+      case 'delete-branch':
+        this.git
+          .deleteBranch({
+            name: request.name,
+            force: request.force,
+            deleteRemote: request.deleteRemote,
+            remote: request.remote,
+          })
+          .subscribe({
+            next: (result) => {
+              // Fall back to Show All when the selected branch is gone.
+              this.selectedBranches.update((names) =>
+                names.filter((selected) => selected !== request.name),
+              );
+              done(result);
+            },
+            error: fail,
+          });
+        return;
+      case 'delete-remote-branch':
+        this.git
+          .deleteRemoteBranch(request.remote, request.branch)
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'pull-branch':
+        this.git
+          .pull({ remote: request.remote, branch: request.branch, mode: request.mode })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'stash-save':
+        this.git
+          .stashSave({
+            ...(request.message ? { message: request.message } : {}),
+            scope: request.scope,
+            includeUntracked: request.includeUntracked,
+          })
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'stash-apply':
+        this.git
+          .stashApply(request.index, request.restoreIndex)
+          .subscribe({ next: done, error: fail });
+        return;
+      case 'stash-pop':
+        this.git
+          .stashPop(request.index, request.restoreIndex)
+          .subscribe({ next: done, error: fail });
+        return;
+    }
+  }
+
   protected createWorktree(request: { path: string; branch: string }): void {
     if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
     this.worktreeDialogError.set('');
@@ -1136,34 +1368,34 @@ export class App implements OnDestroy {
 
     switch (action) {
       case 'add-tag':
-        this.promptState.set({
-          title: 'Add Tag',
-          label: 'Tag name',
-          placeholder: 'v1.0.0',
-          okLabel: 'Add Tag',
+        this.openGitOperation({
+          action: 'add-tag',
+          commit: selected ?? undefined,
+          currentBranch: this.currentBranchName(),
         });
         break;
       case 'create-branch':
-        this.promptState.set({
-          title: 'Create Branch',
-          label: 'Branch name',
-          placeholder: 'feature/my-branch',
-          okLabel: 'Create Branch',
+        this.openGitOperation({
+          action: 'create-branch',
+          commit: selected ?? undefined,
+          currentBranch: this.currentBranchName(),
         });
         break;
       case 'checkout-commit':
         if (selected) {
-          this.git.checkout(selected.hash).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+          this.openGitOperation({
+            action: 'checkout-commit',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
       case 'cherry-pick':
         if (selected) {
-          this.git.cherryPick(selected.hash).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+          this.openGitOperation({
+            action: 'cherry-pick',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
@@ -1189,98 +1421,103 @@ export class App implements OnDestroy {
         break;
       case 'revert-commit':
         if (selected) {
-          this.git.revert(selected.hash).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+          this.openGitOperation({
+            action: 'revert',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
       case 'drop-commit':
-        this.promptState.set({
-          title: 'Drop commit?',
-          label: 'This will reset the current branch to the commit before it.',
-          confirmOnly: true,
-          okLabel: 'Drop',
-          danger: true,
-        });
+        if (selected) {
+          this.openGitOperation({
+            action: 'drop-commit',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
+          });
+        }
         break;
       case 'merge-commit':
         if (selected) {
-          this.git.merge(selected.hash).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+          this.openGitOperation({
+            action: 'merge',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
       case 'rebase-commit':
         if (selected) {
-          this.git.rebase(selected.hash).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+          this.openGitOperation({
+            action: 'rebase',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
       case 'reset-commit':
-        this.promptState.set({
-          title: 'Reset current branch to this commit?',
-          label: 'Choose the reset type:',
-          options: [
-            {
-              value: 'soft',
-              label: 'Soft',
-              description: 'Keep all changes staged',
-            },
-            {
-              value: 'mixed',
-              label: 'Mixed',
-              description: 'Keep changes, but unstage them',
-            },
-            {
-              value: 'hard',
-              label: 'Hard',
-              description: 'Discard all changes',
-              danger: true,
-            },
-          ],
-          okLabel: 'Reset',
-          danger: true,
-        });
-        break;
-      case 'checkout-branch':
-        if (this.contextMenuTarget()?.branch?.name) {
-          this.git.checkout(this.contextMenuTarget().branch.name).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+        if (selected) {
+          this.openGitOperation({
+            action: 'reset-commit',
+            commit: selected,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
+      case 'checkout-branch': {
+        const branch = this.contextMenuTarget()?.branch;
+        if (branch) {
+          const isRemote = branch.type === 'remote';
+          const slash = branch.name.indexOf('/');
+          this.openGitOperation({
+            action: 'checkout-branch',
+            ref: branch.name,
+            isRemote,
+            remote: isRemote && slash > 0 ? branch.name.slice(0, slash) : undefined,
+            currentBranch: this.currentBranchName(),
+          });
+        }
+        break;
+      }
       case 'delete-remote-branch': {
         const branchName = this.contextMenuTarget()?.branch?.name ?? '';
         const separator = branchName.indexOf('/');
         if (separator > 0) {
-          this.git
-            .deleteRemoteBranch(branchName.slice(0, separator), branchName.slice(separator + 1))
-            .subscribe({
-              next: () => this.refresh(),
-              error: (err) => this.error.set(this.errorMessage(err)),
-            });
-        }
-        break;
-      }
-      case 'merge-branch':
-        if (this.contextMenuTarget()?.branch?.name) {
-          this.git.merge(this.contextMenuTarget().branch.name).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+          this.openGitOperation({
+            action: 'delete-remote-branch',
+            ref: branchName,
+            isRemote: true,
+            remote: branchName.slice(0, separator),
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
-      case 'pull-branch':
-        this.git.pull().subscribe({
-          next: () => this.refresh(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+      }
+      case 'merge-branch': {
+        const branch = this.contextMenuTarget()?.branch;
+        if (branch) {
+          this.openGitOperation({
+            action: 'merge',
+            ref: branch.name,
+            currentBranch: this.currentBranchName(),
+          });
+        }
         break;
+      }
+      case 'pull-branch': {
+        const branch = this.contextMenuTarget()?.branch;
+        if (branch && branch.type === 'remote') {
+          const slash = branch.name.indexOf('/');
+          this.openGitOperation({
+            action: 'pull-branch',
+            ref: branch.name,
+            isRemote: true,
+            remote: slash > 0 ? branch.name.slice(0, slash) : undefined,
+            currentBranch: this.currentBranchName(),
+          });
+        }
+        break;
+      }
       case 'create-archive': {
         const target = this.contextMenuTarget();
         const ref = target?.kind === 'tag' ? target.branch?.name : target?.commit?.hash;
@@ -1296,22 +1533,19 @@ export class App implements OnDestroy {
         break;
       case 'tag-delete': {
         const name = this.contextMenuTarget()?.branch?.name ?? '';
-        this.promptState.set({
-          title: 'Delete tag?',
-          label: `This will delete the tag "${name}".`,
-          confirmOnly: true,
-          okLabel: 'Delete',
-          danger: true,
+        this.openGitOperation({
+          action: 'delete-tag',
+          ref: name,
+          currentBranch: this.currentBranchName(),
         });
         break;
       }
       case 'tag-push': {
         const name = this.contextMenuTarget()?.branch?.name ?? '';
-        this.promptState.set({
-          title: 'Push tag?',
-          label: `This will push the tag "${name}" to the remote.`,
-          confirmOnly: true,
-          okLabel: 'Push',
+        this.openGitOperation({
+          action: 'push-tag',
+          ref: name,
+          currentBranch: this.currentBranchName(),
         });
         break;
       }
@@ -1324,21 +1558,23 @@ export class App implements OnDestroy {
         this.selectedBranches.set([]);
         break;
       case 'stash-apply': {
-        const index = this.contextMenuTarget()?.stash?.index;
-        if (index !== undefined) {
-          this.git.stashApply(index).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+        const stash = this.contextMenuTarget()?.stash;
+        if (stash) {
+          this.openGitOperation({
+            action: 'stash-apply',
+            stash,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
       }
       case 'stash-pop': {
-        const index = this.contextMenuTarget()?.stash?.index;
-        if (index !== undefined) {
-          this.git.stashPop(index).subscribe({
-            next: () => this.refresh(),
-            error: (err) => this.error.set(this.errorMessage(err)),
+        const stash = this.contextMenuTarget()?.stash;
+        if (stash) {
+          this.openGitOperation({
+            action: 'stash-pop',
+            stash,
+            currentBranch: this.currentBranchName(),
           });
         }
         break;
@@ -1403,24 +1639,24 @@ export class App implements OnDestroy {
           void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
         }
         break;
-      case 'rename-branch':
-        this.promptState.set({
-          title: 'Rename branch',
-          label: 'New branch name',
-          placeholder: 'feature/my-branch',
-          value: this.contextMenuTarget()?.branch?.name,
-          okLabel: 'Rename',
+      case 'rename-branch': {
+        const name = this.contextMenuTarget()?.branch?.name ?? '';
+        this.openGitOperation({
+          action: 'rename-branch',
+          ref: name,
+          currentBranch: this.currentBranchName(),
         });
         break;
-      case 'delete-branch':
-        this.promptState.set({
-          title: 'Delete branch?',
-          label: 'This will delete the local branch.',
-          confirmOnly: true,
-          okLabel: 'Delete',
-          danger: true,
+      }
+      case 'delete-branch': {
+        const name = this.contextMenuTarget()?.branch?.name ?? '';
+        this.openGitOperation({
+          action: 'delete-branch',
+          ref: name,
+          currentBranch: this.currentBranchName(),
         });
         break;
+      }
       case 'open-working':
         this.selectedCommit.set({
           hash: WORKING_HASH,
@@ -1434,32 +1670,34 @@ export class App implements OnDestroy {
         });
         break;
       case 'stash-working':
-        this.promptState.set({
-          title: 'Stash uncommitted changes',
-          label: 'Stash message (optional)',
-          placeholder: 'WIP',
-          allowEmpty: true,
-          okLabel: 'Stash',
+        this.openGitOperation({
+          action: 'stash-save',
+          currentBranch: this.currentBranchName(),
         });
         break;
-      case 'reset-working':
+      case 'reset-working': {
+        const changes = this.workingChanges();
+        const tracked = (changes?.staged.length ?? 0) + (changes?.unstaged.length ?? 0);
         this.promptState.set({
           title: 'Reset uncommitted changes?',
-          label: 'Tracked changes will be discarded. Untracked files will remain.',
+          label: `${tracked === 1 ? '1 tracked file will be' : `${tracked} tracked files will be`} discarded. Untracked files will remain. This cannot be undone.`,
           confirmOnly: true,
           okLabel: 'Reset',
           danger: true,
         });
         break;
-      case 'clean-untracked':
+      }
+      case 'clean-untracked': {
+        const untracked = this.workingChanges()?.untracked.length ?? 0;
         this.promptState.set({
           title: 'Clean untracked files?',
-          label: 'Untracked files will be permanently deleted.',
+          label: `${untracked === 1 ? '1 untracked file will be' : `${untracked} untracked files will be`} permanently deleted. This cannot be undone.`,
           confirmOnly: true,
           okLabel: 'Clean',
           danger: true,
         });
         break;
+      }
       case 'discard-working':
         this.git.getWorkingChanges().subscribe({
           next: (changes) => {
@@ -1502,50 +1740,6 @@ export class App implements OnDestroy {
 
     const commit = this.contextMenuTarget()?.commit;
 
-    if (state.title === 'Add Tag' && commit) {
-      this.git.createTag(value, commit.hash).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
-      return;
-    }
-
-    if (state.title === 'Create Branch' && commit) {
-      this.git.createBranch(value, commit.hash).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
-      return;
-    }
-
-    if (state.title === 'Drop commit?' && commit) {
-      this.git.dropCommit(commit.hash).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
-      return;
-    }
-
-    if (state.title === 'Reset current branch to this commit?' && commit) {
-      const mode = value === 'soft' || value === 'mixed' ? value : 'hard';
-      this.git.resetToCommit(commit.hash, mode).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
-      return;
-    }
-
-    if (state.title === 'Delete tag?') {
-      const name = this.contextMenuTarget()?.branch?.name;
-      if (name) {
-        this.git.deleteTag(name).subscribe({
-          next: () => this.refresh(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
-      }
-      return;
-    }
-
     if (state.title === 'Delete worktree?') {
       const worktree = this.contextMenuTarget()?.worktree;
       if (worktree && !worktree.current && !worktree.bare) {
@@ -1560,7 +1754,7 @@ export class App implements OnDestroy {
     if (state.title === 'Push tag?') {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
-        this.git.pushTag(name).subscribe({
+        this.git.pushTag({ name }).subscribe({
           next: () => this.refresh(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });
@@ -1589,10 +1783,12 @@ export class App implements OnDestroy {
     }
 
     if (state.title === 'Stash uncommitted changes') {
-      this.git.stashSave(value || undefined).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
+      this.git
+        .stashSave(value ? { message: value } : {})
+        .subscribe({
+          next: () => this.refresh(),
+          error: (err) => this.error.set(this.errorMessage(err)),
+        });
       return;
     }
 
@@ -1616,7 +1812,7 @@ export class App implements OnDestroy {
       const name = this.contextMenuTarget()?.branch?.name;
       const newName = value.trim();
       if (name && newName && newName !== name) {
-        this.git.renameBranch(name, newName).subscribe({
+        this.git.renameBranch({ oldName: name, newName }).subscribe({
           next: () => {
             // Keep the branch selection on the renamed branch.
             this.selectedBranches.update((names) =>
@@ -1633,7 +1829,7 @@ export class App implements OnDestroy {
     if (state.title === 'Delete branch?') {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
-        this.git.deleteBranch(name).subscribe({
+        this.git.deleteBranch({ name }).subscribe({
           next: () => {
             // Fall back to Show All when the selected branch is gone.
             this.selectedBranches.update((names) => names.filter((selected) => selected !== name));
@@ -1659,7 +1855,7 @@ export class App implements OnDestroy {
     if (state.title === 'Rebase from branch') {
       const branch = value.trim();
       if (branch) {
-        this.git.rebase(branch).subscribe({
+        this.git.rebaseRef({ branch }).subscribe({
           next: () => this.refresh(),
           error: (err) => this.error.set(this.errorMessage(err)),
         });

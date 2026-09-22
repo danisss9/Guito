@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -290,7 +291,9 @@ test('omits commit bodies from the list and serves them on demand', async (conte
   ).json();
   assert.deepEqual(insensitiveSearch.hashes, [listed.hash]);
   const accentInsensitiveSearch = await (
-    await fetch(`${server.address}/api/commits/search?query=${encodeURIComponent('resume attached')}`)
+    await fetch(
+      `${server.address}/api/commits/search?query=${encodeURIComponent('resume attached')}`,
+    )
   ).json();
   assert.deepEqual(accentInsensitiveSearch.hashes, [listed.hash]);
   const sensitiveMiss = await (
@@ -691,6 +694,652 @@ test('deletes and pushes tags through the API', async (context) => {
   });
   assert.equal(missing.status, 400);
   assert.ok((await missing.json()).error);
+});
+
+/** Creates a repository with a bare remote named origin and one pushed commit. */
+async function createRepositoryWithRemote() {
+  const repositoryPath = await createRepository();
+  const remotePath = await mkdtemp(join(tmpdir(), 'guito-remote-'));
+  execFileSync('git', ['init', '--bare'], { cwd: remotePath, stdio: 'ignore' });
+  execFileSync('git', ['remote', 'add', 'origin', remotePath], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['push', '-u', 'origin', 'HEAD'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  return { repositoryPath, remotePath };
+}
+
+const post = (server, path, body) =>
+  fetch(`${server.address}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+test('creates annotated tags and warns when pushing fails', async (context) => {
+  const { repositoryPath, remotePath } = await createRepositoryWithRemote();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  context.after(() => rm(remotePath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  // An annotated tag carries a message and is peeled by the listing.
+  const created = await post(server, '/api/tag/create', {
+    name: 'v9.0.0',
+    annotate: true,
+    message: 'Release notes',
+  });
+  assert.equal(created.status, 200);
+  const raw = execFileSync('git', ['tag', '--list', '--format=%(objecttype)'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  assert.equal(raw, 'tag');
+
+  // An annotated tag without a message is rejected.
+  const rejected = await post(server, '/api/tag/create', {
+    name: 'v9.0.1',
+    annotate: true,
+  });
+  assert.equal(rejected.status, 400);
+  assert.match((await rejected.json()).error, /requires a message/i);
+
+  // A push to an unconfigured remote fails before anything is created.
+  const failing = await post(server, '/api/tag/create', {
+    name: 'v9.0.2',
+    push: true,
+    remote: 'no-such-remote',
+  });
+  assert.equal(failing.status, 400);
+  assert.match((await failing.json()).error, /not configured/);
+  assert.ok(
+    !execFileSync('git', ['tag', '--list'], { cwd: repositoryPath }).toString().includes('v9.0.2'),
+  );
+
+  // Creating a tag with push uploads it to the remote.
+  const pushed = await post(server, '/api/tag/create', {
+    name: 'v9.0.3',
+    push: true,
+  });
+  assert.equal(pushed.status, 200);
+  const remoteTags = () =>
+    execFileSync('git', ['--git-dir', remotePath, 'tag', '--list'], {
+      cwd: remotePath,
+    })
+      .toString()
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+  assert.deepEqual(remoteTags(), ['v9.0.3']);
+
+  // Pushing the annotated tag uploads it too.
+  const pushedAnnotated = await post(server, '/api/tag/push', { name: 'v9.0.0' });
+  assert.equal(pushedAnnotated.status, 200);
+  assert.deepEqual(remoteTags(), ['v9.0.0', 'v9.0.3']);
+
+  // A push rejected by the remote keeps the local tag and returns a warning.
+  // Origin's v9.9.9 already points at another object, so the push fails.
+  const clonePath = await mkdtemp(join(tmpdir(), 'guito-tag-clone-'));
+  context.after(() => rm(clonePath, { recursive: true, force: true }));
+  execFileSync('git', ['clone', remotePath, clonePath], { stdio: 'ignore' });
+  const cloneFile = join(clonePath, 'other.txt');
+  await writeFile(cloneFile, 'other\n');
+  execFileSync('git', ['add', 'other.txt'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'Other work'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['tag', 'v9.9.9'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['push', 'origin', 'v9.9.9'], { cwd: clonePath, stdio: 'ignore' });
+
+  // Creating a tag whose push is rejected keeps the local tag and warns.
+  const warned = await post(server, '/api/tag/create', {
+    name: 'v9.9.9',
+    push: true,
+  });
+  assert.equal(warned.status, 200);
+  const warningBody = await warned.json();
+  assert.ok(warningBody.warnings?.length, 'expected a warning about the failed push');
+  assert.match(warningBody.warnings[0], /could not be pushed/);
+  assert.ok(
+    execFileSync('git', ['tag', '--list'], { cwd: repositoryPath }).toString().includes('v9.9.9'),
+    'the local tag should be kept',
+  );
+
+  // Tag deletion can also delete on the remote.
+  const removed = await post(server, '/api/tag/delete', {
+    name: 'v9.9.9',
+    deleteRemote: true,
+  });
+  assert.equal(removed.status, 200);
+  assert.deepEqual((await removed.json()).warnings ?? [], []);
+
+  // Tag deletion can also delete on the remote.
+  const deleted = await post(server, '/api/tag/delete', {
+    name: 'v9.0.0',
+    deleteRemote: true,
+  });
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(
+    execFileSync('git', ['tag', '--list'], { cwd: repositoryPath })
+      .toString()
+      .trim()
+      .split('\n')
+      .filter(Boolean),
+    ['v9.0.3'],
+  );
+  assert.deepEqual(remoteTags(), ['v9.0.3']);
+});
+
+test('creates, checks out, publishes and deletes branches with options', async (context) => {
+  const { repositoryPath, remotePath } = await createRepositoryWithRemote();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  context.after(() => rm(remotePath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const branch = () =>
+    execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repositoryPath })
+      .toString()
+      .trim();
+  const initialBranch = branch();
+  const remoteBranches = () =>
+    execFileSync(
+      'git',
+      ['--git-dir', remotePath, 'branch', '--list', '--format=%(refname:short)'],
+      {
+        cwd: remotePath,
+      },
+    )
+      .toString()
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+
+  // Create without options leaves the current branch checked out.
+  const created = await post(server, '/api/branch/create', { name: 'feature/one' });
+  assert.equal(created.status, 200);
+  assert.equal(branch(), initialBranch);
+
+  // Create + checkout + publish sets upstream and switches.
+  const published = await post(server, '/api/branch/create', {
+    name: 'feature/published',
+    checkout: true,
+    publish: true,
+  });
+  assert.equal(published.status, 200);
+  assert.equal(branch(), 'feature/published');
+  assert.ok(remoteBranches().includes('feature/published'));
+  const upstream = execFileSync('git', ['rev-parse', '--abbrev-ref', '@{upstream}'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  assert.equal(upstream, 'origin/feature/published');
+
+  // Checkout with a detached HEAD and no branch.
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath })
+    .toString()
+    .trim();
+  const detached = await post(server, '/api/checkout', { ref: head, detach: true });
+  assert.equal(detached.status, 200);
+  assert.equal(branch(), 'HEAD');
+
+  // Back on the branch; renaming can publish and delete the old remote ref.
+  await post(server, '/api/checkout', { ref: initialBranch });
+  execFileSync('git', ['branch', '-f', 'old-name', initialBranch], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['push', 'origin', 'old-name'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  const renamed = await post(server, '/api/branch/rename', {
+    oldName: 'old-name',
+    newName: 'new-name',
+    publish: true,
+    deleteRemoteOld: true,
+  });
+  assert.equal(renamed.status, 200);
+  assert.ok(remoteBranches().includes('new-name'));
+  assert.ok(!remoteBranches().includes('old-name'));
+
+  // Delete refuses unmerged branches in safe mode.
+  execFileSync('git', ['branch', 'unmerged'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['checkout', 'unmerged'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'Unmerged work'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['checkout', initialBranch], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  const safe = await post(server, '/api/branch/delete', { name: 'unmerged' });
+  assert.equal(safe.status, 400);
+
+  // Force delete removes it.
+  const forced = await post(server, '/api/branch/delete', { name: 'unmerged', force: true });
+  assert.equal(forced.status, 200);
+  const branches = execFileSync('git', ['branch', '--list', '--format=%(refname:short)'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim()
+    .split('\n');
+  assert.ok(!branches.includes('unmerged'));
+
+  // Delete with deleteRemote also removes the remote ref.
+  const deleteRemote = await post(server, '/api/branch/delete', {
+    name: 'new-name',
+    deleteRemote: true,
+  });
+  assert.equal(deleteRemote.status, 200);
+  assert.ok(!remoteBranches().includes('new-name'));
+
+  // Remote branch deletion goes through the dedicated endpoint.
+  await post(server, '/api/branch/create', { name: 'to-remove', publish: true });
+  const removedRemote = await post(server, '/api/branch/delete-remote', {
+    remote: 'origin',
+    branch: 'to-remove',
+  });
+  assert.equal(removedRemote.status, 200);
+  assert.ok(!remoteBranches().includes('to-remove'));
+});
+
+test('cherry-picks and reverts with option flags and mainline parents', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const git_ = (args) => execFileSync('git', args, { cwd: repositoryPath, stdio: 'ignore' });
+  const head = () =>
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath }).toString().trim();
+  const subjects = () =>
+    execFileSync('git', ['log', '--format=%B'], { cwd: repositoryPath }).toString().trim();
+  const initialBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+
+  // A target commit with a real file lives on a topic branch.
+  git_(['checkout', '-b', 'topic']);
+  const fileA = join(repositoryPath, 'file-a.txt');
+  await writeFile(fileA, 'target\n');
+  git_(['add', 'file-a.txt']);
+  git_(['commit', '-m', 'Target commit']);
+  const target = head();
+
+  // The main branch diverges so the target is not an ancestor.
+  git_(['checkout', initialBranch]);
+  const fileC = join(repositoryPath, 'file-c.txt');
+  await writeFile(fileC, 'other\n');
+  git_(['add', 'file-c.txt']);
+  git_(['commit', '-m', 'Other work']);
+
+  // cherry-pick -x appends the source hash to the new commit.
+  const picked = await post(server, '/api/cherry-pick', {
+    commit: target,
+    recordSource: true,
+  });
+  assert.equal(picked.status, 200);
+  assert.ok(subjects().includes(`cherry picked from commit ${target}`));
+  assert.ok(existsSync(fileA));
+
+  // Revert with --no-commit stages the inverse without committing.
+  const reverted = await post(server, '/api/revert', { commit: target, noCommit: true });
+  assert.equal(reverted.status, 200);
+  const lastSubject = execFileSync('git', ['log', '-1', '--format=%s'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  // HEAD is the cherry-picked copy, which keeps the original subject.
+  assert.equal(lastSubject, 'Target commit');
+  const staged = execFileSync('git', ['diff', '--cached', '--name-status'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  assert.match(staged, /^D\s+file-a\.txt$/);
+  git_(['reset', '--hard', 'HEAD']);
+
+  // A merge commit requires a mainline parent for both operations.
+  git_(['checkout', '-b', 'side', 'HEAD~1']);
+  const fileB = join(repositoryPath, 'file-b.txt');
+  await writeFile(fileB, 'side\n');
+  git_(['add', 'file-b.txt']);
+  git_(['commit', '-m', 'Side commit']);
+  git_(['checkout', initialBranch]);
+  git_(['merge', '-m', 'Merge side', 'side']);
+  const merge = head();
+
+  const pickMerge = await post(server, '/api/cherry-pick', { commit: merge });
+  assert.equal(pickMerge.status, 400);
+  assert.match((await pickMerge.json()).error, /mainline parent/i);
+
+  const revertMerge = await post(server, '/api/revert', { commit: merge });
+  assert.equal(revertMerge.status, 400);
+  assert.match((await revertMerge.json()).error, /mainline parent/i);
+});
+
+test('drops only the selected commit and rejects ineligible ones', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const git_ = (args) => execFileSync('git', args, { cwd: repositoryPath, stdio: 'ignore' });
+  const head = () =>
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath }).toString().trim();
+  const initialBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  const subjects = () =>
+    execFileSync('git', ['log', '--format=%s'], { cwd: repositoryPath })
+      .toString()
+      .trim()
+      .split('\n');
+  const root = execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+
+  git_(['commit', '--allow-empty', '-m', 'First']);
+  const first = head();
+  git_(['commit', '--allow-empty', '-m', 'Second']);
+  const second = head();
+  git_(['commit', '--allow-empty', '-m', 'Third']);
+  const third = head();
+
+  // Dropping the middle commit keeps its descendants.
+  const dropped = await post(server, '/api/commit/drop', { commit: second });
+  assert.equal(dropped.status, 200);
+  assert.deepEqual(subjects(), ['Third', 'First', 'Initial commit']);
+  // The surviving descendant was replayed (new hash).
+  const newThird = head();
+  assert.notEqual(newThird, third);
+
+  // The root commit cannot be dropped.
+  const rootDrop = await post(server, '/api/commit/drop', { commit: root });
+  assert.equal(rootDrop.status, 400);
+  assert.match((await rootDrop.json()).error, /root/i);
+
+  // A merge commit cannot be dropped.
+  git_(['checkout', '-b', 'merge-side', 'HEAD~1']);
+  git_(['commit', '--allow-empty', '-m', 'Merge side']);
+  git_(['checkout', initialBranch]);
+  git_(['merge', '-m', 'Merge merge-side', 'merge-side']);
+  const mergeCommit = head();
+  const mergeDrop = await post(server, '/api/commit/drop', { commit: mergeCommit });
+  assert.equal(mergeDrop.status, 400);
+  assert.match((await mergeDrop.json()).error, /merge commits/i);
+  git_(['reset', '--hard', 'HEAD~1']);
+
+  // A detached HEAD blocks the drop.
+  git_(['checkout', '--detach', 'HEAD']);
+  const detached = await post(server, '/api/commit/drop', { commit: head() });
+  assert.equal(detached.status, 400);
+  assert.match((await detached.json()).error, /detached/i);
+  git_(['checkout', initialBranch]);
+
+  // An unreachable commit cannot be dropped.
+  git_(['checkout', '--detach', 'HEAD']);
+  git_(['branch', 'orphan', 'HEAD']);
+  git_(['checkout', 'orphan']);
+  git_(['commit', '--allow-empty', '-m', 'Orphan side']);
+  const side = head();
+  git_(['checkout', initialBranch]);
+  git_(['branch', '-D', 'orphan']);
+  const unreachable = await post(server, '/api/commit/drop', { commit: side });
+  assert.equal(unreachable.status, 400);
+  assert.match((await unreachable.json()).error, /reachable/i);
+
+  // A dirty working tree blocks the drop (untracked files do not).
+  const untracked = join(repositoryPath, 'untracked.txt');
+  await writeFile(untracked, 'untracked\n');
+  const untrackedOk = await post(server, '/api/commit/drop', { commit: first });
+  assert.equal(untrackedOk.status, 200);
+  const tracked = join(repositoryPath, 'tracked.txt');
+  await writeFile(tracked, 'tracked\n');
+  git_(['add', 'tracked.txt']);
+  git_(['commit', '-m', 'Add tracked']);
+  await writeFile(tracked, 'dirty\n');
+  const dirty = await post(server, '/api/commit/drop', { commit: head() });
+  assert.equal(dirty.status, 400);
+  assert.match((await dirty.json()).error, /uncommitted changes/i);
+});
+
+test('merges, rebases and pulls with mode options', async (context) => {
+  const { repositoryPath, remotePath } = await createRepositoryWithRemote();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  context.after(() => rm(remotePath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const git_ = (args, cwd = repositoryPath) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+  const head = () =>
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryPath }).toString().trim();
+  const subjects = () =>
+    execFileSync('git', ['log', '--format=%s'], { cwd: repositoryPath })
+      .toString()
+      .trim()
+      .split('\n');
+  const status = () =>
+    execFileSync('git', ['status', '--porcelain'], { cwd: repositoryPath }).toString().trim();
+  const initialBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+
+  // A side branch with a real file change.
+  git_(['checkout', '-b', 'side']);
+  const fileB = join(repositoryPath, 'file-b.txt');
+  await writeFile(fileB, 'side\n');
+  git_(['add', 'file-b.txt']);
+  git_(['commit', '-m', 'Side change']);
+  git_(['checkout', initialBranch]);
+
+  // Squash merge stages the changes without a merge commit.
+  const squashed = await post(server, '/api/merge', {
+    branch: 'side',
+    mode: 'squash',
+  });
+  assert.equal(squashed.status, 200);
+  const stagedAfterSquash = execFileSync('git', ['diff', '--cached', '--name-only'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  assert.equal(stagedAfterSquash, 'file-b.txt');
+  assert.ok(!subjects().includes('Side change'));
+  git_(['commit', '-m', 'Squashed side']);
+
+  // A no-ff merge creates a merge commit.
+  git_(['checkout', '-b', 'side2']);
+  const fileC = join(repositoryPath, 'file-c.txt');
+  await writeFile(fileC, 'side2\n');
+  git_(['add', 'file-c.txt']);
+  git_(['commit', '-m', 'Side2 change']);
+  git_(['checkout', initialBranch]);
+  const merged = await post(server, '/api/merge', { branch: 'side2', mode: 'no-ff' });
+  assert.equal(merged.status, 200);
+  const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim()
+    .split(/\s+/);
+  assert.equal(parents.length, 3);
+
+  // Rebase with --autostash stashes and restores uncommitted changes.
+  git_(['branch', 'rebase-target', 'HEAD~2']);
+  git_(['checkout', '-b', 'rb']);
+  const fileD = join(repositoryPath, 'file-d.txt');
+  await writeFile(fileD, 'local\n');
+  git_(['add', 'file-d.txt']);
+  git_(['commit', '-m', 'Local change']);
+  await writeFile(fileD, 'local\ndirty\n');
+  const rebased = await post(server, '/api/rebase', {
+    branch: 'rebase-target',
+    autostash: true,
+  });
+  assert.equal(rebased.status, 200);
+  assert.ok(status().includes('file-d.txt'), 'autostash should restore the modification');
+  const rbSubjects = execFileSync('git', ['log', '--format=%s', 'rb'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim()
+    .split('\n');
+  assert.ok(rbSubjects.includes('Local change'));
+  git_(['reset', '--hard', 'HEAD']);
+  git_(['checkout', initialBranch]);
+
+  // A commit lands on the remote; a selected-branch pull fast-forwards to it.
+  const clonePath = await mkdtemp(join(tmpdir(), 'guito-clone-'));
+  context.after(() => rm(clonePath, { recursive: true, force: true }));
+  git_(['clone', remotePath, clonePath]);
+  const remoteFile = join(clonePath, 'remote.txt');
+  await writeFile(remoteFile, 'remote\n');
+  git_(['add', 'remote.txt'], clonePath);
+  git_(['commit', '-m', 'Remote change'], clonePath);
+  git_(['push', 'origin', 'HEAD'], clonePath);
+
+  git_(['fetch', 'origin']);
+  // Return to the originally pushed commit so the branch is strictly behind
+  // the remote and the fast-forward pull has something to update.
+  git_(['reset', '--hard', `origin/${initialBranch}~1`]);
+  const before = head();
+  const pulled = await post(server, '/api/pull', {
+    remote: 'origin',
+    branch: initialBranch,
+    mode: 'ff-only',
+  });
+  assert.equal(pulled.status, 200);
+  assert.notEqual(head(), before);
+  assert.equal(
+    execFileSync('git', ['log', '-1', '--format=%s'], { cwd: repositoryPath }).toString().trim(),
+    'Remote change',
+  );
+
+  // An up-to-date pull with the same options succeeds without changes.
+  const upToDate = await post(server, '/api/pull', {
+    remote: 'origin',
+    branch: initialBranch,
+    mode: 'merge',
+  });
+  assert.equal(upToDate.status, 200);
+});
+
+test('stashes save, apply and pop with index restoration', async (context) => {
+  const repositoryPath = await createRepository();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const file = join(repositoryPath, 'file.txt');
+  const status = () =>
+    execFileSync('git', ['status', '--porcelain'], { cwd: repositoryPath }).toString().trim();
+
+  // Staged + unstaged state.
+  await writeFile(file, 'staged\n');
+  execFileSync('git', ['add', 'file.txt'], { cwd: repositoryPath, stdio: 'ignore' });
+  await writeFile(file, 'staged\nunstaged\n');
+
+  // Stash without untracked files.
+  const saved = await post(server, '/api/stash/save', {
+    message: 'my stash',
+    scope: 'all',
+    includeUntracked: false,
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(status(), '');
+
+  // Apply with --index restores the staged state; the stash entry remains.
+  const applied = await post(server, '/api/stash/apply', { index: 0, restoreIndex: true });
+  assert.equal(applied.status, 200);
+  assert.equal(status(), 'AM file.txt');
+
+  // Dropping the stash keeps the applied changes in the tree.
+  await post(server, '/api/stash/drop', { index: 0 });
+  assert.equal(status(), 'AM file.txt');
+
+  // Reset the tree, re-stash and pop with --index.
+  execFileSync('git', ['reset', '--hard', 'HEAD'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['clean', '-fd'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  assert.equal(status(), '');
+  await writeFile(file, 'staged\n');
+  execFileSync('git', ['add', 'file.txt'], { cwd: repositoryPath, stdio: 'ignore' });
+  await writeFile(file, 'staged\nunstaged\n');
+  await post(server, '/api/stash/save', { scope: 'all', includeUntracked: false });
+  const popped = await post(server, '/api/stash/pop', { index: 0, restoreIndex: true });
+  assert.equal(popped.status, 200);
+  assert.equal(status(), 'AM file.txt');
+  const stashList = execFileSync('git', ['stash', 'list'], { cwd: repositoryPath })
+    .toString()
+    .trim();
+  assert.equal(stashList, '');
+
+  // An out-of-range stash index is rejected.
+  const missing = await post(server, '/api/stash/apply', { index: 5, restoreIndex: false });
+  assert.equal(missing.status, 400);
 });
 
 test('parses Azure DevOps remote URLs', () => {

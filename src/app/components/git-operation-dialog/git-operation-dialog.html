@@ -1,0 +1,679 @@
+<div class="backdrop" (click)="!busy() && closed.emit()"></div>
+<form
+  class="dialog"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="git-op-title"
+  (submit)="$event.preventDefault(); submit()"
+>
+  <h3 id="git-op-title" class="title">{{ title() }}</h3>
+
+  <div class="target">
+    <span class="target-kind">{{ targetKind() }}</span>
+    <span class="target-value" [title]="targetSummary()">{{ targetSummary() }}</span>
+  </div>
+  @if (contextLine()) {
+    <p class="context">{{ contextLine() }}</p>
+  }
+
+  <ng-template #remoteSelect>
+    <label class="field-label" for="git-op-remote">Remote</label>
+    <select
+      id="git-op-remote"
+      class="input select"
+      [disabled]="busy() || !hasRemotes()"
+      (change)="onRemote($event)"
+    >
+      @for (item of remotes(); track item.name) {
+        <option [value]="item.name" [selected]="item.name === remote()">{{ item.name }}</option>
+      }
+    </select>
+    @if (noRemotes()) {
+      <p class="notice">No remotes configured</p>
+    }
+  </ng-template>
+
+  @switch (action()) {
+    @case ('add-tag') {
+      <label class="field-label" for="git-op-tag-name">Tag name</label>
+      <input
+        #focusEl
+        id="git-op-tag-name"
+        class="input"
+        type="text"
+        autocomplete="off"
+        placeholder="v1.0.0"
+        [value]="tagName()"
+        [disabled]="busy()"
+        (input)="setText($event, tagName)"
+      />
+      <label class="checkbox-row">
+        <input
+          id="git-op-tag-annotated"
+          type="checkbox"
+          [checked]="tagAnnotated()"
+          [disabled]="busy()"
+          (change)="tagAnnotated.set(check($event))"
+        />
+        <span>Annotate tag</span>
+      </label>
+      @if (tagAnnotated()) {
+        <label class="field-label" for="git-op-tag-message">Message</label>
+        <textarea
+          id="git-op-tag-message"
+          class="input"
+          rows="3"
+          placeholder="Release notes"
+          [value]="tagMessage()"
+          [disabled]="busy()"
+          (input)="setText($event, tagMessage)"
+        ></textarea>
+      }
+      <label class="checkbox-row">
+        <input
+          id="git-op-tag-push"
+          type="checkbox"
+          [checked]="pushAfter()"
+          [disabled]="busy() || noRemotes()"
+          (change)="pushAfter.set(check($event))"
+        />
+        <span>Push tag after creation</span>
+      </label>
+      @if (pushAfter()) {
+        <ng-container *ngTemplateOutlet="remoteSelect" />
+      }
+    }
+    @case ('create-branch') {
+      <label class="field-label" for="git-op-branch-name">Branch name</label>
+      <input
+        #focusEl
+        id="git-op-branch-name"
+        class="input"
+        type="text"
+        autocomplete="off"
+        placeholder="feature/my-branch"
+        [value]="branchName()"
+        [disabled]="busy()"
+        (input)="setText($event, branchName)"
+      />
+      <label class="checkbox-row">
+        <input
+          id="git-op-branch-checkout"
+          type="checkbox"
+          [checked]="checkoutAfter()"
+          [disabled]="busy()"
+          (change)="checkoutAfter.set(check($event))"
+        />
+        <span>Check out after creation</span>
+      </label>
+      <label class="checkbox-row">
+        <input
+          id="git-op-branch-publish"
+          type="checkbox"
+          [checked]="publishBranch()"
+          [disabled]="busy() || noRemotes()"
+          (change)="publishBranch.set(check($event))"
+        />
+        <span>Publish and set upstream</span>
+      </label>
+      @if (publishBranch()) {
+        <ng-container *ngTemplateOutlet="remoteSelect" />
+      }
+    }
+    @case ('checkout-commit') {
+      <div class="choices" role="radiogroup" aria-label="Checkout mode">
+        <button
+          #focusEl
+          type="button"
+          class="choice"
+          role="radio"
+          [attr.aria-checked]="checkoutMode() === 'detach'"
+          [class.selected]="checkoutMode() === 'detach'"
+          [disabled]="busy()"
+          (click)="checkoutMode.set('detach')"
+        >
+          <span class="option-radio" aria-hidden="true"></span>
+          <span class="option-text">
+            <span class="option-label">Detached HEAD</span>
+            <span class="option-description">
+              Check out the commit without a branch. New commits will not belong to any branch.
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="choice"
+          role="radio"
+          [attr.aria-checked]="checkoutMode() === 'branch'"
+          [class.selected]="checkoutMode() === 'branch'"
+          [disabled]="busy()"
+          (click)="checkoutMode.set('branch')"
+        >
+          <span class="option-radio" aria-hidden="true"></span>
+          <span class="option-text">
+            <span class="option-label">New branch</span>
+            <span class="option-description">Create and check out a branch at this commit.</span>
+          </span>
+        </button>
+      </div>
+      @if (checkoutMode() === 'branch') {
+        <label class="field-label" for="git-op-checkout-name">Branch name</label>
+        <input
+          id="git-op-checkout-name"
+          class="input"
+          type="text"
+          autocomplete="off"
+          placeholder="feature/my-branch"
+          [value]="remoteBranchName()"
+          [disabled]="busy()"
+          (input)="setText($event, remoteBranchName)"
+        />
+        <label class="checkbox-row">
+          <input
+            id="git-op-checkout-publish"
+            type="checkbox"
+            [checked]="publishBranch()"
+            [disabled]="busy() || noRemotes()"
+            (change)="publishBranch.set(check($event))"
+          />
+          <span>Publish and set upstream</span>
+        </label>
+        @if (publishBranch()) {
+          <ng-container *ngTemplateOutlet="remoteSelect" />
+        }
+      }
+    }
+    @case ('checkout-branch') {
+      @if (state().isRemote) {
+        <div class="choices" role="radiogroup" aria-label="Checkout mode">
+          <button
+            #focusEl
+            type="button"
+            class="choice"
+            role="radio"
+            [attr.aria-checked]="remoteCheckoutMode() === 'track'"
+            [class.selected]="remoteCheckoutMode() === 'track'"
+            [disabled]="busy()"
+            (click)="remoteCheckoutMode.set('track')"
+          >
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-text">
+              <span class="option-label">Create local tracking branch</span>
+              <span class="option-description">
+                Creates a local branch that tracks {{ state().ref }}.
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="choice"
+            role="radio"
+            [attr.aria-checked]="remoteCheckoutMode() === 'detach'"
+            [class.selected]="remoteCheckoutMode() === 'detach'"
+            [disabled]="busy()"
+            (click)="remoteCheckoutMode.set('detach')"
+          >
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-text">
+              <span class="option-label">Detached checkout</span>
+              <span class="option-description">
+                Check out the commit without creating a branch.
+              </span>
+            </span>
+          </button>
+        </div>
+        @if (remoteCheckoutMode() === 'track') {
+          <label class="field-label" for="git-op-checkout-name">Local branch name</label>
+          <input
+            id="git-op-checkout-name"
+            class="input"
+            type="text"
+            autocomplete="off"
+            [value]="remoteBranchName()"
+            [disabled]="busy()"
+            (input)="setText($event, remoteBranchName)"
+          />
+        }
+      }
+    }
+    @case ('cherry-pick') {
+      <label class="checkbox-row">
+        <input
+          #focusEl
+          id="git-op-nocommit"
+          type="checkbox"
+          [checked]="noCommit()"
+          [disabled]="busy()"
+          (change)="noCommit.set(check($event))"
+        />
+        <span>No commit — stage the picked changes only</span>
+      </label>
+      <label class="checkbox-row">
+        <input
+          id="git-op-record-source"
+          type="checkbox"
+          [checked]="recordSource()"
+          [disabled]="busy()"
+          (change)="recordSource.set(check($event))"
+        />
+        <span>Append source commit hash to the message</span>
+      </label>
+      <label class="checkbox-row">
+        <input
+          id="git-op-signoff"
+          type="checkbox"
+          [checked]="signoff()"
+          [disabled]="busy()"
+          (change)="signoff.set(check($event))"
+        />
+        <span>Sign off</span>
+      </label>
+      @if (isMerge()) {
+        <p class="notice">This commit is a merge commit. Choose the parent to pick the changes from:</p>
+        <div class="choices" role="radiogroup" aria-label="Mainline parent">
+          @for (choice of mainlineChoices(); track choice.value) {
+            <button
+              type="button"
+              class="choice"
+              role="radio"
+              [attr.aria-checked]="mainline() === +choice.value"
+              [class.selected]="mainline() === +choice.value"
+              [disabled]="busy()"
+              (click)="mainline.set(+choice.value)"
+            >
+              <span class="option-radio" aria-hidden="true"></span>
+              <span class="option-text">
+                <span class="option-label">{{ choice.label }}</span>
+                @if (choice.description) {
+                  <span class="option-description">{{ choice.description }}</span>
+                }
+              </span>
+            </button>
+          }
+        </div>
+      }
+    }
+    @case ('revert') {
+      <label class="checkbox-row">
+        <input
+          #focusEl
+          id="git-op-nocommit"
+          type="checkbox"
+          [checked]="noCommit()"
+          [disabled]="busy()"
+          (change)="noCommit.set(check($event))"
+        />
+        <span>No commit — stage the reverted changes only</span>
+      </label>
+      <label class="checkbox-row">
+        <input
+          id="git-op-signoff"
+          type="checkbox"
+          [checked]="signoff()"
+          [disabled]="busy()"
+          (change)="signoff.set(check($event))"
+        />
+        <span>Sign off</span>
+      </label>
+      @if (isMerge()) {
+        <p class="notice">This commit is a merge commit. Choose the parent to revert changes against:</p>
+        <div class="choices" role="radiogroup" aria-label="Mainline parent">
+          @for (choice of mainlineChoices(); track choice.value) {
+            <button
+              type="button"
+              class="choice"
+              role="radio"
+              [attr.aria-checked]="mainline() === +choice.value"
+              [class.selected]="mainline() === +choice.value"
+              [disabled]="busy()"
+              (click)="mainline.set(+choice.value)"
+            >
+              <span class="option-radio" aria-hidden="true"></span>
+              <span class="option-text">
+                <span class="option-label">{{ choice.label }}</span>
+                @if (choice.description) {
+                  <span class="option-description">{{ choice.description }}</span>
+                }
+              </span>
+            </button>
+          }
+        </div>
+      }
+    }
+    @case ('drop-commit') {
+      <p class="warning">
+        This removes the selected commit and rewrites the history of
+        {{ state().currentBranch || 'the current branch' }}. Descendant commits are replayed and
+        their hashes change.
+      </p>
+    }
+    @case ('merge') {
+      <div class="choices" role="radiogroup" aria-label="Merge mode">
+        @for (choice of mergeChoices; track choice.value) {
+          <button
+            #focusEl
+            type="button"
+            class="choice"
+            role="radio"
+            [attr.aria-checked]="mergeMode() === choice.value"
+            [class.selected]="mergeMode() === choice.value"
+            [class.danger]="choice.danger"
+            [disabled]="busy()"
+            (click)="mergeMode.set(choice.value)"
+          >
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-text">
+              <span class="option-label">{{ choice.label }}</span>
+              @if (choice.description) {
+                <span class="option-description">{{ choice.description }}</span>
+              }
+            </span>
+          </button>
+        }
+      </div>
+      @if (mergeMode() === 'default' || mergeMode() === 'no-ff') {
+        <label class="checkbox-row">
+          <input
+            id="git-op-merge-nocommit"
+            type="checkbox"
+            [checked]="mergeNoCommit()"
+            [disabled]="busy()"
+            (change)="mergeNoCommit.set(check($event))"
+          />
+          <span>No commit — leave the merge staged</span>
+        </label>
+      }
+      <label class="checkbox-row">
+        <input
+          id="git-op-merge-autostash"
+          type="checkbox"
+          [checked]="autostash()"
+          [disabled]="busy()"
+          (change)="autostash.set(check($event))"
+        />
+        <span>Autostash — stash uncommitted changes during the merge</span>
+      </label>
+    }
+    @case ('rebase') {
+      <p class="context">Rebasing rewrites the current branch's commits on top of the target.</p>
+      <label class="checkbox-row">
+        <input
+          #focusEl
+          id="git-op-rebase-autostash"
+          type="checkbox"
+          [checked]="autostash()"
+          [disabled]="busy()"
+          (change)="autostash.set(check($event))"
+        />
+        <span>Autostash — stash uncommitted changes during the rebase</span>
+      </label>
+      <label class="checkbox-row">
+        <input
+          id="git-op-rebase-merges"
+          type="checkbox"
+          [checked]="preserveMerges()"
+          [disabled]="busy()"
+          (change)="preserveMerges.set(check($event))"
+        />
+        <span>Preserve merges — keep merge commits while rebasing</span>
+      </label>
+    }
+    @case ('reset-commit') {
+      <div class="choices" role="radiogroup" aria-label="Reset mode">
+        @for (choice of resetChoices; track choice.value) {
+          <button
+            #focusEl
+            type="button"
+            class="choice"
+            role="radio"
+            [attr.aria-checked]="resetMode() === choice.value"
+            [class.selected]="resetMode() === choice.value"
+            [class.danger]="choice.danger"
+            [disabled]="busy()"
+            (click)="resetMode.set(choice.value)"
+          >
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-text">
+              <span class="option-label">{{ choice.label }}</span>
+              @if (choice.description) {
+                <span class="option-description">{{ choice.description }}</span>
+              }
+            </span>
+          </button>
+        }
+      </div>
+    }
+    @case ('push-tag') {
+      <ng-container *ngTemplateOutlet="remoteSelect" />
+      <label class="checkbox-row">
+        <input
+          id="git-op-tag-force"
+          type="checkbox"
+          [checked]="pushForce()"
+          [disabled]="busy() || !hasRemotes()"
+          (change)="pushForce.set(check($event))"
+        />
+        <span class="danger-text">Force update — overwrite the remote tag</span>
+      </label>
+    }
+    @case ('delete-tag') {
+      <p class="warning">The tag will be deleted locally.</p>
+      <label class="checkbox-row">
+        <input
+          id="git-op-tag-remote"
+          type="checkbox"
+          [checked]="deleteRemoteToo()"
+          [disabled]="busy() || noRemotes()"
+          (change)="deleteRemoteToo.set(check($event))"
+        />
+        <span>Also delete the tag on the remote</span>
+      </label>
+      @if (deleteRemoteToo()) {
+        <ng-container *ngTemplateOutlet="remoteSelect" />
+      }
+    }
+    @case ('rename-branch') {
+      <label class="field-label" for="git-op-rename-name">New branch name</label>
+      <input
+        #focusEl
+        id="git-op-rename-name"
+        class="input"
+        type="text"
+        autocomplete="off"
+        [value]="renameName()"
+        [disabled]="busy()"
+        (input)="renameName.set($any($event.target).value)"
+      />
+      <label class="checkbox-row">
+        <input
+          id="git-op-rename-publish"
+          type="checkbox"
+          [checked]="publishRename()"
+          [disabled]="busy() || noRemotes()"
+          (change)="publishRename.set(check($event))"
+        />
+        <span>Publish the new branch name</span>
+      </label>
+      <label class="checkbox-row">
+        <input
+          id="git-op-rename-delete-old"
+          type="checkbox"
+          [checked]="deleteRemoteOld()"
+          [disabled]="busy() || noRemotes()"
+          (change)="deleteRemoteOld.set(check($event))"
+        />
+        <span>Delete the old branch on the remote</span>
+      </label>
+      @if (publishRename() || deleteRemoteOld()) {
+        <ng-container *ngTemplateOutlet="remoteSelect" />
+      }
+    }
+    @case ('delete-branch') {
+      <div class="choices" role="radiogroup" aria-label="Deletion mode">
+        <button
+          #focusEl
+          type="button"
+          class="choice"
+          role="radio"
+          [attr.aria-checked]="!deleteForce()"
+          [class.selected]="!deleteForce()"
+          [disabled]="busy()"
+          (click)="deleteForce.set(false)"
+        >
+          <span class="option-radio" aria-hidden="true"></span>
+          <span class="option-text">
+            <span class="option-label">Safe delete</span>
+            <span class="option-description">
+              Git refuses when the branch contains commits that are not merged.
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="choice"
+          role="radio"
+          [attr.aria-checked]="deleteForce()"
+          [class.selected]="deleteForce()"
+          [disabled]="busy()"
+          (click)="deleteForce.set(true)"
+        >
+          <span class="option-radio" aria-hidden="true"></span>
+          <span class="option-text">
+            <span class="option-label danger-text">Force delete</span>
+            <span class="option-description">
+              Delete even when the branch contains unmerged commits.
+            </span>
+          </span>
+        </button>
+      </div>
+      <label class="checkbox-row">
+        <input
+          id="git-op-branch-remote"
+          type="checkbox"
+          [checked]="deleteRemoteToo()"
+          [disabled]="busy() || noRemotes()"
+          (change)="deleteRemoteToo.set(check($event))"
+        />
+        <span>Also delete the branch on the remote</span>
+      </label>
+      @if (deleteRemoteToo()) {
+        <ng-container *ngTemplateOutlet="remoteSelect" />
+      }
+    }
+    @case ('delete-remote-branch') {
+      <p class="warning">This deletes {{ state().ref }} on the selected remote.</p>
+      <ng-container *ngTemplateOutlet="remoteSelect" />
+    }
+    @case ('pull-branch') {
+      <div class="choices" role="radiogroup" aria-label="Integration mode">
+        @for (choice of pullChoices; track choice.value) {
+          <button
+            #focusEl
+            type="button"
+            class="choice"
+            role="radio"
+            [attr.aria-checked]="pullMode() === choice.value"
+            [class.selected]="pullMode() === choice.value"
+            [disabled]="busy()"
+            (click)="pullMode.set(choice.value)"
+          >
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-text">
+              <span class="option-label">{{ choice.label }}</span>
+              @if (choice.description) {
+                <span class="option-description">{{ choice.description }}</span>
+              }
+            </span>
+          </button>
+        }
+      </div>
+    }
+    @case ('stash-save') {
+      <label class="field-label" for="git-op-stash-message">Stash message (optional)</label>
+      <input
+        #focusEl
+        id="git-op-stash-message"
+        class="input"
+        type="text"
+        autocomplete="off"
+        placeholder="WIP"
+        [value]="stashMessage()"
+        [disabled]="busy()"
+        (input)="setText($event, stashMessage)"
+      />
+      <div class="choices" role="radiogroup" aria-label="Stash scope">
+        @for (choice of stashChoices; track choice.value) {
+          <button
+            type="button"
+            class="choice"
+            role="radio"
+            [attr.aria-checked]="stashScope() === choice.value"
+            [class.selected]="stashScope() === choice.value"
+            [disabled]="busy()"
+            (click)="onStashScope(choice.value)"
+          >
+            <span class="option-radio" aria-hidden="true"></span>
+            <span class="option-text">
+              <span class="option-label">{{ choice.label }}</span>
+              @if (choice.description) {
+                <span class="option-description">{{ choice.description }}</span>
+              }
+            </span>
+          </button>
+        }
+      </div>
+      <label class="checkbox-row">
+        <input
+          id="git-op-stash-untracked"
+          type="checkbox"
+          [checked]="includeUntracked()"
+          [disabled]="busy() || stashScope() === 'staged'"
+          (change)="includeUntracked.set(check($event))"
+        />
+        <span>Include untracked files</span>
+      </label>
+    }
+    @case ('stash-apply') {
+      <label class="checkbox-row">
+        <input
+          #focusEl
+          id="git-op-stash-index"
+          type="checkbox"
+          [checked]="restoreIndex()"
+          [disabled]="busy()"
+          (change)="restoreIndex.set(check($event))"
+        />
+        <span>Restore staged state — keep files staged as they were when stashed</span>
+      </label>
+    }
+    @case ('stash-pop') {
+      <label class="checkbox-row">
+        <input
+          #focusEl
+          id="git-op-stash-index"
+          type="checkbox"
+          [checked]="restoreIndex()"
+          [disabled]="busy()"
+          (change)="restoreIndex.set(check($event))"
+        />
+        <span>Restore staged state — keep files staged as they were when stashed</span>
+      </label>
+    }
+  }
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <div class="actions">
+    <button class="btn" type="button" [disabled]="busy()" (click)="closed.emit()">Cancel</button>
+    <button
+      class="btn btn-primary"
+      type="submit"
+      [class.btn-danger]="danger()"
+      [disabled]="!canSubmit()"
+    >
+      {{ busy() ? 'Working…' : okLabel() }}
+    </button>
+  </div>
+</form>

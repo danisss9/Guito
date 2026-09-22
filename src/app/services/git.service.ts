@@ -14,6 +14,7 @@ import {
   FileDiff,
   GitCommit,
   GitIdentity,
+  GitMutationResult,
   GitRemote,
   MergeConflict,
   ConflictResolution,
@@ -133,8 +134,14 @@ export class GitService {
     return this.mutate(() => this.http.get(`${this.base}/fetch`, { params }));
   }
 
-  pull(rebase = false): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/pull`, { rebase }));
+  pull(request?: { remote?: string; branch?: string; mode?: 'merge' | 'rebase' | 'ff-only' }): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/pull`, {
+        remote: request?.remote,
+        branch: request?.branch,
+        mode: request?.mode,
+      }),
+    );
   }
 
   push(force = false): Observable<unknown> {
@@ -145,24 +152,49 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/sync`, {}));
   }
 
-  checkout(ref: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/checkout`, { ref }));
+  checkoutRef(request: {
+    ref: string;
+    newBranch?: string;
+    detach?: boolean;
+    track?: boolean;
+    publish?: boolean;
+    remote?: string;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/checkout`, request));
   }
 
-  revert(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/revert`, { commit: hash }));
+  revertCommit(request: {
+    commit: string;
+    noCommit?: boolean;
+    signoff?: boolean;
+    mainline?: number;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/revert`, request));
   }
 
-  cherryPick(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/cherry-pick`, { commit: hash }));
+  cherryPick(request: {
+    commit: string;
+    noCommit?: boolean;
+    recordSource?: boolean;
+    signoff?: boolean;
+    mainline?: number;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/cherry-pick`, request));
   }
 
-  dropCommit(hash: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/commit/drop`, { commit: hash }));
+  dropCommit(hash: string): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/commit/drop`, { commit: hash }),
+    );
   }
 
-  resetToCommit(hash: string, mode: 'soft' | 'mixed' | 'hard' = 'hard'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/reset-commit`, { commit: hash, mode }));
+  resetToCommit(
+    hash: string,
+    mode: 'soft' | 'mixed' | 'hard' = 'soft',
+  ): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/reset-commit`, { commit: hash, mode }),
+    );
   }
 
   commit(message: string, description?: string): Observable<unknown> {
@@ -189,8 +221,12 @@ export class GitService {
     return this.mutate(() => this.http.post(`${this.base}/clean`, {}));
   }
 
-  stashSave(message?: string, scope: StashScope = 'all'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/save`, { message, scope }));
+  stashSave(request: {
+    message?: string;
+    scope?: StashScope;
+    includeUntracked?: boolean;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/stash/save`, request));
   }
 
   /** Stash stack, newest first; index is the position used by stash@{index}. */
@@ -219,16 +255,22 @@ export class GitService {
       );
   }
 
-  stashApply(index: number): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/apply`, { index }));
+  stashApply(index: number, restoreIndex = false): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/stash/apply`, { index, restoreIndex }),
+    );
   }
 
-  stashPop(index: number): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/pop`, { index }));
+  stashPop(index: number, restoreIndex = false): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/stash/pop`, { index, restoreIndex }),
+    );
   }
 
-  stashDrop(index: number): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/stash/drop`, { index }));
+  stashDrop(index: number): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/stash/drop`, { index }),
+    );
   }
 
   /** Worktrees linked to the repository, main worktree first. */
@@ -249,42 +291,93 @@ export class GitService {
     return this.http.get<TagInfo[]>(`${this.base}/tags`);
   }
 
-  createBranch(name: string, startPoint?: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/create`, { name, startPoint }));
-  }
-
-  deleteBranch(name: string, force = false): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/delete`, { name, force }));
-  }
-
-  deleteRemoteBranch(remote: string, branch: string): Observable<unknown> {
+  createBranch(request: {
+    name: string;
+    startPoint?: string;
+    checkout?: boolean;
+    publish?: boolean;
+    remote?: string;
+  }): Observable<GitMutationResult> {
     return this.mutate(() =>
-      this.http.post(`${this.base}/branch/delete-remote`, { remote, branch }),
+      this.http.post<GitMutationResult>(`${this.base}/branch/create`, request),
     );
   }
 
-  renameBranch(oldName: string, newName: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/branch/rename`, { oldName, newName }));
+  deleteBranch(request: {
+    name: string;
+    force?: boolean;
+    deleteRemote?: boolean;
+    remote?: string;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/branch/delete`, request),
+    );
   }
 
-  merge(branch: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/merge`, { branch }));
+  deleteRemoteBranch(remote: string, branch: string): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/branch/delete-remote`, { remote, branch }),
+    );
   }
 
-  rebase(branch: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/rebase`, { branch }));
+  renameBranch(request: {
+    oldName: string;
+    newName: string;
+    publish?: boolean;
+    deleteRemoteOld?: boolean;
+    remote?: string;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/branch/rename`, request),
+    );
   }
 
-  createTag(name: string, commit?: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/tag/create`, { name, commit }));
+  mergeRef(request: {
+    branch: string;
+    mode?: 'default' | 'no-ff' | 'ff-only' | 'squash';
+    noCommit?: boolean;
+    autostash?: boolean;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/merge`, request));
   }
 
-  deleteTag(name: string): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/tag/delete`, { name }));
+  rebaseRef(request: {
+    branch: string;
+    autostash?: boolean;
+    preserveMerges?: boolean;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/rebase`, request));
   }
 
-  pushTag(name: string, remote = 'origin'): Observable<unknown> {
-    return this.mutate(() => this.http.post(`${this.base}/tag/push`, { name, remote }));
+  createTag(request: {
+    name: string;
+    commit?: string;
+    annotate?: boolean;
+    message?: string;
+    push?: boolean;
+    remote?: string;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/tag/create`, request),
+    );
+  }
+
+  deleteTag(request: {
+    name: string;
+    deleteRemote?: boolean;
+    remote?: string;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/tag/delete`, request),
+    );
+  }
+
+  pushTag(request: {
+    name: string;
+    remote?: string;
+    force?: boolean;
+  }): Observable<GitMutationResult> {
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/tag/push`, request));
   }
 
   getSettings(): Observable<AzureSettings> {

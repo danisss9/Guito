@@ -559,11 +559,97 @@ export async function startGuitoServer({
 
   const working = workingTree(git, parseUnifiedDiff);
   // Keep validation and the corresponding index mutation in one operation.
-  let mutationQueue = Promise.resolve();
-  const mutate = (action: () => Promise<void>) => {
+  let mutationQueue: Promise<unknown> = Promise.resolve();
+  const mutate = (action: () => Promise<unknown>) => {
     const result = mutationQueue.then(action);
     mutationQueue = result.catch(() => {});
     return result;
+  };
+
+  // ==================== Mutation option helpers ====================
+  // Shared guards for the option fields the Git operation dialogs send.
+  // Every value is allowlisted before it reaches a Git argument array.
+
+  /** Reads a trimmed string body field; non-strings become ''. */
+  const strField = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+  /** Reads a boolean body field; only an explicit true enables the option. */
+  const boolField = (value: unknown): boolean => value === true;
+
+  /** Sends `{ success: true }`, adding warnings for partially-failed composites. */
+  const mutationResult = (resp: any, warnings: string[]) =>
+    resp.type('application/json').send({
+      success: true,
+      ...(warnings.length ? { warnings } : {}),
+    });
+
+  /**
+   * Resolves the remote a remote-capable action should use: an explicit name
+   * (which must be configured), else "origin", else the first remote.
+   */
+  const resolveRemote = async (requested: string): Promise<string> => {
+    const names = (await git.raw(['remote']))
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (names.length === 0) throw new Error('No remotes are configured for this repository.');
+    if (requested) {
+      if (!names.includes(requested)) throw new Error(`Remote "${requested}" is not configured.`);
+      return requested;
+    }
+    return names.includes('origin') ? 'origin' : names[0];
+  };
+
+  /** Verifies a branch name Git would accept, before it is used as an argument. */
+  const verifyBranchName = async (name: string): Promise<void> => {
+    await git.raw(['check-ref-format', '--branch', name]);
+  };
+
+  /** Verifies a tag name Git would accept (rejects "", "..", "~", "^", ":"...). */
+  const verifyTagName = async (name: string): Promise<void> => {
+    await git.raw(['check-ref-format', `refs/tags/${name}`]);
+  };
+
+  /** Parent hashes of a commit, used for merge-commit mainline validation. */
+  const commitParents = async (commit: string): Promise<string[]> => {
+    const raw = await git.raw(['rev-list', '--parents', '-n', '1', commit]);
+    return raw.trim().split(/\s+/).slice(1).filter(Boolean);
+  };
+
+  /** Validates a mainline parent selection for a merge commit. */
+  const mainlineArg = (mainline: unknown, parents: string[]): string => {
+    const parsed = Number(mainline);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > parents.length) {
+      throw new Error(`Choose a mainline parent between 1 and ${parents.length}.`);
+    }
+    return String(parsed);
+  };
+
+  /** Rejects tracked changes that would block a history-rewriting operation. */
+  const requireCleanWorktree = async (): Promise<void> => {
+    const status = await git.raw(['status', '--porcelain']);
+    const dirty = status
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .filter((line) => !line.startsWith('??'));
+    if (dirty.length > 0) {
+      throw new Error('The working tree has uncommitted changes. Commit or stash them first.');
+    }
+  };
+
+  /** Requires HEAD to sit on a branch (not detached), returning its name. */
+  const currentBranch = async (): Promise<string> => {
+    // simple-git may swallow the non-zero exit of a detached symbolic-ref, so
+    // parse the output instead of relying on the rejection.
+    let head = '';
+    try {
+      head = await git.raw(['symbolic-ref', '--quiet', 'HEAD']);
+    } catch {
+      head = '';
+    }
+    const branch = head.trim().replace(/^refs\/heads\//, '');
+    if (!branch) throw new Error('HEAD is detached. Check out a branch first.');
+    return branch;
   };
 
   const repoRoot = async (): Promise<string> => (await git.revparse(['--show-toplevel'])).trim();
@@ -1069,9 +1155,21 @@ export async function startGuitoServer({
 
   app.post('/api/revert', async (req: any, resp) => {
     try {
-      const { commit } = req.body;
-      await git.revert(commit);
-      return resp.type('application/json').send({ success: true });
+      const hash = strField(req.body?.commit);
+      if (!hash) throw new Error('A commit is required.');
+      const noCommit = boolField(req.body?.noCommit);
+      const signoff = boolField(req.body?.signoff);
+      await mutate(async () => {
+        const parents = await commitParents(hash);
+        const args = ['revert'];
+        // Merge commits must pick the parent the changes are reverted against.
+        if (parents.length > 1) args.push('--mainline', mainlineArg(req.body?.mainline, parents));
+        if (noCommit) args.push('--no-commit');
+        if (signoff) args.push('--signoff');
+        args.push(hash);
+        await git.raw(args);
+      });
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1079,8 +1177,23 @@ export async function startGuitoServer({
 
   app.post('/api/cherry-pick', async (req: any, resp) => {
     try {
-      await git.raw(['cherry-pick', req.body.commit]);
-      return resp.type('application/json').send({ success: true });
+      const hash = strField(req.body?.commit);
+      if (!hash) throw new Error('A commit is required.');
+      const noCommit = boolField(req.body?.noCommit);
+      const recordSource = boolField(req.body?.recordSource);
+      const signoff = boolField(req.body?.signoff);
+      await mutate(async () => {
+        const parents = await commitParents(hash);
+        const args = ['cherry-pick'];
+        // Merge commits must pick the parent the changes are picked against.
+        if (parents.length > 1) args.push('--mainline', mainlineArg(req.body?.mainline, parents));
+        if (noCommit) args.push('--no-commit');
+        if (recordSource) args.push('-x');
+        if (signoff) args.push('--signoff');
+        args.push(hash);
+        await git.raw(args);
+      });
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1088,8 +1201,29 @@ export async function startGuitoServer({
 
   app.post('/api/commit/drop', async (req: any, resp) => {
     try {
-      await git.raw(['reset', '--hard', `${req.body.commit}^`]);
-      return resp.type('application/json').send({ success: true });
+      const hash = strField(req.body?.commit);
+      if (!hash) throw new Error('A commit is required.');
+      await mutate(async () => {
+        // Dropping rewrites history: only a clean, branch-bound working tree
+        // can safely replay the descendants of the selected commit.
+        await currentBranch();
+        await requireCleanWorktree();
+        const parents = await commitParents(hash);
+        if (parents.length === 0) throw new Error('The root commit cannot be dropped.');
+        if (parents.length > 1) throw new Error('Merge commits cannot be dropped.');
+        // The commit must be part of the current branch's history: when it is
+        // an ancestor of HEAD, it is also the merge base of the two.
+        const base = (await git.raw(['merge-base', hash, 'HEAD'])).trim();
+        if (base !== hash) {
+          throw new Error('The commit is not reachable from the current branch.');
+        }
+        // Replay every descendant onto the dropped commit's parent, removing
+        // only the selected commit (a hard reset would lose the descendants).
+        // Rebase by branch name: rebasing HEAD detaches it instead of moving
+        // the branch ref.
+        await git.raw(['rebase', '--onto', `${hash}~1`, hash, await currentBranch()]);
+      });
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1097,9 +1231,11 @@ export async function startGuitoServer({
 
   app.post('/api/reset-commit', async (req: any, resp) => {
     try {
+      const hash = strField(req.body?.commit);
+      if (!hash) throw new Error('A commit is required.');
       const mode = ['soft', 'mixed', 'hard'].includes(req.body?.mode) ? req.body.mode : 'hard';
-      await git.raw(['reset', `--${mode}`, req.body.commit]);
-      return resp.type('application/json').send({ success: true });
+      await mutate(() => git.raw(['reset', `--${mode}`, hash]));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1182,9 +1318,35 @@ export async function startGuitoServer({
 
   app.post('/api/branch/create', async (req: any, resp) => {
     try {
-      const { name, startPoint } = req.body;
-      await git.branch([...(startPoint ? [name, startPoint] : [name])]);
-      return resp.type('application/json').send({ success: true });
+      const name = strField(req.body?.name);
+      if (!name) throw new Error('A branch name is required.');
+      await verifyBranchName(name);
+      const startPoint = strField(req.body?.startPoint);
+      const checkout = boolField(req.body?.checkout);
+      const warnings: string[] = [];
+      await mutate(async () => {
+        // Resolve the remote up front so a bad configuration fails before any
+        // local branch is created.
+        const publishRemote = boolField(req.body?.publish)
+          ? await resolveRemote(strField(req.body?.remote))
+          : '';
+        if (checkout) {
+          await git.raw(['checkout', '-b', name, ...(startPoint ? [startPoint] : [])]);
+        } else {
+          await git.branch([...(startPoint ? [name, startPoint] : [name])]);
+        }
+        // Publishing is a follow-up step: keep the created branch when it fails.
+        if (publishRemote) {
+          try {
+            await git.push(['-u', publishRemote, name]);
+          } catch (err: any) {
+            warnings.push(
+              `Branch "${name}" was created but could not be published to "${publishRemote}": ${err.message}`,
+            );
+          }
+        }
+      });
+      return mutationResult(resp, warnings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1192,9 +1354,29 @@ export async function startGuitoServer({
 
   app.post('/api/branch/delete', async (req: any, resp) => {
     try {
-      const { name, force } = req.body;
-      await git.deleteLocalBranch(name, force);
-      return resp.type('application/json').send({ success: true });
+      const name = strField(req.body?.name);
+      if (!name) throw new Error('A branch name is required.');
+      const force = boolField(req.body?.force);
+      const warnings: string[] = [];
+      await mutate(async () => {
+        // Resolve the remote up front so a bad configuration fails before the
+        // local branch is deleted.
+        const deleteRemote = boolField(req.body?.deleteRemote)
+          ? await resolveRemote(strField(req.body?.remote))
+          : '';
+        await git.deleteLocalBranch(name, force);
+        // Deleting on the remote is a follow-up: keep the local deletion when it fails.
+        if (deleteRemote) {
+          try {
+            await git.push([deleteRemote, '--delete', `refs/heads/${name}`]);
+          } catch (err: any) {
+            warnings.push(
+              `Branch "${name}" was deleted locally but could not be deleted on "${deleteRemote}": ${err.message}`,
+            );
+          }
+        }
+      });
+      return mutationResult(resp, warnings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1202,9 +1384,12 @@ export async function startGuitoServer({
 
   app.post('/api/branch/delete-remote', async (req: any, resp) => {
     try {
-      const { remote, branch } = req.body;
-      await git.push([remote, '--delete', branch]);
-      return resp.type('application/json').send({ success: true });
+      const remote = strField(req.body?.remote);
+      const branch = strField(req.body?.branch);
+      if (!remote || !branch) throw new Error('A remote and branch are required.');
+      const resolved = await resolveRemote(remote);
+      await mutate(() => git.push([resolved, '--delete', `refs/heads/${branch}`]));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1212,9 +1397,42 @@ export async function startGuitoServer({
 
   app.post('/api/branch/rename', async (req: any, resp) => {
     try {
-      const { oldName, newName } = req.body;
-      await git.branch(['-m', oldName, newName]);
-      return resp.type('application/json').send({ success: true });
+      const oldName = strField(req.body?.oldName);
+      const newName = strField(req.body?.newName);
+      if (!oldName || !newName) throw new Error('The current and new branch names are required.');
+      await verifyBranchName(newName);
+      const publish = boolField(req.body?.publish);
+      const deleteOld = boolField(req.body?.deleteRemoteOld);
+      const warnings: string[] = [];
+      await mutate(async () => {
+        // Resolve the remote up front so a bad configuration fails before the
+        // branch is renamed.
+        const needsRemote = publish || deleteOld;
+        const remote = needsRemote ? await resolveRemote(strField(req.body?.remote)) : '';
+        await git.branch(['-m', oldName, newName]);
+        // Publishing/deleting the old ref are follow-ups: keep the rename when they fail.
+        if (remote) {
+          if (publish) {
+            try {
+              await git.push(['-u', remote, newName]);
+            } catch (err: any) {
+              warnings.push(
+                `Branch "${newName}" was renamed but could not be published to "${remote}": ${err.message}`,
+              );
+            }
+          }
+          if (deleteOld) {
+            try {
+              await git.push([remote, '--delete', `refs/heads/${oldName}`]);
+            } catch (err: any) {
+              warnings.push(
+                `The old branch "${oldName}" was renamed locally but could not be deleted on "${remote}": ${err.message}`,
+              );
+            }
+          }
+        }
+      });
+      return mutationResult(resp, warnings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1316,9 +1534,44 @@ export async function startGuitoServer({
 
   app.post('/api/checkout', async (req: any, resp) => {
     try {
-      const { ref } = req.body;
-      await git.checkout(ref);
-      return resp.type('application/json').send({ success: true });
+      const ref = strField(req.body?.ref);
+      if (!ref) throw new Error('A ref is required.');
+      const newBranch = strField(req.body?.newBranch);
+      const detach = boolField(req.body?.detach);
+      const track = boolField(req.body?.track);
+      const warnings: string[] = [];
+      await mutate(async () => {
+        // Resolve the remote up front so a bad configuration fails before the
+        // checkout happens.
+        const publishRemote =
+          newBranch && boolField(req.body?.publish)
+            ? await resolveRemote(strField(req.body?.remote))
+            : '';
+        if (newBranch) {
+          await verifyBranchName(newBranch);
+          // --track sets the upstream when checking out a remote-tracking ref.
+          await git.raw([
+            'checkout',
+            '-b',
+            newBranch,
+            ...(track ? ['--track'] : []),
+            ref,
+          ]);
+        } else {
+          await git.raw(['checkout', ...(detach ? ['--detach'] : []), ref]);
+        }
+        // Publishing the new branch is a follow-up: keep the checkout when it fails.
+        if (publishRemote) {
+          try {
+            await git.push(['-u', publishRemote, newBranch]);
+          } catch (err: any) {
+            warnings.push(
+              `Branch "${newBranch}" was checked out but could not be published to "${publishRemote}": ${err.message}`,
+            );
+          }
+        }
+      });
+      return mutationResult(resp, warnings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1327,9 +1580,22 @@ export async function startGuitoServer({
   // ==================== Merge & Rebase ====================
   app.post('/api/merge', async (req: any, resp) => {
     try {
-      const { branch } = req.body;
-      await git.merge([branch]);
-      return resp.type('application/json').send({ success: true });
+      const branch = strField(req.body?.branch);
+      if (!branch) throw new Error('A branch or commit is required.');
+      const mode = ['default', 'no-ff', 'ff-only', 'squash'].includes(req.body?.mode)
+        ? req.body.mode
+        : 'default';
+      // --no-commit only applies to modes that would create a commit.
+      const noCommit = boolField(req.body?.noCommit) && (mode === 'default' || mode === 'no-ff');
+      const args = ['merge'];
+      if (mode === 'no-ff') args.push('--no-ff');
+      if (mode === 'ff-only') args.push('--ff-only');
+      if (mode === 'squash') args.push('--squash');
+      if (noCommit) args.push('--no-commit');
+      if (boolField(req.body?.autostash)) args.push('--autostash');
+      args.push(branch);
+      await mutate(() => git.raw(args));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1357,9 +1623,19 @@ export async function startGuitoServer({
 
   app.post('/api/rebase', async (req: any, resp) => {
     try {
-      const { branch } = req.body;
-      await git.rebase([branch]);
-      return resp.type('application/json').send({ success: true });
+      const branch = strField(req.body?.branch);
+      if (!branch) throw new Error('A branch or commit is required.');
+      await mutate(() =>
+        git.raw([
+          'rebase',
+          ...(boolField(req.body?.autostash) ? ['--autostash'] : []),
+          // --preserve-merges was removed in Git 2.35+; --rebase-merges is the
+          // supported way to keep merge commits while rebasing.
+          ...(boolField(req.body?.preserveMerges) ? ['--rebase-merges'] : []),
+          branch,
+        ]),
+      );
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1408,20 +1684,21 @@ export async function startGuitoServer({
 
   app.post('/api/stash/save', async (req: any, resp) => {
     try {
-      const { message, scope } = req.body ?? {};
+      const message = strField(req.body?.message);
+      const scope = ['staged', 'unstaged', 'all'].includes(req.body?.scope) ? req.body.scope : 'all';
       // 'staged' → index only (--staged, git ≥ 2.35); 'unstaged' → working tree only
       // (--keep-index leaves staged changes staged); 'all' → index + working tree.
-      // Untracked files ride along for 'all'/'unstaged' since the panel lists them as unstaged.
+      // Untracked files ride along unless includeUntracked opts out (the legacy
+      // callers kept them for 'all'/'unstaged', which stay the defaults).
+      const includeUntracked =
+        typeof req.body?.includeUntracked === 'boolean' ? req.body.includeUntracked : scope !== 'staged';
       const args = ['push'];
-      if (scope === 'staged') {
-        args.push('--staged');
-      } else {
-        if (scope === 'unstaged') args.push('--keep-index');
-        args.push('-u');
-      }
+      if (scope === 'staged') args.push('--staged');
+      if (scope === 'unstaged') args.push('--keep-index');
+      if (includeUntracked) args.push('-u');
       if (message) args.push('-m', message);
-      await git.stash(args);
-      return resp.type('application/json').send({ success: true });
+      await mutate(() => git.stash(args));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1429,9 +1706,12 @@ export async function startGuitoServer({
 
   app.post('/api/stash/apply', async (req: any, resp) => {
     try {
-      const { index } = req.body;
-      await git.stash(['apply', `stash@{${index}}`]);
-      return resp.type('application/json').send({ success: true });
+      const index = Number(req.body?.index);
+      if (!Number.isInteger(index) || index < 0) throw new Error('A stash index is required.');
+      // --index restores the staged/unstaged split recorded by the stash.
+      const args = ['apply', ...(boolField(req.body?.restoreIndex) ? ['--index'] : []), `stash@{${index}}`];
+      await mutate(() => git.stash(args));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1439,9 +1719,11 @@ export async function startGuitoServer({
 
   app.post('/api/stash/pop', async (req: any, resp) => {
     try {
-      const { index } = req.body;
-      await git.stash(['pop', `stash@{${index}}`]);
-      return resp.type('application/json').send({ success: true });
+      const index = Number(req.body?.index);
+      if (!Number.isInteger(index) || index < 0) throw new Error('A stash index is required.');
+      const args = ['pop', ...(boolField(req.body?.restoreIndex) ? ['--index'] : []), `stash@{${index}}`];
+      await mutate(() => git.stash(args));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1450,8 +1732,8 @@ export async function startGuitoServer({
   app.post('/api/stash/drop', async (req: any, resp) => {
     try {
       const { index } = req.body;
-      await git.stash(['drop', `stash@{${index}}`]);
-      return resp.type('application/json').send({ success: true });
+      await mutate(() => git.stash(['drop', `stash@{${index}}`]));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1491,13 +1773,39 @@ export async function startGuitoServer({
 
   app.post('/api/tag/create', async (req: any, resp) => {
     try {
-      const { name, message, commit } = req.body;
-      if (message) {
-        await git.tag(['-a', name, '-m', message, ...(commit ? [commit] : [])]);
-      } else {
-        await git.tag([name, ...(commit ? [commit] : [])]);
-      }
-      return resp.type('application/json').send({ success: true });
+      const name = strField(req.body?.name);
+      if (!name) throw new Error('A tag name is required.');
+      await verifyTagName(name);
+      const message = strField(req.body?.message);
+      // A message always produces an annotated tag (legacy callers relied on it);
+      // the dialog sends annotate explicitly and must then include a message.
+      const annotate = boolField(req.body?.annotate) || !!message;
+      if (annotate && !message) throw new Error('An annotated tag requires a message.');
+      const commit = strField(req.body?.commit);
+      const warnings: string[] = [];
+      await mutate(async () => {
+        // Resolve the remote up front so a bad configuration fails before the
+        // tag is created.
+        const pushRemote = boolField(req.body?.push)
+          ? await resolveRemote(strField(req.body?.remote))
+          : '';
+        if (annotate) {
+          await git.tag(['-a', name, '-m', message, ...(commit ? [commit] : [])]);
+        } else {
+          await git.tag([name, ...(commit ? [commit] : [])]);
+        }
+        // Pushing is a follow-up: keep the created tag when it fails.
+        if (pushRemote) {
+          try {
+            await git.push([pushRemote, `refs/tags/${name}`]);
+          } catch (err: any) {
+            warnings.push(
+              `Tag "${name}" was created but could not be pushed to "${pushRemote}": ${err.message}`,
+            );
+          }
+        }
+      });
+      return mutationResult(resp, warnings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1505,9 +1813,28 @@ export async function startGuitoServer({
 
   app.post('/api/tag/delete', async (req: any, resp) => {
     try {
-      const { name } = req.body;
-      await git.tag(['-d', name]);
-      return resp.type('application/json').send({ success: true });
+      const name = strField(req.body?.name);
+      if (!name) throw new Error('A tag name is required.');
+      const warnings: string[] = [];
+      await mutate(async () => {
+        // Resolve the remote up front so a bad configuration fails before the
+        // local tag is deleted.
+        const deleteRemote = boolField(req.body?.deleteRemote)
+          ? await resolveRemote(strField(req.body?.remote))
+          : '';
+        await git.tag(['-d', name]);
+        // Deleting on the remote is a follow-up: keep the local deletion when it fails.
+        if (deleteRemote) {
+          try {
+            await git.push([deleteRemote, '--delete', `refs/tags/${name}`]);
+          } catch (err: any) {
+            warnings.push(
+              `Tag "${name}" was deleted locally but could not be deleted on "${deleteRemote}": ${err.message}`,
+            );
+          }
+        }
+      });
+      return mutationResult(resp, warnings);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1515,12 +1842,13 @@ export async function startGuitoServer({
 
   app.post('/api/tag/push', async (req: any, resp) => {
     try {
-      const { name, remote } = req.body;
-      if (!name) {
-        return resp.status(400).type('application/json').send({ error: 'name required' });
-      }
-      await git.push(remote || 'origin', `refs/tags/${name}`);
-      return resp.type('application/json').send({ success: true });
+      const name = strField(req.body?.name);
+      if (!name) throw new Error('A tag name is required.');
+      const remote = await resolveRemote(strField(req.body?.remote));
+      await mutate(() =>
+        git.push([remote, ...(boolField(req.body?.force) ? ['-f'] : []), `refs/tags/${name}`]),
+      );
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -1539,9 +1867,22 @@ export async function startGuitoServer({
 
   app.post('/api/pull', async (req: any, resp) => {
     try {
-      const { remote, branch, rebase } = req.body;
-      await git.pull(remote || 'origin', branch || undefined, rebase ? { '--rebase': null } : {});
-      return resp.type('application/json').send({ success: true });
+      const remote = strField(req.body?.remote);
+      const branch = strField(req.body?.branch);
+      // 'mode' supersedes the legacy 'rebase' boolean (kept for older callers).
+      const mode = ['merge', 'rebase', 'ff-only'].includes(req.body?.mode) ? req.body.mode : 'merge';
+      const rebase = boolField(req.body?.rebase) || mode === 'rebase';
+      const ffOnly = mode === 'ff-only';
+      // An explicit remote must be configured; without one, keep the legacy
+      // 'origin' default so upstream-based pulls keep working.
+      const resolvedRemote = remote ? await resolveRemote(remote) : 'origin';
+      await mutate(() =>
+        git.pull(resolvedRemote, branch || undefined, {
+          ...(rebase ? { '--rebase': null } : {}),
+          ...(ffOnly ? { '--ff-only': null } : {}),
+        }),
+      );
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -3284,8 +3625,8 @@ export async function startGuitoServer({
   // ==================== Working Tree Actions ====================
   app.post('/api/reset', async (_req, resp) => {
     try {
-      await git.raw(['reset', '--hard', 'HEAD']);
-      return resp.type('application/json').send({ ok: true });
+      await mutate(() => git.raw(['reset', '--hard', 'HEAD']));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -3293,8 +3634,8 @@ export async function startGuitoServer({
 
   app.post('/api/clean', async (_req, resp) => {
     try {
-      await git.raw(['clean', '-fd']);
-      return resp.type('application/json').send({ ok: true });
+      await mutate(() => git.raw(['clean', '-fd']));
+      return mutationResult(resp, []);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }

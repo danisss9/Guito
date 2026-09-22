@@ -25,6 +25,11 @@ async function setup(page, count = 700, overrides = {}) {
   const commits = history(count);
   if (overrides.firstMessage) commits[0].message = overrides.firstMessage;
   if (overrides.firstRefs) commits[0].refs = overrides.firstRefs;
+  // Makes the fixture commit at `index` a merge commit for dialog tests.
+  if (overrides.commitParents) {
+    const { index, parents } = overrides.commitParents;
+    commits[index].parents = parents.map((parentIndex) => commits[parentIndex].hash);
+  }
   const state = {
     staged: ['partial.txt'],
     unstaged: ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'partial.txt'],
@@ -116,6 +121,7 @@ async function setup(page, count = 700, overrides = {}) {
     stageRequests: [],
     stashRequests: [],
     tagRequests: [],
+    gitMutations: [],
     commitRequests: [],
     contentRequests: [],
     conflicts: [],
@@ -380,6 +386,24 @@ async function setup(page, count = 700, overrides = {}) {
       case '/api/tag/delete':
       case '/api/tag/push':
         state.tagRequests.push({ path: parsed.pathname, ...body });
+        return send({ success: true });
+      case '/api/tag/create':
+      case '/api/checkout':
+      case '/api/merge':
+      case '/api/rebase':
+      case '/api/revert':
+      case '/api/cherry-pick':
+      case '/api/commit/drop':
+      case '/api/reset-commit':
+      case '/api/pull':
+      case '/api/push':
+      case '/api/sync':
+      case '/api/stash/save':
+      case '/api/branch/create':
+      case '/api/branch/rename':
+      case '/api/branch/delete':
+      case '/api/branch/delete-remote':
+        state.gitMutations.push({ path: parsed.pathname, ...body });
         return send({ success: true });
       case '/api/commits': {
         state.historyRequests++;
@@ -1623,12 +1647,16 @@ test('repository panel shows branches, stashes and worktrees and filters on sele
   // Right-clicking a tag offers the tag actions; deleting posts the name.
   await tagsSection.locator('.row').filter({ hasText: 'v0.5.0' }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete Tag...' }).click();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const tagDialog = page.getByRole('dialog', { name: 'Delete Tag' });
+  await expect(tagDialog).toContainText('v0.5.0');
+  await tagDialog.getByRole('button', { name: 'Delete Tag' }).click();
   await expect
     .poll(() => state.tagRequests.at(-1))
     .toEqual({
       path: '/api/tag/delete',
       name: 'v0.5.0',
+      deleteRemote: false,
+      remote: 'origin',
     });
   await expect(page.locator('.table-loading')).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -2200,14 +2228,18 @@ test('stash rows show above the history with a pill, actions, and a settings dia
   await expect(detail).toBeVisible();
   await expect(detail.locator('.subject')).toContainText('fixture stash');
 
-  // Right-clicking offers the stash actions; applying posts the stash index.
+  // Right-clicking offers the stash actions; popping posts the stash index.
   await stashRow.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Pop Stash' }).click();
+  await page.getByRole('menuitem', { name: 'Pop Stash...' }).click();
+  const popDialog = page.getByRole('dialog', { name: 'Pop Stash' });
+  await expect(popDialog).toContainText('stash@{0}');
+  await popDialog.getByRole('button', { name: 'Pop', exact: true }).click();
   await expect
     .poll(() => state.stashRequests.at(-1))
     .toEqual({
       path: '/api/stash/pop',
       index: 0,
+      restoreIndex: false,
     });
 
   // The settings dialog hides the rows and persists the choice.
@@ -2223,5 +2255,348 @@ test('stash rows show above the history with a pill, actions, and a settings dia
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect.poll(() => state.settings.showStashes).toBe(true);
   await expect(stashRow).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('add tag dialog collects annotation and push options', async ({ page }) => {
+  const { state, commits, errors } = await setup(page, 30);
+  const row = page.locator('.list-viewport .row').nth(1);
+
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Add Tag...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add Tag' });
+  await expect(dialog).toBeVisible();
+
+  // The target summary names the commit the tag will point at.
+  await expect(dialog.locator('.target-value')).toContainText(commits[1].hash.slice(0, 8));
+  await expect(dialog.locator('.target-value')).toContainText('Commit 1');
+
+  // The primary input starts focused; a name is required to confirm.
+  await expect(dialog.getByLabel('Tag name')).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Add Tag' })).toBeDisabled();
+
+  // Annotated tags also require a message.
+  await dialog.getByLabel('Tag name').fill('v1.2.3');
+  await dialog.getByLabel('Annotate tag').check();
+  await expect(dialog.getByRole('button', { name: 'Add Tag' })).toBeDisabled();
+  await dialog.getByLabel('Message').fill('Release notes');
+
+  // Pushing after creation offers the configured remotes.
+  await dialog.getByLabel('Push tag after creation').check();
+  await expect(dialog.getByLabel('Remote')).toHaveValue('origin');
+
+  await dialog.getByRole('button', { name: 'Add Tag' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/tag/create',
+      name: 'v1.2.3',
+      annotate: true,
+      message: 'Release notes',
+      push: true,
+      remote: 'origin',
+      commit: commits[1].hash,
+    });
+  expect(errors).toEqual([]);
+});
+
+test('branch dialogs offer checkout, publishing and remote tracking', async ({ page }) => {
+  const { state, commits, errors } = await setup(page, 30);
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+
+  // Creating a branch from a commit can check out and publish it.
+  const row = page.locator('.list-viewport .row').nth(2);
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Create Branch...' }).click();
+  const create = page.getByRole('dialog', { name: 'Create Branch' });
+  await expect(create.getByRole('button', { name: 'Create Branch' })).toBeDisabled();
+  await create.getByLabel('Branch name').fill('feature/topic');
+  await create.getByLabel('Check out after creation').check();
+  await create.getByLabel('Publish and set upstream').check();
+  await expect(create.getByLabel('Remote')).toHaveValue('origin');
+  await create.getByRole('button', { name: 'Create Branch' }).click();
+  await expect(create).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/branch/create',
+      name: 'feature/topic',
+      startPoint: commits[2].hash,
+      checkout: true,
+      publish: true,
+      remote: 'origin',
+    });
+
+  // Local branch checkout posts a plain ref switch; Pull is remote-only.
+  await panel.getByTitle('feature', { exact: true }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Pull into current branch...' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Delete Remote Branch...' })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Checkout Branch...' }).click();
+  const local = page.getByRole('dialog', { name: 'Checkout Branch' });
+  await expect(local).toContainText('Switch the working tree from main to feature');
+  await local.getByRole('button', { name: 'Checkout' }).click();
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/checkout',
+      ref: 'feature',
+    });
+
+  // Remote branch checkout offers a local tracking branch by default.
+  await panel.getByTitle('origin/main', { exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Checkout Branch...' }).click();
+  const remote = page.getByRole('dialog', { name: 'Checkout Branch' });
+  await expect(remote.getByRole('radio', { name: /Create local tracking branch/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await remote.getByLabel('Local branch name').fill('main-fresh');
+  await remote.getByRole('button', { name: 'Checkout' }).click();
+  await expect(remote).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/checkout',
+      ref: 'origin/main',
+      newBranch: 'main-fresh',
+      track: true,
+    });
+
+  // Pulling a remote branch sends the selected remote and integration mode.
+  await panel.getByTitle('origin/main', { exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Pull into current branch...' }).click();
+  const pull = page.getByRole('dialog', { name: 'Pull' });
+  await expect(pull).toContainText('Pull origin/main into main');
+  await expect(pull.getByRole('radio', { name: /^Merge/ })).toHaveAttribute('aria-checked', 'true');
+  await pull.getByRole('radio', { name: /Fast-forward only/ }).click();
+  await pull.getByRole('button', { name: 'Pull' }).click();
+  await expect(pull).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/pull',
+      remote: 'origin',
+      branch: 'main',
+      mode: 'ff-only',
+    });
+  expect(errors).toEqual([]);
+});
+
+test('cherry-pick, revert and drop collect options before touching history', async ({ page }) => {
+  const { state, commits, errors } = await setup(page, 30, {
+    commitParents: { index: 5, parents: [6, 9] },
+  });
+  const row = page.locator('.list-viewport .row').nth(5);
+
+  // A merge commit forces a mainline parent choice for cherry-pick.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Cherry Pick...' }).click();
+  const pick = page.getByRole('dialog', { name: 'Cherry Pick' });
+  await expect(pick.getByRole('radio', { name: /^Parent 1/ })).toBeVisible();
+  await expect(pick.getByRole('radio', { name: /^Parent 2/ })).toBeVisible();
+  await pick.getByRole('radio', { name: /^Parent 2/ }).click();
+  await pick.getByLabel('No commit — stage the picked changes only').check();
+  await pick.getByLabel('Append source commit hash to the message').check();
+  await pick.getByLabel('Sign off').check();
+  await pick.getByRole('button', { name: 'Cherry Pick' }).click();
+  await expect(pick).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/cherry-pick',
+      commit: commits[5].hash,
+      noCommit: true,
+      recordSource: true,
+      signoff: true,
+      mainline: 2,
+    });
+
+  // Revert defaults to committing immediately with the first mainline parent.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Revert...' }).click();
+  const revert = page.getByRole('dialog', { name: 'Revert Commit' });
+  await expect(revert.getByRole('radio', { name: /^Parent 1/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await revert.getByRole('button', { name: 'Revert', exact: true }).click();
+  await expect(revert).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/revert',
+      commit: commits[5].hash,
+      noCommit: false,
+      signoff: false,
+      mainline: 1,
+    });
+
+  // Drop warns about the history rewrite before confirming.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Drop...', exact: true }).click();
+  const drop = page.getByRole('dialog', { name: 'Drop Commit' });
+  await expect(drop).toContainText('rewrites the history');
+  await drop.getByRole('button', { name: 'Drop Commit' }).click();
+  await expect(drop).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/commit/drop',
+      commit: commits[5].hash,
+    });
+  expect(errors).toEqual([]);
+});
+
+test('merge, rebase and reset dialogs offer integration modes', async ({ page }) => {
+  const { state, commits, errors } = await setup(page, 30);
+  const row = page.locator('.list-viewport .row').nth(4);
+
+  // Merging a commit shows the target and the current branch.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Merge into current branch...' }).click();
+  const merge = page.getByRole('dialog', { name: 'Merge' });
+  await expect(merge.locator('.context')).toContainText(
+    `Merge ${commits[4].hash.slice(0, 8)} Commit 4 into main`,
+  );
+
+  // Squash never commits, so the no-commit option disappears for it.
+  await merge.getByRole('radio', { name: /Squash/ }).click();
+  await expect(merge.getByLabel('No commit — leave the merge staged')).toHaveCount(0);
+  await merge.getByRole('radio', { name: /No fast-forward/ }).click();
+  await merge.getByLabel('No commit — leave the merge staged').check();
+  await merge.getByLabel('Autostash — stash uncommitted changes during the merge').check();
+  await merge.getByRole('button', { name: 'Merge', exact: true }).click();
+  await expect(merge).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/merge',
+      branch: commits[4].hash,
+      mode: 'no-ff',
+      noCommit: true,
+      autostash: true,
+    });
+
+  // Rebasing onto a commit supports autostash and preserved merges.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Rebase current branch on this Commit...' }).click();
+  const rebase = page.getByRole('dialog', { name: 'Rebase' });
+  await expect(rebase).toContainText('Rebase main onto');
+  await rebase.getByLabel('Autostash — stash uncommitted changes during the rebase').check();
+  await rebase.getByLabel('Preserve merges — keep merge commits while rebasing').check();
+  await rebase.getByRole('button', { name: 'Rebase', exact: true }).click();
+  await expect(rebase).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/rebase',
+      branch: commits[4].hash,
+      autostash: true,
+      preserveMerges: true,
+    });
+
+  // Resetting defaults to soft and styles the hard mode as destructive.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Reset current branch to this Commit...' }).click();
+  const reset = page.getByRole('dialog', { name: 'Reset Branch' });
+  await expect(reset.getByRole('radio', { name: /^Soft/ })).toHaveAttribute('aria-checked', 'true');
+  await reset.getByRole('radio', { name: /^Hard/ }).click();
+  await reset.getByRole('button', { name: 'Reset' }).click();
+  await expect(reset).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/reset-commit',
+      commit: commits[4].hash,
+      mode: 'hard',
+    });
+  expect(errors).toEqual([]);
+});
+
+test('stash dialogs keep the working-panel scope and offer index restoration', async ({ page }) => {
+  const { state, errors } = await setup(page);
+
+  // The working panel's stash buttons open the dialog with the scope preset.
+  await page.locator('.working-row').click();
+  await page.getByRole('button', { name: 'Stash staged' }).click();
+  const stash = page.getByRole('dialog', { name: 'Stash Changes' });
+  await expect(stash.getByRole('radio', { name: /^Staged only/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  // Untracked files cannot ride along with a staged-only stash.
+  await expect(stash.getByLabel('Include untracked files')).toBeDisabled();
+  await stash.getByLabel('Stash message (optional)').fill('work in progress');
+  await stash.getByRole('button', { name: 'Stash' }).click();
+  await expect(stash).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/stash/save',
+      message: 'work in progress',
+      scope: 'staged',
+      includeUntracked: false,
+    });
+
+  // Stash rows offer applying with staged-state restoration.
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+  const stashEntry = panel.locator('.row').filter({ hasText: 'stash@{0}' });
+  await stashEntry.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Apply Stash...' }).click();
+  const apply = page.getByRole('dialog', { name: 'Apply Stash' });
+  await expect(apply.locator('.target-value')).toContainText('fixture stash');
+  await apply
+    .getByLabel('Restore staged state — keep files staged as they were when stashed')
+    .check();
+  await apply.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(apply).toHaveCount(0);
+  await expect
+    .poll(() => state.stashRequests.at(-1))
+    .toEqual({
+      path: '/api/stash/apply',
+      index: 0,
+      restoreIndex: true,
+    });
+  expect(errors).toEqual([]);
+});
+
+test('git operation dialogs cancel and reset their options', async ({ page }) => {
+  const { state, commits, errors } = await setup(page, 20);
+  const row = page.locator('.list-viewport .row').nth(1);
+
+  // Opening a dialog never runs the operation; Escape cancels without a request.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Checkout...' }).click();
+  let dialog = page.getByRole('dialog', { name: 'Checkout Commit' });
+  await expect(dialog.getByRole('radio', { name: /^Detached HEAD/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(state.gitMutations).toEqual([]);
+
+  // Reopening starts from the defaults again; typed values do not survive.
+  await row.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Checkout...' }).click();
+  dialog = page.getByRole('dialog', { name: 'Checkout Commit' });
+  await dialog.getByRole('radio', { name: /^New branch/ }).click();
+  await expect(dialog.getByLabel('Branch name')).toHaveValue('');
+  await dialog.getByLabel('Branch name').fill('topic');
+  await dialog.getByLabel('Publish and set upstream').check();
+  await dialog.getByRole('button', { name: 'Checkout' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/checkout',
+      ref: commits[1].hash,
+      newBranch: 'topic',
+      publish: true,
+      remote: 'origin',
+    });
   expect(errors).toEqual([]);
 });

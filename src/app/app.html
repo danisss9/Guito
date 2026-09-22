@@ -131,7 +131,15 @@
     (confirmed)="onPromptConfirm($event)"
     (cancelled)="onPromptCancel()"
   />
-  @if (worktreeDialogOpen()) {
+  @if (gitOperationState(); as operation) {
+  <app-git-operation-dialog
+    [state]="operation"
+    [busy]="mutationBusy()"
+    [error]="gitOperationError()"
+    (confirmed)="onGitOperationConfirm($event)"
+    (closed)="closeGitOperation()"
+  />
+  } @if (worktreeDialogOpen()) {
   <app-worktree-dialog
     [branches]="branches()"
     [worktrees]="worktrees()"

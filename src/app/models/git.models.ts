@@ -212,6 +212,155 @@ export interface PromptState {
   searchable?: boolean;
 }
 
+/** Result of a mutating Git operation; warnings describe partially-failed composites. */
+export interface GitMutationResult {
+  success: boolean;
+  warnings?: string[];
+}
+
+/** Which Git operation a GitOperationDialog collects options for. */
+export type GitOperationAction =
+  | 'add-tag'
+  | 'create-branch'
+  | 'checkout-commit'
+  | 'checkout-branch'
+  | 'cherry-pick'
+  | 'revert'
+  | 'drop-commit'
+  | 'merge'
+  | 'rebase'
+  | 'reset-commit'
+  | 'push-tag'
+  | 'delete-tag'
+  | 'rename-branch'
+  | 'delete-branch'
+  | 'delete-remote-branch'
+  | 'pull-branch'
+  | 'stash-save'
+  | 'stash-apply'
+  | 'stash-pop';
+
+/** Everything a GitOperationDialog needs to render one action. */
+export interface GitOperationDialogState {
+  action: GitOperationAction;
+  /** Commit the action targets (commit-table rows and tag badges). */
+  commit?: GitCommit;
+  /** Branch or tag name the action targets. */
+  ref?: string;
+  /** Whether the target ref is a remote-tracking branch such as origin/main. */
+  isRemote?: boolean;
+  /** Remote owning the target ref, when known upfront ('origin' in origin/main). */
+  remote?: string;
+  /** Stash entry the action targets. */
+  stash?: StashEntry;
+  /** Currently checked-out branch; '' when HEAD is detached. */
+  currentBranch: string;
+  /** Preset scope when the stash dialog opens from a working-panel button. */
+  stashScope?: StashScope;
+}
+
+/** How a merge integrates the merged commits. */
+export type MergeMode = 'default' | 'no-ff' | 'ff-only' | 'squash';
+
+/** How a pull integrates remote commits. */
+export type PullMode = 'merge' | 'rebase' | 'ff-only';
+
+/** Validated options emitted by a GitOperationDialog, one variant per action. */
+export type GitOperationRequest =
+  | {
+      action: 'add-tag';
+      name: string;
+      annotate: boolean;
+      message: string;
+      push: boolean;
+      remote: string;
+      commit?: string;
+    }
+  | {
+      action: 'create-branch';
+      name: string;
+      checkout: boolean;
+      publish: boolean;
+      remote: string;
+      commit?: string;
+    }
+  | {
+      action: 'checkout-commit';
+      hash: string;
+      mode: 'detach' | 'branch';
+      branchName: string;
+      publish: boolean;
+      remote: string;
+    }
+  | {
+      action: 'checkout-branch';
+      branch: string;
+      isRemote: boolean;
+      mode: 'switch' | 'track' | 'detach';
+      /** Local branch name created for a remote-tracking checkout. */
+      branchName: string;
+    }
+  | {
+      action: 'cherry-pick';
+      hash: string;
+      noCommit: boolean;
+      /** Appends "(cherry picked from commit …)" via -x. */
+      recordSource: boolean;
+      signoff: boolean;
+      /** 1-based parent the diff is taken against; required for merge commits. */
+      mainline?: number;
+    }
+  | {
+      action: 'revert';
+      hash: string;
+      noCommit: boolean;
+      signoff: boolean;
+      mainline?: number;
+    }
+  | { action: 'drop-commit'; hash: string }
+  | {
+      action: 'merge';
+      /** Branch name or commit hash being merged. */
+      source: string;
+      mode: MergeMode;
+      noCommit: boolean;
+      autostash: boolean;
+    }
+  | {
+      action: 'rebase';
+      /** Branch name or commit hash being rebased onto. */
+      onto: string;
+      autostash: boolean;
+      preserveMerges: boolean;
+    }
+  | { action: 'reset-commit'; hash: string; mode: 'soft' | 'mixed' | 'hard' }
+  | { action: 'push-tag'; name: string; force: boolean; remote: string }
+  | { action: 'delete-tag'; name: string; deleteRemote: boolean; remote: string }
+  | {
+      action: 'rename-branch';
+      oldName: string;
+      newName: string;
+      publish: boolean;
+      deleteRemoteOld: boolean;
+      remote: string;
+    }
+  | {
+      action: 'delete-branch';
+      name: string;
+      force: boolean;
+      deleteRemote: boolean;
+      remote: string;
+    }
+  | { action: 'delete-remote-branch'; branch: string; remote: string }
+  | { action: 'pull-branch'; branch: string; remote: string; mode: PullMode }
+  | {
+      action: 'stash-save';
+      message: string;
+      scope: StashScope;
+      includeUntracked: boolean;
+    }
+  | { action: 'stash-apply' | 'stash-pop'; index: number; restoreIndex: boolean };
+
 /** Azure DevOps integration settings served by the Guito server. */
 export interface AzureSettings {
   azureDevOpsUrl: string;
