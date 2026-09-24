@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 1.0.6
+
+- Publish the extension to Open VSX in addition to the Visual Studio Marketplace, so VSCodium and other Open VSX-compatible editors can install Guito.
 - Review Azure DevOps pull requests automatically with Claude Code running on the extension host. Guito polls for the pull requests waiting on you, reviews every new commit, and queues the comments in the pull request dialog's new Review tab for you to post or dismiss; nothing is posted and no vote is cast without you. Configure it with the `guito.aiReview.*` settings, and check immediately with "Guito: Review Pull Requests Now".
 
 ## 1.0.5

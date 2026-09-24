@@ -4,8 +4,11 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-09-24
+
 ### Added
 
+- Install Guito from Open VSX as well as the Visual Studio Marketplace. Tagged releases are now published to both registries, so VSCodium and other Open VSX-compatible editors can run the extension, and the README links to the new listing.
 - Review Azure DevOps pull requests automatically with Claude Code running on your own machine. Guito polls for the pull requests in scope (by default the active ones waiting on your review), hands each new merge source commit to Claude Code, and queues the findings in the pull request dialog's new **Review** tab, where each one shows its severity, file and line, and jumps to the diff. Tick the comments you want and post them as ordinary Azure DevOps threads, or dismiss them so they are never raised again. Nothing is posted and no vote is cast without you. When the author pushes a new commit, only the files that commit touched are reviewed again, and Claude is told what it already raised so the same point is not repeated. Configure it in the settings dialog or with the `guito.aiReview.*` VS Code settings; inside VS Code the reviewer keeps running with no Guito panel open, and **Guito: Review Pull Requests Now** checks immediately.
 
 ## [1.0.5] - 2026-09-22
