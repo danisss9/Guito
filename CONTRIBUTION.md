@@ -76,15 +76,15 @@ The package is written to `vscode-extension/guito.vsix` and is ignored by Git.
 
 ## Project structure
 
-| Path | Purpose |
-| --- | --- |
-| `src/` | Angular application, components, models, utilities, and API client. |
-| `server/` | Fastify API, Git integration, and CLI server entry point. |
-| `vscode-extension/` | VS Code extension manifest, source, build script, and extension-specific docs. |
-| `tests/` | Node integration tests for the local server. |
-| `scripts/` | Release verification utilities. |
-| `bin/` | Compiled server and UI assets shipped in the npm package. |
-| `.github/workflows/` | Release automation. |
+| Path                 | Purpose                                                                        |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `src/`               | Angular application, components, models, utilities, and API client.            |
+| `server/`            | Fastify API, Git integration, and CLI server entry point.                      |
+| `vscode-extension/`  | VS Code extension manifest, source, build script, and extension-specific docs. |
+| `tests/`             | Node integration tests for the local server.                                   |
+| `scripts/`           | Release verification utilities.                                                |
+| `bin/`               | Compiled server and UI assets shipped in the npm package.                      |
+| `.github/workflows/` | Release automation.                                                            |
 
 Treat `bin/`, `vscode-extension/dist/`, and packaged `.vsix` files as generated output. Make source changes under `src/`, `server/`, or `vscode-extension/src/`; do not edit generated bundles by hand. Regenerate build output with the npm scripts when it needs to be included or inspected.
 
@@ -132,7 +132,7 @@ Review feedback is part of the contribution process. Keep follow-up commits focu
 
 ## Releases
 
-Releases are maintained by the project owner. Pushing a stable `vX.Y.Z` Git tag triggers the release workflow, which verifies the root package and extension versions before building, testing, and publishing both packages. After both publishes succeed, the workflow creates the corresponding GitHub Release with generated release notes. npm uses trusted publishing, while the VS Code Marketplace publish reads the `VSCE_PAT` repository secret.
+Releases are maintained by the project owner. Pushing a stable `vX.Y.Z` Git tag triggers the release workflow, which verifies the root package and extension versions before building, testing, and publishing the npm package and extension. After every publish succeeds, the workflow creates the corresponding GitHub Release with generated release notes and attaches a versioned `.vsix` file. npm uses trusted publishing, the Visual Studio Marketplace publish reads the `VSCE_PAT` repository secret, and the Open VSX publish reads the `OVSX_PAT` repository secret.
 
 Release preparation should update:
 

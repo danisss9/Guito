@@ -69,6 +69,12 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx vsce publish --skip-duplicate --packagePath guito.vsix
 
+      - name: Publish VS Code extension to Open VSX
+        working-directory: vscode-extension
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx ovsx publish guito.vsix --skip-duplicate
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -4,7 +4,7 @@ Explore and manage Git repositories in a focused visual client. Guito runs local
 
 The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese word for money](https://dicionario.priberam.org/guito).
 
-[npm package](https://www.npmjs.com/package/guito) · [VS Code extension](https://marketplace.visualstudio.com/items?itemName=danisss9.guito) · [Issue tracker](https://github.com/danisss9/Guito/issues)
+[npm package](https://www.npmjs.com/package/guito) · [VS Code extension](https://marketplace.visualstudio.com/items?itemName=danisss9.guito) · [Open VSX extension](https://open-vsx.org/extension/danisss9/guito) · [Issue tracker](https://github.com/danisss9/Guito/issues)
 
 <img width="1848" height="941" alt="image" src="https://github.com/user-attachments/assets/680f8ca0-acbf-4c61-baf5-58cfcb6c73d1" />
 
