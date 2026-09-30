@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
+  computed,
   effect,
   inject,
   input,
@@ -10,6 +11,8 @@ import {
 } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  AI_REVIEW_MODEL_OPTIONS,
+  COMMIT_MESSAGE_MODEL_OPTIONS,
   AiReviewSettings,
   AzureSettings,
   GitIdentity,
@@ -71,9 +74,11 @@ export class SettingsDialog {
   // Guito runs inside the extension.
   protected readonly aiReviewEnabled = signal(false);
   protected readonly aiReviewScope = signal<'reviewer' | 'mine' | 'all'>('reviewer');
-  protected readonly aiReviewPollMinutes = signal(5);
+  protected readonly aiReviewPollMinutes = signal(30);
   protected readonly aiReviewIncludeDrafts = signal(false);
   protected readonly aiReviewClaudePath = signal('');
+  protected readonly aiReviewModel = signal('');
+  protected readonly aiReviewCommitMessageModel = signal('haiku');
   protected readonly aiReviewInstructions = signal('');
   protected readonly remotes = signal<GitRemote[]>([]);
   protected readonly busy = signal(false);
@@ -109,9 +114,11 @@ export class SettingsDialog {
       const review = settings.aiReview;
       this.aiReviewEnabled.set(review?.enabled === true);
       this.aiReviewScope.set(review?.scope ?? 'reviewer');
-      this.aiReviewPollMinutes.set(review?.pollMinutes ?? 5);
+      this.aiReviewPollMinutes.set(review?.pollMinutes ?? 30);
       this.aiReviewIncludeDrafts.set(review?.includeDrafts === true);
       this.aiReviewClaudePath.set(review?.claudePath ?? '');
+      this.aiReviewModel.set(review?.model ?? '');
+      this.aiReviewCommitMessageModel.set(review?.commitMessageModel || 'haiku');
       this.aiReviewInstructions.set(review?.instructions ?? '');
       if (!this.remotesLoaded) {
         this.remotesLoaded = true;
@@ -162,9 +169,11 @@ export class SettingsDialog {
       aiReview: {
         enabled: this.aiReviewEnabled(),
         scope: this.aiReviewScope(),
-        pollMinutes: Number(this.aiReviewPollMinutes()) || 5,
+        pollMinutes: Number(this.aiReviewPollMinutes()) || 30,
         includeDrafts: this.aiReviewIncludeDrafts(),
         claudePath: this.aiReviewClaudePath().trim(),
+        model: this.aiReviewModel(),
+        commitMessageModel: this.aiReviewCommitMessageModel(),
         instructions: this.aiReviewInstructions(),
       },
     });
@@ -173,6 +182,29 @@ export class SettingsDialog {
   protected changeAiReviewScope(target: EventTarget | null): void {
     const value = (target as HTMLSelectElement).value;
     this.aiReviewScope.set(value === 'mine' || value === 'all' ? value : 'reviewer');
+  }
+
+  /** A model id set outside the pickers (e.g. in the settings file) stays selectable. */
+  protected readonly aiReviewModelOptions = computed(() => {
+    const current = this.aiReviewModel().trim();
+    return current && !AI_REVIEW_MODEL_OPTIONS.some((option) => option.value === current)
+      ? [...AI_REVIEW_MODEL_OPTIONS, { value: current, label: current }]
+      : AI_REVIEW_MODEL_OPTIONS;
+  });
+
+  protected readonly commitMessageModelOptions = computed(() => {
+    const current = this.aiReviewCommitMessageModel().trim();
+    return current && !COMMIT_MESSAGE_MODEL_OPTIONS.some((option) => option.value === current)
+      ? [...COMMIT_MESSAGE_MODEL_OPTIONS, { value: current, label: current }]
+      : COMMIT_MESSAGE_MODEL_OPTIONS;
+  });
+
+  protected changeAiReviewModel(target: EventTarget | null): void {
+    this.aiReviewModel.set((target as HTMLSelectElement).value);
+  }
+
+  protected changeAiReviewCommitMessageModel(target: EventTarget | null): void {
+    this.aiReviewCommitMessageModel.set((target as HTMLSelectElement).value);
   }
 
   protected changeSearchMode(target: EventTarget | null): void {
@@ -272,12 +304,10 @@ export class SettingsDialog {
   }
 
   private loadRemotes(): void {
-    this.git
-      .getRemotes()
-      .subscribe({
-        next: (remotes) => this.remotes.set(remotes),
-        error: (error) => this.error.set(this.errorMessage(error)),
-      });
+    this.git.getRemotes().subscribe({
+      next: (remotes) => this.remotes.set(remotes),
+      error: (error) => this.error.set(this.errorMessage(error)),
+    });
   }
 
   private run<T>(request: Observable<T>, next: (value: T) => void): void {

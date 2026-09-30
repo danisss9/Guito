@@ -9,6 +9,7 @@ import {
   AzureSettings,
   BranchInfo,
   CommitDiff,
+  CommitMessageResult,
   CommitSearchResponse,
   CommitsResponse,
   CreatePrRequest,
@@ -137,7 +138,11 @@ export class GitService {
     return this.mutate(() => this.http.get(`${this.base}/fetch`, { params }));
   }
 
-  pull(request?: { remote?: string; branch?: string; mode?: 'merge' | 'rebase' | 'ff-only' }): Observable<GitMutationResult> {
+  pull(request?: {
+    remote?: string;
+    branch?: string;
+    mode?: 'merge' | 'rebase' | 'ff-only';
+  }): Observable<GitMutationResult> {
     return this.mutate(() =>
       this.http.post<GitMutationResult>(`${this.base}/pull`, {
         remote: request?.remote,
@@ -182,7 +187,9 @@ export class GitService {
     signoff?: boolean;
     mainline?: number;
   }): Observable<GitMutationResult> {
-    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/cherry-pick`, request));
+    return this.mutate(() =>
+      this.http.post<GitMutationResult>(`${this.base}/cherry-pick`, request),
+    );
   }
 
   dropCommit(hash: string): Observable<GitMutationResult> {
@@ -202,6 +209,14 @@ export class GitService {
 
   commit(message: string, description?: string): Observable<unknown> {
     return this.mutate(() => this.http.post(`${this.base}/commit`, { message, description }));
+  }
+
+  /**
+   * Drafts a commit message with Claude Code from the pending changes. Not a
+   * mutation: it only reads the working tree and runs the CLI.
+   */
+  generateCommitMessage(model = ''): Observable<CommitMessageResult> {
+    return this.http.post<CommitMessageResult>(`${this.base}/commit-message`, { model });
   }
 
   stage(files: string[]): Observable<unknown> {
@@ -360,9 +375,7 @@ export class GitService {
     push?: boolean;
     remote?: string;
   }): Observable<GitMutationResult> {
-    return this.mutate(() =>
-      this.http.post<GitMutationResult>(`${this.base}/tag/create`, request),
-    );
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/tag/create`, request));
   }
 
   deleteTag(request: {
@@ -370,9 +383,7 @@ export class GitService {
     deleteRemote?: boolean;
     remote?: string;
   }): Observable<GitMutationResult> {
-    return this.mutate(() =>
-      this.http.post<GitMutationResult>(`${this.base}/tag/delete`, request),
-    );
+    return this.mutate(() => this.http.post<GitMutationResult>(`${this.base}/tag/delete`, request));
   }
 
   pushTag(request: {
@@ -672,19 +683,18 @@ export class GitService {
   /** The stored review of one pull request, or null if it has none yet. */
   getAiReview(id: number): Observable<AiReviewState | null> {
     return this.http
-      .get<{ state: AiReviewState | null }>(
-        `${this.base}/azure-devops/pullrequests/${id}/ai-review`,
-      )
+      .get<{
+        state: AiReviewState | null;
+      }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review`)
       .pipe(map((response) => response.state));
   }
 
-  /** Reviews the pull request now; force re-reads the whole diff. */
-  runAiReview(id: number, force = false): Observable<AiReviewState> {
+  /** Reviews the pull request now; force re-reads the whole diff, model overrides the configured one. */
+  runAiReview(id: number, force = false, model = ''): Observable<AiReviewState> {
     return this.http
-      .post<{ state: AiReviewState }>(
-        `${this.base}/azure-devops/pullrequests/${id}/ai-review`,
-        { force },
-      )
+      .post<{
+        state: AiReviewState;
+      }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review`, { force, model })
       .pipe(map((response) => response.state));
   }
 
@@ -692,10 +702,9 @@ export class GitService {
   postAiReviewFindings(id: number, findingIds: string[]): Observable<AiReviewState> {
     return this.mutate(() =>
       this.http
-        .post<{ state: AiReviewState }>(
-          `${this.base}/azure-devops/pullrequests/${id}/ai-review/post`,
-          { findingIds },
-        )
+        .post<{
+          state: AiReviewState;
+        }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review/post`, { findingIds })
         .pipe(map((response) => response.state)),
     );
   }
@@ -703,10 +712,9 @@ export class GitService {
   /** Dismisses findings; a dismissed point is never raised again. */
   dismissAiReviewFindings(id: number, findingIds: string[]): Observable<AiReviewState> {
     return this.http
-      .post<{ state: AiReviewState }>(
-        `${this.base}/azure-devops/pullrequests/${id}/ai-review/dismiss`,
-        { findingIds },
-      )
+      .post<{
+        state: AiReviewState;
+      }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review/dismiss`, { findingIds })
       .pipe(map((response) => response.state));
   }
 

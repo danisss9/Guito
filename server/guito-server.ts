@@ -22,6 +22,7 @@ import {
   type AiReviewStore,
   type AiReviewer,
 } from './ai-review.js';
+import { generateCommitMessage } from './commit-message.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -111,6 +112,19 @@ export interface GuitoServerOptions {
 }
 
 const AZURE_API_VERSION = '5.0-preview';
+// The Policy API has been GA since 4.1 and does not answer to the
+// 5.0-preview version the git endpoints use.
+const AZURE_POLICY_API_VERSION = '5.0';
+// Policy type id of the branch "Merge Types" policy. It is nearly identical
+// to the minimum-approver-count id (...4906e5d171dd), so keep them apart.
+const AZURE_MERGE_TYPES_POLICY_ID = 'fa4e907d-c16b-4a4c-9dfa-4916e5d171ab';
+/** Merge-types policy setting flag per Guito merge strategy. */
+const AZURE_MERGE_POLICY_FLAGS: Record<string, string> = {
+  noFastForward: 'allowNoFastForward',
+  squash: 'allowSquash',
+  rebase: 'allowRebase',
+  rebaseMerge: 'allowRebaseMerge',
+};
 export const DEFAULT_PR_BRANCH_NAME_TEMPLATE = 'pr/${randomstring}';
 
 /** Matches the UI's insensitive-search behavior for casing and accents. */
@@ -1007,7 +1021,10 @@ export async function startGuitoServer({
           ? searchCaseSensitive
           : (fileSearchCaseSensitive ?? false),
       allowMerge: typeof allowMerge === 'boolean' ? allowMerge : (fileAllowMerge ?? true),
-      aiReview: resolveAiReviewConfig(file.aiReview as Partial<AiReviewConfig> | undefined, aiReview),
+      aiReview: resolveAiReviewConfig(
+        file.aiReview as Partial<AiReviewConfig> | undefined,
+        aiReview,
+      ),
       issueLinking,
     };
   };
@@ -1573,13 +1590,7 @@ export async function startGuitoServer({
         if (newBranch) {
           await verifyBranchName(newBranch);
           // --track sets the upstream when checking out a remote-tracking ref.
-          await git.raw([
-            'checkout',
-            '-b',
-            newBranch,
-            ...(track ? ['--track'] : []),
-            ref,
-          ]);
+          await git.raw(['checkout', '-b', newBranch, ...(track ? ['--track'] : []), ref]);
         } else {
           await git.raw(['checkout', ...(detach ? ['--detach'] : []), ref]);
         }
@@ -1708,13 +1719,17 @@ export async function startGuitoServer({
   app.post('/api/stash/save', async (req: any, resp) => {
     try {
       const message = strField(req.body?.message);
-      const scope = ['staged', 'unstaged', 'all'].includes(req.body?.scope) ? req.body.scope : 'all';
+      const scope = ['staged', 'unstaged', 'all'].includes(req.body?.scope)
+        ? req.body.scope
+        : 'all';
       // 'staged' → index only (--staged, git ≥ 2.35); 'unstaged' → working tree only
       // (--keep-index leaves staged changes staged); 'all' → index + working tree.
       // Untracked files ride along unless includeUntracked opts out (the legacy
       // callers kept them for 'all'/'unstaged', which stay the defaults).
       const includeUntracked =
-        typeof req.body?.includeUntracked === 'boolean' ? req.body.includeUntracked : scope !== 'staged';
+        typeof req.body?.includeUntracked === 'boolean'
+          ? req.body.includeUntracked
+          : scope !== 'staged';
       const args = ['push'];
       if (scope === 'staged') args.push('--staged');
       if (scope === 'unstaged') args.push('--keep-index');
@@ -1732,7 +1747,11 @@ export async function startGuitoServer({
       const index = Number(req.body?.index);
       if (!Number.isInteger(index) || index < 0) throw new Error('A stash index is required.');
       // --index restores the staged/unstaged split recorded by the stash.
-      const args = ['apply', ...(boolField(req.body?.restoreIndex) ? ['--index'] : []), `stash@{${index}}`];
+      const args = [
+        'apply',
+        ...(boolField(req.body?.restoreIndex) ? ['--index'] : []),
+        `stash@{${index}}`,
+      ];
       await mutate(() => git.stash(args));
       return mutationResult(resp, []);
     } catch (err: any) {
@@ -1744,7 +1763,11 @@ export async function startGuitoServer({
     try {
       const index = Number(req.body?.index);
       if (!Number.isInteger(index) || index < 0) throw new Error('A stash index is required.');
-      const args = ['pop', ...(boolField(req.body?.restoreIndex) ? ['--index'] : []), `stash@{${index}}`];
+      const args = [
+        'pop',
+        ...(boolField(req.body?.restoreIndex) ? ['--index'] : []),
+        `stash@{${index}}`,
+      ];
       await mutate(() => git.stash(args));
       return mutationResult(resp, []);
     } catch (err: any) {
@@ -1893,7 +1916,9 @@ export async function startGuitoServer({
       const remote = strField(req.body?.remote);
       const branch = strField(req.body?.branch);
       // 'mode' supersedes the legacy 'rebase' boolean (kept for older callers).
-      const mode = ['merge', 'rebase', 'ff-only'].includes(req.body?.mode) ? req.body.mode : 'merge';
+      const mode = ['merge', 'rebase', 'ff-only'].includes(req.body?.mode)
+        ? req.body.mode
+        : 'merge';
       const rebase = boolField(req.body?.rebase) || mode === 'rebase';
       const ffOnly = mode === 'ff-only';
       // An explicit remote must be configured; without one, keep the legacy
@@ -2569,13 +2594,81 @@ export async function startGuitoServer({
     }
   });
 
-  /** Full detail of one pull request, as the dialog and the reviewer see it. */
-  const azurePrDetail = async (id: number) => {
+  /** The project's branch policy configurations; null when they cannot be read. */
+  const azurePolicyConfigurations = async (prefix: string): Promise<any[] | null> => {
+    try {
+      const data = await azureJson<any>(
+        'GET',
+        `${prefix}/_apis/policy/configurations?api-version=${AZURE_POLICY_API_VERSION}`,
+      );
+      return Array.isArray(data?.value) ? data.value : [];
+    } catch {
+      // A denied or unavailable policy read must not take the whole dialog
+      // down; the client then falls back to the local allowMerge setting.
+      return null;
+    }
+  };
+
+  /**
+   * Merge strategies the pull request's target branch allows, from the branch
+   * "Merge Types" policies covering it: a strategy survives only when every
+   * applicable policy allows it. null means nothing restricts the branch (or
+   * the policies could not be read), and a legacy squash-only policy
+   * ("useSquashMerge") allows squash alone.
+   */
+  const azureMergePolicyOf = (policies: any[] | null, pr: any): string[] | null => {
+    if (!policies) return null;
+    const repositoryId = String(pr?.repository?.id ?? '');
+    const targetRefName = String(pr?.targetRefName ?? '');
+    if (!repositoryId || !targetRefName) return null;
+    const coversPullRequest = (scope: any): boolean => {
+      const scopeRepository = String(scope?.repositoryId ?? '');
+      if (scopeRepository && scopeRepository !== repositoryId) return false;
+      // Without a refName the scope covers every branch of the repository.
+      const refName = String(scope?.refName ?? '');
+      if (!refName) return true;
+      return String(scope?.matchKind ?? 'Exact').toLowerCase() === 'prefix'
+        ? targetRefName.startsWith(refName)
+        : targetRefName === refName;
+    };
+    const applicable = policies.filter(
+      (policy: any) =>
+        policy?.isEnabled === true &&
+        policy?.isDeleted !== true &&
+        String(policy?.type?.id ?? '') === AZURE_MERGE_TYPES_POLICY_ID &&
+        (Array.isArray(policy?.settings?.scope) ? policy.settings.scope : []).some(
+          coversPullRequest,
+        ),
+    );
+    if (!applicable.length) return null;
+    const all = Object.keys(AZURE_MERGE_POLICY_FLAGS);
+    let allowed = new Set(all);
+    for (const policy of applicable) {
+      const settings = policy.settings ?? {};
+      const strategies =
+        settings.useSquashMerge === true
+          ? ['squash']
+          : all.filter((strategy) => settings[AZURE_MERGE_POLICY_FLAGS[strategy]] === true);
+      allowed = new Set(strategies.filter((strategy) => allowed.has(strategy)));
+    }
+    // Overlapping policies that share no strategy are a pathological
+    // configuration; treat the branch as unrestricted rather than offering
+    // no completion strategy at all.
+    return allowed.size ? all.filter((strategy) => allowed.has(strategy)) : null;
+  };
+
+  /**
+   * Full detail of one pull request, as the dialog and the reviewer see it.
+   * The merge policy is skipped for the review poller, which reloads detail
+   * repeatedly and does not complete pull requests.
+   */
+  const azurePrDetail = async (id: number, withMergePolicy = true) => {
     {
       const { base, prefix, remoteUrl } = await azurePrApiBase(id);
-      const [pr, me] = await Promise.all([
+      const [pr, me, policies] = await Promise.all([
         azureJson<any>('GET', `${base}?api-version=${AZURE_API_VERSION}`),
         azureMe(),
+        withMergePolicy ? azurePolicyConfigurations(prefix) : Promise.resolve(null),
       ]);
       const summary = mapAzurePullRequest(pr, prefix, remoteUrl, me);
       // Some Server releases omit labels from the PR detail response; read
@@ -2619,6 +2712,10 @@ export async function startGuitoServer({
         lastMergeTargetCommit: String(pr?.lastMergeTargetCommit?.commitId ?? ''),
         labels,
         mergeStatus: azureMergeStatus(pr),
+        // Strategies the target branch's policies allow; null when
+        // unrestricted (or unreadable), so the dialog falls back to the
+        // local allowMerge setting alone.
+        mergePolicy: azureMergePolicyOf(policies, pr),
       };
     }
   };
@@ -2728,31 +2825,41 @@ export async function startGuitoServer({
     try {
       const enabled = req.body?.enabled === true;
       const { base } = await azurePrApiBase(Number(req.params?.id));
-      const buildPayload = (identity: Record<string, unknown> | null) => {
-        const payload: Record<string, unknown> = {
-          autoCompleteSetBy: identity,
-        };
-        if (enabled) {
-          const options = completionOptionsOf(req.body);
-          if (options) payload.completionOptions = options;
-        }
-        return JSON.stringify(payload);
-      };
       const url = `${base}?api-version=${AZURE_API_VERSION}`;
-      const me = enabled ? await azureMe() : null;
-      // Azure DevOps clears auto-complete for an empty identity; some Server
-      // releases only accept an explicit null, so retry that shape on failure.
-      try {
-        await azureJson<any>(
-          'PATCH',
-          url,
-          buildPayload(enabled && me ? { id: me.id } : { id: '' }),
-        );
-      } catch (firstError: any) {
-        if (enabled) throw firstError;
-        await azureJson<any>('PATCH', url, buildPayload(null));
+      if (enabled) {
+        const me = await azureMe();
+        const payload: Record<string, unknown> = {
+          autoCompleteSetBy: { id: me.id },
+        };
+        const options = completionOptionsOf(req.body);
+        if (options) payload.completionOptions = options;
+        await azureJson<any>('PATCH', url, JSON.stringify(payload));
+        return resp.type('application/json').send({ ok: true });
       }
-      return resp.type('application/json').send({ ok: true });
+      // Clearing auto-complete accepts two payload shapes: an empty identity
+      // id (Azure DevOps cloud) and an explicit null (some Server releases).
+      // A PATCH may also return 200 while silently ignoring the field, so
+      // every attempt is verified against the returned pull request record
+      // before the next shape is tried.
+      let lastError: any = null;
+      for (const identity of [{ id: '' }, null]) {
+        try {
+          const pr = await azureJson<any>(
+            'PATCH',
+            url,
+            JSON.stringify({ autoCompleteSetBy: identity }),
+          );
+          if (!pr?.autoCompleteSetBy) {
+            return resp.type('application/json').send({ ok: true });
+          }
+          lastError = new Error(
+            'Azure DevOps acknowledged the request but did not clear auto-complete.',
+          );
+        } catch (err: any) {
+          lastError = err;
+        }
+      }
+      throw lastError;
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }
@@ -2952,9 +3059,7 @@ export async function startGuitoServer({
       // iteration that produced it; an unknown commit falls back to the
       // full change list rather than silently reviewing nothing.
       const baseIteration = sinceCommit
-        ? list.find(
-            (entry: any) => String(entry?.sourceRefCommit?.commitId ?? '') === sinceCommit,
-          )
+        ? list.find((entry: any) => String(entry?.sourceRefCommit?.commitId ?? '') === sinceCommit)
         : null;
       const compareTo =
         baseIteration && Number(baseIteration.id) !== Number(latest.id)
@@ -3610,7 +3715,7 @@ export async function startGuitoServer({
           targetCommit: pr.targetCommit,
         })),
       loadPullRequest: async (id) => {
-        const pr = await azurePrDetail(id);
+        const pr = await azurePrDetail(id, false);
         return {
           id: pr.id,
           title: pr.title,
@@ -3701,11 +3806,13 @@ export async function startGuitoServer({
   });
 
   // Reviews the pull request now; "force" re-reviews the whole diff even when
-  // the merge source commit has not moved.
+  // the merge source commit has not moved, and "model" overrides the
+  // configured Claude model for this one run.
   app.post('/api/azure-devops/pullrequests/:id/ai-review', async (req: any, resp) => {
     try {
       const state = await aiReviewer.review(Number(req.params?.id), {
         force: req.body?.force === true,
+        model: typeof req.body?.model === 'string' ? req.body.model : '',
       });
       if (state.status === 'error') {
         return resp.status(400).type('application/json').send({ error: state.error, state });
@@ -3747,6 +3854,51 @@ export async function startGuitoServer({
     try {
       await aiReviewer.forget(Number(req.params?.id));
       return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // ==================== AI commit message ====================
+  // One Claude Code run over the pending changes; the reply fills the working
+  // panel's message box. Nothing is committed and no Azure DevOps call is made.
+  app.post('/api/commit-message', async (req: any, resp) => {
+    try {
+      await mutationQueue;
+      const snapshot = await working.snapshot();
+      const staged = snapshot.stagedFiles;
+      const scope: 'staged' | 'working' = staged.length ? 'staged' : 'working';
+      const files = scope === 'staged' ? staged : [...staged, ...snapshot.unstagedFiles];
+      if (!files.length) {
+        throw new Error('There are no changes to write a commit message about.');
+      }
+      let branch = '';
+      try {
+        branch = await currentBranch();
+      } catch {
+        branch = '';
+      }
+      let recentSubjects: string[] = [];
+      try {
+        recentSubjects = (await git.raw(['log', '-n', '12', '--pretty=format:%s']))
+          .split(/\r?\n/)
+          .map((subject) => subject.trim())
+          .filter(Boolean);
+      } catch {
+        // No commits yet (fresh repository); the model manages without style.
+      }
+      const message = await generateCommitMessage({
+        branch,
+        scope,
+        files,
+        recentSubjects,
+        config: await refreshAiReviewConfig(),
+        model: strField(req.body?.model),
+        cwd: repositoryPath,
+        runModel: aiReviewModelImpl,
+        log: (line) => onLog?.(line),
+      });
+      return resp.type('application/json').send(message);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
     }

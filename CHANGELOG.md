@@ -4,6 +4,23 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-01
+
+### Added
+
+- Draft commit messages with Claude. A new **Generate message** button in the uncommitted-changes panel hands the pending changes to Claude Code running on this machine and fills the commit message and description boxes with the reply, matching the language and style of your recent commits. The **Commit message model** setting (`guito.aiReview.commitMessageModel` inside the extension) picks the model; haiku is the default, since a subject line is a small question. Nothing is committed automatically: the draft lands in the boxes for you to review and edit, and Guito falls back to every uncommitted change when nothing is staged.
+- Choose which Claude model reviews your pull requests. A new **Claude model** setting (the `guito.aiReview.model` VS Code setting inside the extension) sets the default for the automated reviewer, and the model picker in the pull request dialog's **Review** tab — preselected from that setting — overrides it for a single run; the review's summary line shows which model produced it. Aliases like "opus" always mean the latest model of that family Claude Code has.
+- Scrolling to the end of the commit history now loads the next page automatically, so long histories can be explored without touching the footer; the **Load more commits** and **Load all** buttons remain available for explicit control.
+- Pull request completion and auto-complete now follow the target branch's merge policy. Guito reads the project's Azure DevOps branch policies and offers only the merge strategies the "Merge Types" policies covering the pull request allow (so a squash-only branch no longer lists the other strategies, which Azure would reject anyway), notes in the dialog when the list is limited by policy, and still applies the **Allow merge completion** setting on top. Branches without a merge policy keep offering every strategy.
+
+### Fixed
+
+- Canceling auto-complete on an Azure DevOps pull request now verifies the server actually cleared it. Azure DevOps sometimes answers the clearing PATCH with 200 OK while silently leaving auto-complete enabled, which made the button appear to do nothing; Guito now checks the pull request the server returns, retries with the alternate payload shape, and reports an error when auto-complete is still set.
+
+### Removed
+
+- The `guito.aiReview.claudeArgs` setting. Models are chosen with the new model settings instead: `guito.aiReview.model` for pull request reviews and `guito.aiReview.commitMessageModel` for commit messages.
+
 ## [1.0.6] - 2026-09-24
 
 ### Added

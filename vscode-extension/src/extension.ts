@@ -635,9 +635,7 @@ function webviewHtml(externalUri: vscode.Uri, nonce: string): string {
 }
 
 async function closeAllSessions(): Promise<void> {
-  const active = [...sessions.values()].flatMap((repositorySessions) => [
-    ...repositorySessions,
-  ]);
+  const active = [...sessions.values()].flatMap((repositorySessions) => [...repositorySessions]);
   sessions.clear();
   await Promise.allSettled(active.map((session) => session.server.close()));
 }
@@ -858,10 +856,11 @@ function readHostSettings(): GuitoHostSettings {
     aiReview: {
       enabled: configuration.get<boolean>('aiReview.enabled', false),
       scope: configuration.get<'reviewer' | 'mine' | 'all'>('aiReview.scope', 'reviewer'),
-      pollMinutes: configuration.get<number>('aiReview.pollMinutes', 5),
+      pollMinutes: configuration.get<number>('aiReview.pollMinutes', 30),
       includeDrafts: configuration.get<boolean>('aiReview.includeDrafts', false),
       claudePath: configuration.get<string>('aiReview.claudePath', '').trim(),
-      claudeArgs: configuration.get<string[]>('aiReview.claudeArgs', []),
+      model: configuration.get<string>('aiReview.model', '').trim(),
+      commitMessageModel: configuration.get<string>('aiReview.commitMessageModel', 'haiku').trim(),
       timeoutSeconds: configuration.get<number>('aiReview.timeoutSeconds', 600),
       instructions: configuration.get<string>('aiReview.instructions', ''),
     },

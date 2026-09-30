@@ -17,6 +17,7 @@ import { catchError, switchMap } from 'rxjs/operators';
 import { Observable, of } from 'rxjs';
 import { BranchInfo, CreatePrResult } from '../../models/git.models';
 import { ChipInput, ChipSuggestion } from './chip-input';
+import { MarkdownText } from '../markdown-text/markdown-text';
 import { GitService } from '../../services/git.service';
 
 /** Sentinel source value meaning "create a new remote branch with a random name". */
@@ -24,7 +25,7 @@ const NEW_BRANCH = '__new__';
 
 @Component({
   selector: 'app-create-pr-dialog',
-  imports: [ErrorBanner, ChipInput],
+  imports: [ErrorBanner, ChipInput, MarkdownText],
   templateUrl: './create-pr-dialog.html',
   styleUrl: './create-pr-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -42,6 +43,8 @@ export class CreatePrDialog implements OnInit {
   protected readonly isDraft = signal(false);
   protected readonly title = signal('');
   protected readonly description = signal('');
+  /** Toggles the description field between editing and rendered markdown. */
+  protected readonly descriptionMode = signal<'write' | 'preview'>('write');
   protected readonly source = signal('');
   protected readonly target = signal('');
   protected readonly creating = signal(false);

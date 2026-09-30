@@ -18,7 +18,7 @@ Guito checks for pull requests every few minutes (by default the active ones tha
 
 The reviewer keeps running while no Guito panel is open. Run **Guito: Review Pull Requests Now** from the Command Palette to check immediately.
 
-Settings: `guito.aiReview.enabled`, `.scope`, `.pollMinutes`, `.includeDrafts`, `.claudePath`, `.claudeArgs`, `.timeoutSeconds`, and `.instructions`.
+Settings: `guito.aiReview.enabled`, `.scope`, `.pollMinutes`, `.includeDrafts`, `.claudePath`, `.model`, `.commitMessageModel`, `.timeoutSeconds`, and `.instructions`.
 
 ## Requirements
 

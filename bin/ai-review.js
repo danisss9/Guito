@@ -6,10 +6,11 @@ const SEVERITIES = ['blocker', 'concern', 'suggestion', 'nit'];
 export const DEFAULT_AI_REVIEW_CONFIG = {
     enabled: false,
     scope: 'reviewer',
-    pollMinutes: 5,
+    pollMinutes: 30,
     includeDrafts: false,
     claudePath: '',
-    claudeArgs: [],
+    model: '',
+    commitMessageModel: 'haiku',
     timeoutSeconds: 600,
     maxDiffChars: 300000,
     instructions: '',
@@ -33,8 +34,11 @@ export function resolveAiReviewConfig(...sources) {
         if (typeof source.claudePath === 'string' && source.claudePath.trim()) {
             config.claudePath = source.claudePath.trim();
         }
-        if (Array.isArray(source.claudeArgs)) {
-            config.claudeArgs = source.claudeArgs.map((arg) => String(arg)).filter(Boolean);
+        if (typeof source.model === 'string') {
+            config.model = source.model.trim();
+        }
+        if (typeof source.commitMessageModel === 'string') {
+            config.commitMessageModel = source.commitMessageModel.trim();
         }
         if (Number.isFinite(source.timeoutSeconds)) {
             config.timeoutSeconds = Math.min(Math.max(Number(source.timeoutSeconds), 30), 3600);
@@ -83,12 +87,7 @@ async function bundledClaudeCandidates() {
     const home = homedir();
     const binary = process.platform === 'win32' ? 'claude.exe' : 'claude';
     const found = [];
-    for (const root of [
-        '.vscode',
-        '.vscode-insiders',
-        '.vscode-server',
-        '.vscode-server-insiders',
-    ]) {
+    for (const root of ['.vscode', '.vscode-insiders', '.vscode-server', '.vscode-server-insiders']) {
         const extensions = join(home, root, 'extensions');
         let entries;
         try {
@@ -132,8 +131,9 @@ export async function resolveClaudeCommand(configured) {
 /**
  * Runs the Claude Code CLI in print mode. The prompt goes over stdin because a
  * pull request diff is far larger than the Windows command line allows.
+ * Exported because the commit message drafter runs the CLI the same way.
  */
-const runClaudeCli = (prompt, { command, args, cwd, timeoutMs }) => new Promise((resolve, reject) => {
+export const runClaudeCli = (prompt, { command, args, cwd, timeoutMs, signal }) => new Promise((resolve, reject) => {
     const child = spawn(command, args, {
         cwd,
         windowsHide: true,
@@ -148,6 +148,7 @@ const runClaudeCli = (prompt, { command, args, cwd, timeoutMs }) => new Promise(
             return;
         settled = true;
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         if (error)
             reject(error);
         else
@@ -157,6 +158,16 @@ const runClaudeCli = (prompt, { command, args, cwd, timeoutMs }) => new Promise(
         child.kill();
         finish(new Error(`The review timed out after ${Math.round(timeoutMs / 1000)}s.`));
     }, timeoutMs);
+    const onAbort = () => {
+        child.kill();
+        finish(new Error('The review was cancelled.'));
+    };
+    if (signal) {
+        if (signal.aborted)
+            onAbort();
+        else
+            signal.addEventListener('abort', onAbort);
+    }
     child.stdout.on('data', (chunk) => {
         stdout += String(chunk);
     });
@@ -339,9 +350,7 @@ export function buildReviewPrompt(input) {
         'EXISTING COMMENT THREADS ON THE PULL REQUEST:',
         renderThreads(threads),
         '',
-        input.skipped.length
-            ? `NOT SHOWN (binary or unreviewable): ${input.skipped.join(', ')}\n`
-            : '',
+        input.skipped.length ? `NOT SHOWN (binary or unreviewable): ${input.skipped.join(', ')}\n` : '',
         input.instructions.trim() ? `TEAM INSTRUCTIONS:\n${input.instructions.trim()}\n` : '',
         REVIEW_CONTRACT,
         '',
@@ -371,6 +380,7 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
     const running = new Set();
     let timer;
     let activePoll = null;
+    let pollAbort;
     // One review at a time: each one spawns a CLI and burns Azure DevOps calls.
     let queue = Promise.resolve();
     const serialize = (action) => {
@@ -422,7 +432,10 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
             const rawLine = Number(entry?.line);
             const line = inDiff && Number.isInteger(rawLine) && anchors.get(file).has(rawLine) ? rawLine : null;
             const rawEnd = Number(entry?.endLine);
-            const endLine = line !== null && Number.isInteger(rawEnd) && rawEnd >= line && anchors.get(file).has(rawEnd)
+            const endLine = line !== null &&
+                Number.isInteger(rawEnd) &&
+                rawEnd >= line &&
+                anchors.get(file).has(rawEnd)
                 ? rawEnd
                 : null;
             const severity = SEVERITIES.includes(entry?.severity)
@@ -451,9 +464,23 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
         return accepted.sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity));
     };
     const runReview = async (pullRequestId, options = {}) => {
+        // A pass the poller cancelled before this review's turn must not start.
+        if (options.signal?.aborted) {
+            return (await stateOf(pullRequestId)) ?? emptyState(pullRequestId);
+        }
         const pullRequest = await deps.loadPullRequest(pullRequestId);
         const previousState = (await stateOf(pullRequestId)) ?? emptyState(pullRequestId);
+        // A per-review model choice wins over the configured one. An alias such
+        // as "opus" always means the latest model of that family Claude Code has.
+        const model = typeof options.model === 'string' && options.model.trim()
+            ? options.model.trim()
+            : config.model;
+        // A different model earns a fresh look at code already reviewed at this
+        // commit; when new commits exist, they alone are reviewed with it.
+        const freshLook = (previousState.model ?? '') !== model &&
+            previousState.reviewedCommit === pullRequest.sourceCommit;
         if (!options.force &&
+            !freshLook &&
             previousState.reviewedCommit &&
             previousState.reviewedCommit === pullRequest.sourceCommit) {
             return previousState;
@@ -495,18 +522,14 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                     instructions: config.instructions,
                 });
                 const command = await resolveClaudeCommand(config.claudePath);
-                const args = [
-                    '-p',
-                    '--output-format',
-                    'json',
-                    ...(config.claudeArgs.length ? config.claudeArgs : []),
-                ];
-                log(`AI review: reviewing pull request ${pullRequestId} with ${command}`);
+                const args = ['-p', '--output-format', 'json', ...(model ? ['--model', model] : [])];
+                log(`AI review: reviewing pull request ${pullRequestId} with ${command}${model ? ` (${model})` : ''}`);
                 const raw = await runModel(prompt, {
                     command,
                     args,
                     cwd: repositoryPath,
                     timeoutMs: config.timeoutSeconds * 1000,
+                    signal: options.signal,
                 });
                 const review = parseModelReview(raw);
                 summary = review.summary;
@@ -521,6 +544,7 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                     ...current,
                     title: pullRequest.title,
                     reviewedCommit: pullRequest.sourceCommit,
+                    model,
                     reviewedAt: now().toISOString(),
                     passes: current.passes + 1,
                     status: 'idle',
@@ -539,16 +563,23 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
             return next;
         }
         catch (error) {
+            const cancelled = options.signal?.aborted === true;
             const message = error?.message ? String(error.message) : String(error);
-            log(`AI review: pull request ${pullRequestId} failed: ${message}`);
+            log(cancelled
+                ? `AI review: pull request ${pullRequestId} was cancelled.`
+                : `AI review: pull request ${pullRequestId} failed: ${message}`);
             return mutateStore((store) => {
                 const current = store.pullRequests[String(pullRequestId)] ?? previousState;
-                const state = {
-                    ...current,
-                    status: 'error',
-                    error: message,
-                    errorCommit: pullRequest.sourceCommit,
-                };
+                // A cancelled review is not a failure: the pull request is left as it
+                // was, so switching the reviewer back on reviews the same commit.
+                const state = cancelled
+                    ? { ...current, status: 'idle', error: '' }
+                    : {
+                        ...current,
+                        status: 'error',
+                        error: message,
+                        errorCommit: pullRequest.sourceCommit,
+                    };
                 store.pullRequests[String(pullRequestId)] = state;
                 return state;
             });
@@ -558,12 +589,14 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
         }
     };
     /** One pass over the pull requests in scope; reviews those with new code. */
-    const runPoll = async () => {
+    const runPoll = async (signal) => {
         const reviewed = [];
         try {
             const pullRequests = (await deps.listPullRequests()).filter(wanted);
             const store = await deps.readStore();
             for (const pullRequest of pullRequests) {
+                if (signal?.aborted)
+                    break;
                 if (!pullRequest.sourceCommit)
                     continue;
                 const state = store.pullRequests?.[String(pullRequest.id)];
@@ -573,8 +606,8 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                     continue;
                 if (state?.status === 'error' && state.errorCommit === pullRequest.sourceCommit)
                     continue;
-                const next = await serialize(() => runReview(pullRequest.id));
-                if (next.status !== 'error')
+                const next = await serialize(() => runReview(pullRequest.id, { signal }));
+                if (!signal?.aborted && next.status !== 'error')
                     reviewed.push(pullRequest.id);
             }
         }
@@ -591,6 +624,11 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
         if (config.scope === 'mine')
             return pullRequest.isMine;
         return pullRequest.isReviewer;
+    };
+    const clearTimer = () => {
+        if (timer)
+            clearInterval(timer);
+        timer = undefined;
     };
     const reviewer = {
         updateConfig(next) {
@@ -683,22 +721,24 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                 return Promise.resolve([]);
             // A caller asking for a poll while one runs waits for that pass rather
             // than being told, misleadingly, that there was nothing to review.
-            activePoll ?? (activePoll = runPoll().finally(() => {
+            activePoll ?? (activePoll = runPoll((pollAbort = new AbortController()).signal).finally(() => {
                 activePoll = null;
+                pollAbort = undefined;
             }));
             return activePoll;
         },
         start() {
-            reviewer.stop();
+            clearTimer();
             if (!config.enabled)
                 return;
             timer = setInterval(() => void reviewer.poll(), config.pollMinutes * 60000);
             timer.unref?.();
         },
         stop() {
-            if (timer)
-                clearInterval(timer);
-            timer = undefined;
+            clearTimer();
+            // Switching the reviewer off also cancels the pass in flight: the CLI
+            // run is aborted and the pass's remaining pull requests are skipped.
+            pollAbort?.abort();
         },
         onFindings(listener) {
             listeners.add(listener);

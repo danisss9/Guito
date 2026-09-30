@@ -5,30 +5,32 @@ import {
   HostListener,
   OnInit,
   computed,
+  effect,
   inject,
   input,
   output,
   signal,
-} from "@angular/core";
-import { NgTemplateOutlet } from "@angular/common";
-import { takeUntilDestroyed, toObservable } from "@angular/core/rxjs-interop";
-import { Observable, of } from "rxjs";
-import { catchError, switchMap } from "rxjs/operators";
-import { GitService } from "../../services/git.service";
-import { VscodeService } from "../../services/vscode.service";
-import { AuthorAvatar } from "../author-avatar/author-avatar";
-import { ChipInput, ChipSuggestion } from "../create-pr-dialog/chip-input";
-import { MarkdownText } from "../markdown-text/markdown-text";
-import { ErrorBanner } from "../error-banner/error-banner";
-import { FileTreeRow, buildFileTreeRows } from "../../utils/file-tree";
+} from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Observable, of } from 'rxjs';
+import { catchError, switchMap } from 'rxjs/operators';
+import { GitService } from '../../services/git.service';
+import { VscodeService } from '../../services/vscode.service';
+import { AuthorAvatar } from '../author-avatar/author-avatar';
+import { ChipInput, ChipSuggestion } from '../create-pr-dialog/chip-input';
+import { MarkdownText } from '../markdown-text/markdown-text';
+import { ErrorBanner } from '../error-banner/error-banner';
+import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import {
   DiffFocus,
   LineCommentRequest,
   PrFileDiff,
   ThreadReplyRequest,
   ThreadStatusRequest,
-} from "./pr-file-diff";
+} from './pr-file-diff';
 import {
+  AI_REVIEW_MODEL_OPTIONS,
   AiReviewFinding,
   AiReviewState,
   AzureSettings,
@@ -43,40 +45,40 @@ import {
   PrThreadStatus,
   PrVote,
   PrWorkItemSuggestion,
-} from "../../models/git.models";
+} from '../../models/git.models';
 
-type PrTab = "overview" | "files" | "comments" | "review";
+type PrTab = 'overview' | 'files' | 'comments' | 'review';
 
 const SEVERITY_LABELS: Record<string, string> = {
-  blocker: "Blocker",
-  concern: "Concern",
-  suggestion: "Suggestion",
-  nit: "Nit",
+  blocker: 'Blocker',
+  concern: 'Concern',
+  suggestion: 'Suggestion',
+  nit: 'Nit',
 };
 
 const THREAD_STATUS_LABELS: Record<string, string> = {
-  active: "Active",
-  fixed: "Resolved",
+  active: 'Active',
+  fixed: 'Resolved',
   wontFix: "Won't fix",
-  closed: "Closed",
-  byDesign: "By design",
-  pending: "Pending",
+  closed: 'Closed',
+  byDesign: 'By design',
+  pending: 'Pending',
 };
 
 const MERGE_STATUS_LABELS: Record<string, string> = {
-  notSet: "Not merged",
-  queued: "Queued for merge",
-  conflicts: "Merge conflicts",
-  succeeded: "Ready to merge",
-  rejectedByPolicy: "Blocked by policy",
-  failure: "Merge failed",
+  notSet: 'Not merged',
+  queued: 'Queued for merge',
+  conflicts: 'Merge conflicts',
+  succeeded: 'Ready to merge',
+  rejectedByPolicy: 'Blocked by policy',
+  failure: 'Merge failed',
 };
 
 const CHECK_STATE_LABELS: Record<string, string> = {
-  pending: "Pending",
-  succeeded: "Passed",
-  failed: "Failed",
-  notApplicable: "N/A",
+  pending: 'Pending',
+  succeeded: 'Passed',
+  failed: 'Failed',
+  notApplicable: 'N/A',
 };
 
 /**
@@ -85,17 +87,10 @@ const CHECK_STATE_LABELS: Record<string, string> = {
  * with inline line comments), and Comments (thread list with replies).
  */
 @Component({
-  selector: "app-pr-dialog",
-  imports: [
-    AuthorAvatar,
-    ChipInput,
-    ErrorBanner,
-    MarkdownText,
-    NgTemplateOutlet,
-    PrFileDiff,
-  ],
-  templateUrl: "./pr-dialog.html",
-  styleUrl: "./pr-dialog.css",
+  selector: 'app-pr-dialog',
+  imports: [AuthorAvatar, ChipInput, ErrorBanner, MarkdownText, NgTemplateOutlet, PrFileDiff],
+  templateUrl: './pr-dialog.html',
+  styleUrl: './pr-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PrDialog implements OnInit {
@@ -115,22 +110,22 @@ export class PrDialog implements OnInit {
   protected readonly threads = signal<PrThread[]>([]);
   protected readonly files = signal<PrFileChange[]>([]);
   protected readonly loading = signal(true);
-  protected readonly error = signal("");
+  protected readonly error = signal('');
   protected readonly busy = signal(false);
 
   // Auxiliary sections load independently with their own state, so one
   // failing Azure call neither blanks the dialog nor fakes an empty section.
   protected readonly workItems = signal<PrLinkedWorkItem[]>([]);
   protected readonly workItemsLoading = signal(false);
-  protected readonly workItemsError = signal("");
+  protected readonly workItemsError = signal('');
   protected readonly checks = signal<PrCheck[]>([]);
   protected readonly checksLoading = signal(false);
-  protected readonly checksError = signal("");
+  protected readonly checksError = signal('');
   protected readonly checksWarnings = signal<string[]>([]);
   // Evaluation id of the build being requeued (empty when none is in flight),
   // plus its own error line so a failed requeue never blanks the check list.
-  protected readonly requeuing = signal("");
-  protected readonly requeueError = signal("");
+  protected readonly requeuing = signal('');
+  protected readonly requeueError = signal('');
   // Required checks gate the merge, so they are listed first, separated from
   // the informational ones. Both keep the order Azure reported them in.
   protected readonly requiredChecks = computed(() =>
@@ -140,43 +135,41 @@ export class PrDialog implements OnInit {
     this.checks().filter((check) => !check.required),
   );
   protected readonly filesLoading = signal(false);
-  protected readonly filesError = signal("");
+  protected readonly filesError = signal('');
 
-  protected readonly tab = signal<PrTab>("overview");
+  protected readonly tab = signal<PrTab>('overview');
 
   // Title/description editing.
   protected readonly editing = signal(false);
-  protected readonly editTitle = signal("");
-  protected readonly editDescription = signal("");
+  protected readonly editTitle = signal('');
+  protected readonly editDescription = signal('');
 
   // Reviewer picker (chip input with Azure identity search). The trailing
   // toggle decides whether picked reviewers are added as required.
-  protected readonly reviewerQuery = signal("");
+  protected readonly reviewerQuery = signal('');
   protected readonly reviewerSuggestions = signal<ChipSuggestion[]>([]);
   protected readonly reviewersLoading = signal(false);
-  protected readonly reviewersError = signal("");
+  protected readonly reviewersError = signal('');
   protected readonly reviewerRequired = signal(false);
 
   // Sidebar tag picker: the project's existing PR labels, filtered while
   // typing; free text also accepts a brand-new tag name.
   protected readonly tagsPickerOpen = signal(false);
-  protected readonly tagQuery = signal("");
+  protected readonly tagQuery = signal('');
   protected readonly allTags = signal<ChipSuggestion[]>([]);
   protected readonly tagsLoading = signal(false);
   protected readonly tagSuggestions = computed(() => {
     const needle = this.tagQuery().trim().toLowerCase();
     const tags = this.allTags();
-    return needle
-      ? tags.filter((tag) => tag.label.toLowerCase().includes(needle))
-      : tags;
+    return needle ? tags.filter((tag) => tag.label.toLowerCase().includes(needle)) : tags;
   });
 
   // Related work item picker: debounced Azure Boards search (title or id).
   protected readonly workItemPickerOpen = signal(false);
-  protected readonly workItemQuery = signal("");
+  protected readonly workItemQuery = signal('');
   protected readonly workItemSuggestions = signal<ChipSuggestion[]>([]);
   protected readonly workItemsSearchLoading = signal(false);
-  protected readonly workItemsSearchError = signal("");
+  protected readonly workItemsSearchError = signal('');
 
   // Vote dropdown.
   protected readonly reviewMenuOpen = signal(false);
@@ -185,31 +178,35 @@ export class PrDialog implements OnInit {
   protected readonly completeOpen = signal(false);
   protected readonly autoCompleteOpen = signal(false);
   protected readonly abandonOpen = signal(false);
-  protected readonly mergeStrategy = signal<PrMergeStrategy>("noFastForward");
+  protected readonly mergeStrategy = signal<PrMergeStrategy>('noFastForward');
   protected readonly deleteSourceBranch = signal(false);
   protected readonly completeWorkItems = signal(false);
   protected readonly transitionWorkItems = signal(false);
 
   // Comment composer on the Comments tab.
-  protected readonly newComment = signal("");
+  protected readonly newComment = signal('');
 
   // Review tab: the queued findings from the automated reviewer, plus the
   // ones the user has ticked for posting.
   protected readonly review = signal<AiReviewState | null>(null);
   protected readonly reviewLoading = signal(false);
   protected readonly reviewRunning = signal(false);
-  protected readonly reviewError = signal("");
+  protected readonly reviewError = signal('');
   protected readonly selectedFindings = signal<Set<string>>(new Set());
+  // The model picker starts from the configured default and only sticks
+  // once the user actually chooses one for this pull request.
+  protected readonly reviewModel = signal('');
+  private reviewModelPicked = false;
   protected readonly pendingFindings = computed(() =>
-    (this.review()?.findings ?? []).filter((finding) => finding.status === "pending"),
+    (this.review()?.findings ?? []).filter((finding) => finding.status === 'pending'),
   );
   protected readonly resolvedFindings = computed(() =>
-    (this.review()?.findings ?? []).filter((finding) => finding.status !== "pending"),
+    (this.review()?.findings ?? []).filter((finding) => finding.status !== 'pending'),
   );
   /** True once the reviewed commit is behind the pull request's current one. */
   protected readonly reviewStale = computed(() => {
     const state = this.review();
-    const head = this.pr()?.lastMergeSourceCommit ?? "";
+    const head = this.pr()?.lastMergeSourceCommit ?? '';
     return Boolean(state?.reviewedCommit && head && state.reviewedCommit !== head);
   });
 
@@ -217,14 +214,14 @@ export class PrDialog implements OnInit {
   protected readonly selectedFile = signal<PrFileChange | null>(null);
   protected readonly fileDiffs = signal<Partial<Record<string, FileDiff>>>({});
   protected readonly fileDiffLoading = signal(false);
-  protected readonly fileDiffError = signal("");
+  protected readonly fileDiffError = signal('');
   protected readonly fileFocus = signal<DiffFocus | null>(null);
   protected readonly collapsedFiles = signal<Set<string>>(new Set());
   protected readonly fileRows = computed<FileTreeRow<PrFileChange>[]>(() => {
     const files = this.files();
-    if (this.settings()?.fileListView !== "tree") {
+    if (this.settings()?.fileListView !== 'tree') {
       return files.map((file) => ({
-        kind: "file",
+        kind: 'file',
         path: file.path,
         name: file.path,
         depth: 0,
@@ -236,25 +233,34 @@ export class PrDialog implements OnInit {
 
   protected readonly mergeStrategies = computed(() =>
     PrDialog.allMergeStrategies.filter((strategy) => {
+      // The target branch's merge policy comes first: Azure DevOps rejects
+      // completions with a strategy the branch does not allow anyway.
+      const policy = this.pr()?.mergePolicy;
+      if (policy && !policy.includes(strategy.value)) {
+        return false;
+      }
       const settings = this.settings();
-      if (
-        strategy.value === "noFastForward" ||
-        strategy.value === "rebaseMerge"
-      ) {
+      if (strategy.value === 'noFastForward' || strategy.value === 'rebaseMerge') {
         return settings?.allowMerge !== false;
       }
       return true;
     }),
   );
 
+  /** Whether the branch's merge policy removed strategies Azure would offer. */
+  protected readonly mergePolicyLimited = computed(() => {
+    const policy = this.pr()?.mergePolicy;
+    return Boolean(policy && policy.length < PrDialog.allMergeStrategies.length);
+  });
+
   private static readonly allMergeStrategies: {
     value: PrMergeStrategy;
     label: string;
   }[] = [
-    { value: "noFastForward", label: "No fast-forward (merge commit)" },
-    { value: "squash", label: "Squash changes" },
-    { value: "rebase", label: "Rebase and fast-forward" },
-    { value: "rebaseMerge", label: "Semi-linear merge" },
+    { value: 'noFastForward', label: 'No fast-forward (merge commit)' },
+    { value: 'squash', label: 'Squash changes' },
+    { value: 'rebase', label: 'Rebase and fast-forward' },
+    { value: 'rebaseMerge', label: 'Semi-linear merge' },
   ];
 
   protected readonly voteOptions: {
@@ -262,15 +268,15 @@ export class PrDialog implements OnInit {
     label: string;
     icon: string;
   }[] = [
-    { value: "approve", label: "Approve", icon: "approve" },
+    { value: 'approve', label: 'Approve', icon: 'approve' },
     {
-      value: "approveWithSuggestions",
-      label: "Approve with suggestions",
-      icon: "suggestions",
+      value: 'approveWithSuggestions',
+      label: 'Approve with suggestions',
+      icon: 'suggestions',
     },
-    { value: "waitForAuthor", label: "Waiting for author", icon: "waiting" },
-    { value: "reject", label: "Reject", icon: "reject" },
-    { value: "reset", label: "Remove my vote", icon: "none" },
+    { value: 'waitForAuthor', label: 'Waiting for author', icon: 'waiting' },
+    { value: 'reject', label: 'Reject', icon: 'reject' },
+    { value: 'reset', label: 'Remove my vote', icon: 'none' },
   ];
 
   protected readonly threadStatuses = Object.keys(THREAD_STATUS_LABELS);
@@ -293,26 +299,32 @@ export class PrDialog implements OnInit {
       return [];
     }
     return this.inlineThreads().filter(
-      (thread) =>
-        thread.filePath === selected.path ||
-        thread.filePath === selected.oldPath,
+      (thread) => thread.filePath === selected.path || thread.filePath === selected.oldPath,
     );
   });
 
   constructor() {
+    // The settings arrive asynchronously; the model picker follows the
+    // configured model until the user chooses one.
+    effect(() => {
+      const model = this.settings()?.aiReview?.model ?? '';
+      if (!this.reviewModelPicked) {
+        this.reviewModel.set(model);
+      }
+    });
     // Debounced reviewer typeahead, mirroring the create-PR dialog.
     toObservable(this.reviewerQuery)
       .pipe(
         switchMap((value) => {
           this.reviewerSuggestions.set([]);
-          this.reviewersError.set("");
+          this.reviewersError.set('');
           this.reviewersLoading.set(value.trim().length >= 2);
           if (value.trim().length < 2) {
             return of([] as ChipSuggestion[]);
           }
           return this.git.searchReviewers(value.trim()).pipe(
             catchError(() => {
-              this.reviewersError.set("Unable to load suggestions.");
+              this.reviewersError.set('Unable to load suggestions.');
               return of([] as ChipSuggestion[]);
             }),
           );
@@ -330,14 +342,14 @@ export class PrDialog implements OnInit {
         switchMap((value) => {
           const query = value.trim();
           this.workItemSuggestions.set([]);
-          this.workItemsSearchError.set("");
+          this.workItemsSearchError.set('');
           this.workItemsSearchLoading.set(query.length > 0);
           if (!query) {
             return of([] as PrWorkItemSuggestion[]);
           }
           return this.git.searchWorkItems(query).pipe(
             catchError(() => {
-              this.workItemsSearchError.set("Unable to load suggestions.");
+              this.workItemsSearchError.set('Unable to load suggestions.');
               return of([] as PrWorkItemSuggestion[]);
             }),
           );
@@ -363,7 +375,7 @@ export class PrDialog implements OnInit {
   /** Loads the pull request with its threads, then its auxiliary sections. */
   protected load(): void {
     this.loading.set(true);
-    this.error.set("");
+    this.error.set('');
     this.git
       .getPrDetail(this.prId())
       .pipe(
@@ -399,7 +411,7 @@ export class PrDialog implements OnInit {
   /** Loads the changed files with section-local loading/error state. */
   protected loadFiles(): void {
     this.filesLoading.set(true);
-    this.filesError.set("");
+    this.filesError.set('');
     this.git
       .getPrChanges(this.prId())
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -428,7 +440,7 @@ export class PrDialog implements OnInit {
   /** Loads the work items linked to the pull request. */
   protected loadWorkItems(): void {
     this.workItemsLoading.set(true);
-    this.workItemsError.set("");
+    this.workItemsError.set('');
     this.git
       .getPrWorkItems(this.prId())
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -447,9 +459,9 @@ export class PrDialog implements OnInit {
   /** Loads the merge checks (policies plus native statuses). */
   protected loadChecks(): void {
     this.checksLoading.set(true);
-    this.checksError.set("");
+    this.checksError.set('');
     this.checksWarnings.set([]);
-    this.requeueError.set("");
+    this.requeueError.set('');
     this.git
       .getPrChecks(this.prId())
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -468,23 +480,23 @@ export class PrDialog implements OnInit {
 
   /** Re-queues the build behind one build check, then refreshes the list. */
   protected requeueCheck(check: PrCheck): void {
-    const evaluationId = check.evaluationId ?? "";
+    const evaluationId = check.evaluationId ?? '';
     if (!evaluationId || this.requeuing()) {
       return;
     }
     this.requeuing.set(evaluationId);
-    this.requeueError.set("");
+    this.requeueError.set('');
     this.git
       .requeuePrCheck(this.prId(), evaluationId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.requeuing.set("");
+          this.requeuing.set('');
           // Azure re-queues asynchronously; the reload shows the new state.
           this.loadChecks();
         },
         error: (err) => {
-          this.requeuing.set("");
+          this.requeuing.set('');
           this.requeueError.set(this.errorMessage(err));
         },
       });
@@ -494,9 +506,7 @@ export class PrDialog implements OnInit {
   private reload(): void {
     forkJoinTyped({
       detail: this.git.getPrDetail(this.prId()),
-      threads: this.git
-        .getPrThreads(this.prId())
-        .pipe(catchError(() => of([] as PrThread[]))),
+      threads: this.git.getPrThreads(this.prId()).pipe(catchError(() => of([] as PrThread[]))),
     }).subscribe({
       next: ({ detail, threads }) => {
         this.pr.set(detail);
@@ -514,7 +524,7 @@ export class PrDialog implements OnInit {
       return;
     }
     this.busy.set(true);
-    this.error.set("");
+    this.error.set('');
     action()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -542,8 +552,8 @@ export class PrDialog implements OnInit {
 
   protected startEditing(): void {
     this.editing.set(true);
-    this.editTitle.set(this.pr()?.title ?? "");
-    this.editDescription.set(this.pr()?.description ?? "");
+    this.editTitle.set(this.pr()?.title ?? '');
+    this.editDescription.set(this.pr()?.description ?? '');
   }
 
   protected saveEdit(): void {
@@ -576,7 +586,7 @@ export class PrDialog implements OnInit {
   }
 
   protected addReviewer(choice: ChipSuggestion): void {
-    this.reviewerQuery.set("");
+    this.reviewerQuery.set('');
     this.reviewerSuggestions.set([]);
     this.run(
       () =>
@@ -617,7 +627,7 @@ export class PrDialog implements OnInit {
   protected toggleTagsPicker(): void {
     const open = !this.tagsPickerOpen();
     this.tagsPickerOpen.set(open);
-    this.tagQuery.set("");
+    this.tagQuery.set('');
     if (!open || this.allTags().length || this.tagsLoading()) {
       return;
     }
@@ -627,9 +637,7 @@ export class PrDialog implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (tags) => {
-          this.allTags.set(
-            tags.map((tag) => ({ id: tag.name, label: tag.name })),
-          );
+          this.allTags.set(tags.map((tag) => ({ id: tag.name, label: tag.name })));
           this.tagsLoading.set(false);
         },
         error: () => this.tagsLoading.set(false),
@@ -642,12 +650,8 @@ export class PrDialog implements OnInit {
     if (!name) {
       return;
     }
-    this.tagQuery.set("");
-    if (
-      (this.pr()?.labels ?? []).some(
-        (label) => label.toLowerCase() === name.toLowerCase(),
-      )
-    ) {
+    this.tagQuery.set('');
+    if ((this.pr()?.labels ?? []).some((label) => label.toLowerCase() === name.toLowerCase())) {
       return;
     }
     this.run(
@@ -667,7 +671,7 @@ export class PrDialog implements OnInit {
   protected toggleWorkItemPicker(): void {
     const open = !this.workItemPickerOpen();
     this.workItemPickerOpen.set(open);
-    this.workItemQuery.set("");
+    this.workItemQuery.set('');
     this.workItemSuggestions.set([]);
   }
 
@@ -677,7 +681,7 @@ export class PrDialog implements OnInit {
     if (!Number.isInteger(workItemId) || workItemId <= 0) {
       return;
     }
-    this.workItemQuery.set("");
+    this.workItemQuery.set('');
     this.workItemSuggestions.set([]);
     this.run(
       () => this.git.linkPrWorkItem(this.prId(), workItemId),
@@ -711,7 +715,7 @@ export class PrDialog implements OnInit {
 
   /** First offered strategy, so a disabled default falls back gracefully. */
   private defaultMergeStrategy(): PrMergeStrategy {
-    return this.mergeStrategies()[0]?.value ?? "noFastForward";
+    return this.mergeStrategies()[0]?.value ?? 'noFastForward';
   }
 
   private completionOptions() {
@@ -719,8 +723,7 @@ export class PrDialog implements OnInit {
       mergeStrategy: this.mergeStrategy(),
       deleteSourceBranch: this.deleteSourceBranch(),
       completeWorkItems: this.completeWorkItems(),
-      transitionWorkItems:
-        this.completeWorkItems() && this.transitionWorkItems(),
+      transitionWorkItems: this.completeWorkItems() && this.transitionWorkItems(),
     };
   }
 
@@ -736,8 +739,7 @@ export class PrDialog implements OnInit {
 
   protected applyAutoComplete(): void {
     this.run(
-      () =>
-        this.git.setPrAutoComplete(this.prId(), true, this.completionOptions()),
+      () => this.git.setPrAutoComplete(this.prId(), true, this.completionOptions()),
       () => {
         this.autoCompleteOpen.set(false);
         this.reload();
@@ -762,7 +764,7 @@ export class PrDialog implements OnInit {
     this.run(
       () => this.git.addPrComment(this.prId(), { content }),
       () => {
-        this.newComment.set("");
+        this.newComment.set('');
         this.reload();
       },
     );
@@ -808,9 +810,9 @@ export class PrDialog implements OnInit {
     if (!file || thread.line === null) {
       return;
     }
-    this.tab.set("files");
+    this.tab.set('files');
     this.selectFile(file);
-    this.fileFocus.set({ line: thread.line, side: thread.side ?? "right" });
+    this.fileFocus.set({ line: thread.line, side: thread.side ?? 'right' });
   }
 
   // ---- Files tab ----
@@ -826,8 +828,8 @@ export class PrDialog implements OnInit {
 
   protected selectFile(file: PrFileChange): void {
     this.selectedFile.set(file);
-    this.fileDiffError.set("");
-    if (this.fileDiffs()[file.path] || file.changeType === "binary") {
+    this.fileDiffError.set('');
+    if (this.fileDiffs()[file.path] || file.changeType === 'binary') {
       return;
     }
     this.fileDiffLoading.set(true);
@@ -854,15 +856,15 @@ export class PrDialog implements OnInit {
   protected voteMeta(vote: number): { label: string; cls: string } {
     switch (vote) {
       case 10:
-        return { label: "Approved", cls: "vote-approve" };
+        return { label: 'Approved', cls: 'vote-approve' };
       case 5:
-        return { label: "Approved with suggestions", cls: "vote-suggestions" };
+        return { label: 'Approved with suggestions', cls: 'vote-suggestions' };
       case -5:
-        return { label: "Waiting for author", cls: "vote-waiting" };
+        return { label: 'Waiting for author', cls: 'vote-waiting' };
       case -10:
-        return { label: "Rejected", cls: "vote-reject" };
+        return { label: 'Rejected', cls: 'vote-reject' };
       default:
-        return { label: "No vote", cls: "vote-none" };
+        return { label: 'No vote', cls: 'vote-none' };
     }
   }
 
@@ -878,7 +880,6 @@ export class PrDialog implements OnInit {
     return CHECK_STATE_LABELS[state] ?? state;
   }
 
-
   // ---- Review tab ----
   // The reviewer runs Claude Code on this machine; its findings sit here until
   // the user posts them, so nothing reaches Azure DevOps unreviewed.
@@ -886,7 +887,7 @@ export class PrDialog implements OnInit {
   /** Loads the queued review for this pull request. */
   protected loadReview(): void {
     this.reviewLoading.set(true);
-    this.reviewError.set("");
+    this.reviewError.set('');
     this.git
       .getAiReview(this.prId())
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -909,9 +910,9 @@ export class PrDialog implements OnInit {
       return;
     }
     this.reviewRunning.set(true);
-    this.reviewError.set("");
+    this.reviewError.set('');
     this.git
-      .runAiReview(this.prId(), force)
+      .runAiReview(this.prId(), force, this.reviewModel().trim())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (state) => {
@@ -931,7 +932,7 @@ export class PrDialog implements OnInit {
     this.selectedFindings.set(
       new Set(
         (state?.findings ?? [])
-          .filter((finding) => finding.status === "pending")
+          .filter((finding) => finding.status === 'pending')
           .map((finding) => finding.id),
       ),
     );
@@ -967,7 +968,7 @@ export class PrDialog implements OnInit {
       return;
     }
     this.reviewRunning.set(true);
-    this.reviewError.set("");
+    this.reviewError.set('');
     this.git
       .postAiReviewFindings(this.prId(), ids)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -993,7 +994,7 @@ export class PrDialog implements OnInit {
       return;
     }
     this.reviewRunning.set(true);
-    this.reviewError.set("");
+    this.reviewError.set('');
     this.git
       .dismissAiReviewFindings(this.prId(), ids)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1019,10 +1020,10 @@ export class PrDialog implements OnInit {
     if (!file) {
       return;
     }
-    this.tab.set("files");
+    this.tab.set('files');
     this.selectFile(file);
     if (finding.line) {
-      this.fileFocus.set({ line: finding.line, side: "right" });
+      this.fileFocus.set({ line: finding.line, side: 'right' });
     }
   }
 
@@ -1030,12 +1031,25 @@ export class PrDialog implements OnInit {
     return SEVERITY_LABELS[severity] ?? severity;
   }
 
+  /** A model id set outside the pickers (e.g. in the settings file) stays selectable. */
+  protected readonly reviewModelOptions = computed(() => {
+    const current = this.reviewModel().trim();
+    return current && !AI_REVIEW_MODEL_OPTIONS.some((option) => option.value === current)
+      ? [...AI_REVIEW_MODEL_OPTIONS, { value: current, label: current }]
+      : AI_REVIEW_MODEL_OPTIONS;
+  });
+
+  protected changeReviewModel(target: EventTarget | null): void {
+    this.reviewModelPicked = true;
+    this.reviewModel.set((target as HTMLSelectElement).value);
+  }
+
   protected formatDate(iso: string): string {
     if (!iso) {
-      return "";
+      return '';
     }
     const date = new Date(iso);
-    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   }
 
   protected openInBrowser(): void {
@@ -1076,7 +1090,7 @@ export class PrDialog implements OnInit {
     );
   }
 
-  @HostListener("document:keydown.escape")
+  @HostListener('document:keydown.escape')
   protected onEscape(): void {
     if (this.editing()) {
       this.editing.set(false);
@@ -1116,7 +1130,7 @@ export class PrDialog implements OnInit {
     if (response?.status === 400 && response.error?.error) {
       return response.error.error;
     }
-    return "Failed to communicate with the Guito server.";
+    return 'Failed to communicate with the Guito server.';
   }
 }
 

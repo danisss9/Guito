@@ -48,16 +48,50 @@
         />
       </label>
 
-      <label class="field">
-        <span class="field-label">Description</span>
-        <textarea
-          class="input description"
-          rows="3"
-          placeholder="Optional description"
-          [value]="description()"
-          (input)="onDescriptionInput($event)"
-        ></textarea>
-      </label>
+      <div class="field">
+        <div class="field-head">
+          <span class="field-label">Description</span>
+          <div class="segmented" role="tablist" aria-label="Description editor mode">
+            <button
+              type="button"
+              role="tab"
+              [class.active]="descriptionMode() === 'write'"
+              [attr.aria-selected]="descriptionMode() === 'write'"
+              [disabled]="creating()"
+              (click)="descriptionMode.set('write')"
+            >
+              Write
+            </button>
+            <button
+              type="button"
+              role="tab"
+              [class.active]="descriptionMode() === 'preview'"
+              [attr.aria-selected]="descriptionMode() === 'preview'"
+              [disabled]="creating()"
+              (click)="descriptionMode.set('preview')"
+            >
+              Preview
+            </button>
+          </div>
+        </div>
+        @if (descriptionMode() === 'write') {
+          <textarea
+            class="input description"
+            rows="3"
+            placeholder="Optional description"
+            [value]="description()"
+            (input)="onDescriptionInput($event)"
+          ></textarea>
+        } @else {
+          <div class="description-preview input">
+            @if (description().trim()) {
+              <app-markdown-text [markdown]="description()" />
+            } @else {
+              <span class="preview-empty">Nothing to preview</span>
+            }
+          </div>
+        }
+      </div>
 
       <label class="field">
         <span class="field-label">Source branch</span>

@@ -214,7 +214,10 @@ export class CommitTable implements OnDestroy {
       });
       observer.observe(viewport.elementRef.nativeElement);
       const subscription = viewport.elementScrolled().subscribe(() => {
-        this.zone.run(() => this.measureViewport());
+        this.zone.run(() => {
+          this.measureViewport();
+          this.autoLoadMore(viewport.elementRef.nativeElement);
+        });
       });
       onCleanup(() => {
         observer.disconnect();
@@ -248,6 +251,20 @@ export class CommitTable implements OnDestroy {
     this.scrollLeft.set(element.scrollLeft);
     this.viewportWidth.set(element.clientWidth);
     this.viewportHeight.set(element.clientHeight);
+  }
+
+  /**
+   * Loads the next page automatically once scrolling comes within one
+   * viewport height of the end of the loaded history and the server still
+   * has more commits. Repeat emissions are harmless: the app drops loads
+   * that are already in flight.
+   */
+  private autoLoadMore(element: HTMLElement): void {
+    if (this.unloaded() <= 0 || this.historyLoading() || element.clientHeight === 0) return;
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (remaining <= element.clientHeight) {
+      this.loadMoreRequested.emit();
+    }
   }
 
   /**

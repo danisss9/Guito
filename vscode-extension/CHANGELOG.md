@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.0.7
+
+- Pick the Claude model that drafts commit messages with the new `guito.aiReview.commitMessageModel` setting (haiku by default), alongside the existing `guito.aiReview.model` for reviews.
+- Draft commit messages with Claude. The uncommitted-changes panel gains a Generate message button that hands the pending changes to Claude Code and fills the message and description boxes for you to review before committing, reusing the `guito.aiReview.claudePath` setting.
+- Removed the `guito.aiReview.claudeArgs` setting. Models are now chosen with `guito.aiReview.model` (reviews) and `guito.aiReview.commitMessageModel` (commit messages).
+- Add the `guito.aiReview.model` setting choosing which Claude model reviews pull requests: Claude Code's own default, or the latest opus, sonnet or haiku. The new model picker in the pull request dialog's Review tab starts from this setting and can override it for a single review.
+- Limit the merge strategies offered when completing a pull request or setting auto-complete to what the target branch's Azure DevOps merge policy allows, on top of the existing `guito.allowMerge` setting.
+- Fix "Cancel auto-complete" in the pull request dialog: verify Azure DevOps actually cleared auto-complete instead of trusting a 200 reply, retry with the alternate payload shape, and surface an error when it stays set.
+
 ## 1.0.6
 
 - Publish the extension to Open VSX in addition to the Visual Studio Marketplace, so VSCodium and other Open VSX-compatible editors can install Guito.

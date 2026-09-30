@@ -60,6 +60,8 @@ Click **Uncommitted changes** to open the staged and unstaged file lists. Click 
 
 Enter a commit message and optional description, then choose **Commit staged changes**. Only staged changes are committed; unstaged edits remain on disk. Commit drafts stay available when you close and reopen the panel during the session.
 
+**Generate message** drafts a subject and description with Claude Code running on your machine, from the staged diff when anything is staged and from every uncommitted change otherwise, matching the language and style of your recent commits. The draft fills the boxes for you to review and edit; nothing is committed automatically. The **Commit message model** setting picks the model.
+
 ## CLI options
 
 ```text
@@ -83,6 +85,40 @@ Run the command from anywhere inside the Git worktree you want Guito to manage. 
 
 The standalone server can execute Git commands against the current repository. Keep it on a trusted machine and do not expose its port to untrusted networks.
 
+## Settings
+
+Inside the VS Code extension, every preference below is a native VS Code setting in the `guito` namespace: open the Settings editor and search for "Guito". In the browser client, the same preferences live in the settings dialog behind the toolbar's gear icon and are stored per repository in `.git/guito-settings.json`, which is never committed. VS Code settings win over the stored file when both are set.
+
+The settings dialog also manages preferences that have no VS Code equivalent: the repository's Git user name and email, the fetch and push URLs of the configured remotes, and issue-linking rules. An issue-linking rule (a regular expression plus a URL template) turns issue references in commit messages into links; it can be saved for the repository or globally, and global rules are stored in your Git configuration as `guito.issueRegex` and `guito.issueUrl`.
+
+### General
+
+| Setting                          | Description                                                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guito.autoReload`               | Reload commits and the working tree automatically when the repository changes outside Guito, for example from a terminal. On by default.                 |
+| `guito.showGraph`                | Show the Git graph beside the commit history. On by default.                                                                                            |
+| `guito.showStashes`              | Show stash entries above the commit history. Off by default.                                                                                            |
+| `guito.showTags`                 | Show tag badges attached to commits. On by default.                                                                                                     |
+| `guito.showRemoteBranches`       | Show remote branches in the repository panel and the branch pills on commits. On by default.                                                            |
+| `guito.fileListView`             | How changed-file lists are shown: `flat` (default) lists every file with its full path, `tree` groups them into collapsible folders.                    |
+| `guito.refListView`              | How branches and tags are shown in the repository panel: `flat` (default) lists full names, `tree` groups them into collapsible namespace folders.      |
+| `guito.sidePanelSectionsExpanded`| Open the repository panel with all sections expanded. On by default.                                                                                    |
+| `guito.searchMode`               | How commit search behaves: `navigate` (default) keeps the full history and jumps between matches, `filter` shows only matching commits.                 |
+| `guito.searchCaseSensitive`      | Match commit and repository panel searches using the query's exact letter casing and accents. Off by default.                                           |
+| `guito.diffViewer`               | Where file diffs open: `vscode` (default) uses the native VS Code diff tab, `guito` uses Guito's own dialog. Binary files always use Guito's dialog.    |
+| `guito.issueRegex`               | Regular expression that recognizes issue references in commit messages, for example `#(\d+)`. Inside the extension this is the issue-linking rule; it wins over the rule saved in the settings dialog. |
+| `guito.issueUrl`                 | URL template for issue links; capture groups from the issue regex are inserted with `$1`, `$2`, and so on.                                              |
+
+### Azure DevOps
+
+| Setting                        | Description                                                                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guito.azureDevOpsUrl`         | Base URL of your on-prem Azure DevOps Server, for example `https://server/DefaultCollection`. Enables pull request creation and the automated reviewer; requests authenticate with Windows integrated auth. |
+| `guito.prBranchNameTemplate`   | Branch name template used when Guito creates a new branch for a pull request. Defaults to `pr/${randomstring}`. Variables: `${username}`, `${randomstring}`, `${branch}`, `${targetbranch}`, `${title}`, `${repository}`, `${date}` (UTC `YYYY-MM-DD`), `${time}` (UTC `HHmmss`), and `${timestamp}`. |
+| `guito.allowMerge`             | Offer the "No fast-forward (merge commit)" and "Semi-linear merge" pull request completion strategies. On by default.                                                |
+
+The `guito.aiReview.*` settings that configure the automated pull request reviewer are listed under [Automated pull request review](#automated-pull-request-review).
+
 ## Automated pull request review
 
 Guito can hand your Azure DevOps pull requests to [Claude Code](https://claude.com/claude-code) running on your own machine, then queue what it finds for you to approve.
@@ -103,10 +139,11 @@ Inside VS Code the reviewer also runs while no Guito panel is open, so pull requ
 | -------------------------------- | ---------------------------------------------------------------------------------------- |
 | `guito.aiReview.enabled`         | Turns automated review on. Off by default.                                               |
 | `guito.aiReview.scope`           | `reviewer` (default), `mine`, or `all`.                                                  |
-| `guito.aiReview.pollMinutes`     | Minutes between checks. Defaults to 5.                                                   |
+| `guito.aiReview.pollMinutes`     | Minutes between checks. Defaults to 30.                                                  |
 | `guito.aiReview.includeDrafts`   | Also review draft pull requests. Off by default.                                         |
 | `guito.aiReview.claudePath`      | Path to the Claude Code executable. Empty means Guito looks for it (see above).           |
-| `guito.aiReview.claudeArgs`      | Extra Claude Code arguments, for example `["--model", "opus"]`.                          |
+| `guito.aiReview.model`           | Which Claude model reviews pull requests. Default uses whatever Claude Code is set to.    |
+| `guito.aiReview.commitMessageModel` | Which Claude model drafts commit messages. Defaults to haiku.                          |
 | `guito.aiReview.timeoutSeconds`  | How long one review may take. Defaults to 600.                                           |
 | `guito.aiReview.instructions`    | Extra reviewing instructions, such as your team's conventions.                           |
 

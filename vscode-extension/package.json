@@ -2,7 +2,7 @@
   "name": "guito",
   "displayName": "Guito",
   "description": "Explore and manage the current Git repository with Guito inside VS Code.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "danisss9",
   "license": "MIT",
   "icon": "logo.png",
@@ -224,7 +224,7 @@
         },
         "guito.aiReview.pollMinutes": {
           "type": "number",
-          "default": 5,
+          "default": 30,
           "minimum": 1,
           "maximum": 240,
           "scope": "window",
@@ -242,14 +242,39 @@
           "scope": "window",
           "description": "Path to the Claude Code executable. Leave empty to look for it on PATH, in the standard install locations, and in the Claude Code VS Code extension's own bundled copy."
         },
-        "guito.aiReview.claudeArgs": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
+        "guito.aiReview.model": {
+          "type": "string",
+          "enum": [
+            "",
+            "opus",
+            "sonnet",
+            "haiku"
+          ],
+          "enumDescriptions": [
+            "Use whatever model Claude Code itself is configured to use.",
+            "The latest Opus model.",
+            "The latest Sonnet model.",
+            "The latest Haiku model."
+          ],
+          "default": "",
           "scope": "window",
-          "description": "Extra arguments passed to Claude Code, for example [\"--model\", \"opus\"]. Guito always passes -p and --output-format json."
+          "description": "Which Claude model reviews pull requests. The model picker in the pull request dialog's Review tab starts from this and can override it per review."
+        },
+        "guito.aiReview.commitMessageModel": {
+          "type": "string",
+          "enum": [
+            "haiku",
+            "sonnet",
+            "opus"
+          ],
+          "enumDescriptions": [
+            "The latest Haiku model.",
+            "The latest Sonnet model.",
+            "The latest Opus model."
+          ],
+          "default": "haiku",
+          "scope": "window",
+          "description": "Which Claude model drafts commit messages from your pending changes. Haiku is the default because a subject line is a small job."
         },
         "guito.aiReview.timeoutSeconds": {
           "type": "number",

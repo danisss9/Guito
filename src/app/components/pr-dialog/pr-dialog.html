@@ -557,7 +557,9 @@
           </p>
           <p class="review-meta">
             {{ state.passes }} review{{ state.passes === 1 ? '' : 's' }} · last
-            run {{ formatDate(state.reviewedAt) }} @if (reviewStale()) {
+            run {{ formatDate(state.reviewedAt) }} @if (state.model) {
+            <span>· {{ state.model }}</span>
+            } @if (reviewStale()) {
             <span class="review-stale"
               >· new commits since this review</span
             >
@@ -572,6 +574,21 @@
           }
         </div>
         <div class="review-actions">
+          <label
+            class="review-model"
+            title="Which Claude model reviews this pull request; Default uses whatever Claude Code itself is set to"
+          >
+            <span>Model</span>
+            <select
+              [value]="reviewModel()"
+              (change)="changeReviewModel($event.target)"
+              [disabled]="reviewRunning()"
+            >
+              @for (option of reviewModelOptions(); track option.value) {
+              <option [value]="option.value">{{ option.label }}</option>
+              }
+            </select>
+          </label>
           <button
             type="button"
             class="btn"
@@ -887,6 +904,11 @@
         }
       </select></label
     >
+    @if (mergePolicyLimited()) {
+    <p class="policy-note">
+      The target branch's policy allows only the listed merge strategies.
+    </p>
+    }
     <label class="check"
       ><input
         type="checkbox"

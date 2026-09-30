@@ -104,6 +104,10 @@ export class App implements OnDestroy {
   private readonly commitDraft = loadCommitDraft();
   protected readonly commitSubject = signal(this.commitDraft.subject);
   protected readonly commitDescription = signal(this.commitDraft.description);
+  /** A Claude-drafted commit message is being fetched. */
+  protected readonly generatingMessage = signal(false);
+  /** Why the last draft attempt failed. */
+  protected readonly messageError = signal('');
   protected readonly displayedCommits = signal<GitCommit[]>([]);
   protected readonly searchLoading = signal(false);
   private readonly historyGeneration = signal(0);
@@ -736,6 +740,24 @@ export class App implements OnDestroy {
         this.error.set(this.errorMessage(err));
         this.refreshWorking();
         this.busy.set(false);
+      },
+    });
+  }
+
+  /** Drafts a commit message with Claude Code and fills the message boxes. */
+  protected generateCommitMessage(): void {
+    if (this.generatingMessage() || this.busy() || this.mutationBusy()) return;
+    this.generatingMessage.set(true);
+    this.messageError.set('');
+    this.git.generateCommitMessage().subscribe({
+      next: (message) => {
+        this.commitSubject.set(message.subject);
+        this.commitDescription.set(message.description);
+        this.generatingMessage.set(false);
+      },
+      error: (err) => {
+        this.messageError.set(this.errorMessage(err));
+        this.generatingMessage.set(false);
       },
     });
   }

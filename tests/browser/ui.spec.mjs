@@ -123,6 +123,8 @@ async function setup(page, count = 700, overrides = {}) {
     tagRequests: [],
     gitMutations: [],
     commitRequests: [],
+    commitMessageRequests: [],
+    commitMessageError: false,
     contentRequests: [],
     conflicts: [],
     conflictResolutions: [],
@@ -184,6 +186,7 @@ async function setup(page, count = 700, overrides = {}) {
           description: 'Please review **carefully**.',
           autoCompleteSetBy: null,
           completionOptions: null,
+          mergePolicy: state.prMergePolicy ?? null,
           lastMergeSourceCommit: 'a'.repeat(40),
           lastMergeTargetCommit: 'b'.repeat(40),
           labels: summary?.labels ?? ['ui'],
@@ -470,6 +473,19 @@ async function setup(page, count = 700, overrides = {}) {
         state.staged = [];
         return send({ success: true });
       }
+      case '/api/commit-message': {
+        state.commitMessageRequests.push(body);
+        await delay(state.delay);
+        if (state.commitMessageError) {
+          return send({ error: 'Claude Code was not found at "claude".' }, 400);
+        }
+        return send({
+          subject: 'Generated subject',
+          description: 'Generated body',
+          scope: 'staged',
+          model: 'haiku',
+        });
+      }
       case '/api/file-content':
         state.contentRequests.push(body);
         return send({ content: `${body.ref}\n` });
@@ -729,6 +745,31 @@ test('failed history does not retry itself and explicit retry recovers', async (
   await expect(page.locator('.list-viewport .row').last()).toContainText('Commit 699');
 });
 
+test('scrolling to the end loads more history automatically', async ({ page }) => {
+  const { state, errors } = await setup(page, 1200);
+  const viewport = page.locator('.list-viewport');
+  const height = () => viewport.evaluate((el) => el.scrollHeight);
+  const scrollToBottom = () =>
+    viewport.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+
+  const firstHeight = await height();
+  await scrollToBottom();
+  await expect.poll(() => state.historyRequests).toBe(2);
+  expect(state.historyRanges.at(-1)).toEqual({ skip: 500, limit: 500 });
+  await expect.poll(height).toBeGreaterThan(firstHeight);
+
+  // Reaching the end again loads the final page and clears the footer.
+  await scrollToBottom();
+  await expect.poll(() => state.historyRequests).toBe(3);
+  await expect.poll(height).toBeGreaterThan(firstHeight * 1.5);
+  await expect(page.getByRole('button', { name: 'Load more commits', exact: true })).toHaveCount(0);
+  await scrollToBottom();
+  await expect(page.locator('.list-viewport .row').last()).toContainText('Commit 1199');
+  expect(errors).toEqual([]);
+});
+
 test('worker failure completes graph computation above 2000 rows', async ({ page }) => {
   await page.addInitScript(() => {
     window.Worker = class {
@@ -806,6 +847,38 @@ test('modifier selection, separate diffs, bulk actions and drafts', async ({ pag
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeDisabled();
   await page.getByRole('button', { name: 'Stage all', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Commit staged changes' })).toBeEnabled();
+});
+
+test('Claude drafts the commit message into the message boxes', async ({ page }) => {
+  const { state } = await setup(page);
+  await page.locator('.working-row').click();
+
+  // The user's draft survives a failed generation.
+  await page.getByLabel('Commit message', { exact: true }).fill('My draft');
+  state.commitMessageError = true;
+  await page.getByRole('button', { name: 'Generate message', exact: true }).click();
+  await expect(page.locator('.generate-error')).toContainText('Claude Code was not found');
+  await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('My draft');
+  await expect(page.getByRole('button', { name: 'Generate message', exact: true })).toBeEnabled();
+
+  state.commitMessageError = false;
+  await page.getByRole('button', { name: 'Generate message', exact: true }).click();
+  await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('Generated subject');
+  await expect(page.getByLabel('Description', { exact: false })).toHaveValue('Generated body');
+  await expect(page.locator('.generate-error')).toHaveCount(0);
+  // One request for the failed attempt, one for the successful one.
+  expect(state.commitMessageRequests).toEqual([{ model: '' }, { model: '' }]);
+});
+
+test('generating is disabled while a commit runs and while generating', async ({ page }) => {
+  const { state } = await setup(page);
+  state.delay = 400;
+  await page.locator('.working-row').click();
+  const generate = page.getByRole('button', { name: 'Generate message', exact: true });
+  await generate.click();
+  await expect(generate).toBeDisabled();
+  await expect(generate).toBeEnabled({ timeout: 5000 });
+  await expect(page.getByLabel('Commit message', { exact: true })).toHaveValue('Generated subject');
 });
 
 test('staged and unstaged file menus copy the repository-relative path', async ({
@@ -1914,6 +1987,7 @@ test('pull request panel reviews, edits, comments, diffs, and completes a PR', a
       fileListView: 'tree',
       source: 'file',
     },
+    prMergePolicy: ['squash', 'rebase'],
   });
   await page.getByRole('button', { name: 'Toggle repository panel' }).click();
   await expect(page.locator('.side-panel .tree-title')).toHaveText([
@@ -2001,6 +2075,12 @@ test('pull request panel reviews, edits, comments, diffs, and completes a PR', a
 
   await dialog.getByRole('button', { name: 'Set auto-complete' }).click();
   const autoComplete = page.getByRole('dialog', { name: 'Set auto-complete' });
+  // The branch's merge policy limits the offered strategies.
+  await expect(autoComplete.getByLabel('Merge strategy').locator('option')).toHaveText([
+    'Squash changes',
+    'Rebase and fast-forward',
+  ]);
+  await expect(autoComplete).toContainText('policy allows only the listed merge strategies');
   await autoComplete.getByLabel('Merge strategy').selectOption('squash');
   await autoComplete.getByLabel('Delete source branch').check();
   await autoComplete.getByRole('button', { name: 'Enable' }).click();
@@ -2017,6 +2097,10 @@ test('pull request panel reviews, edits, comments, diffs, and completes a PR', a
 
   await dialog.getByRole('button', { name: 'Complete', exact: true }).click();
   const complete = page.getByRole('dialog', { name: 'Complete pull request' });
+  await expect(complete.getByLabel('Merge strategy').locator('option')).toHaveText([
+    'Squash changes',
+    'Rebase and fast-forward',
+  ]);
   await complete.getByLabel('Complete associated work items').check();
   await complete.getByRole('button', { name: 'Complete', exact: true }).click();
   await expect

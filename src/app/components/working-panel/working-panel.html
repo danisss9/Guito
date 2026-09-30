@@ -76,9 +76,20 @@
   <form (submit)="commit($event)">
     @if (changes()?.conflicted?.length) { <p class="error">Resolve conflicts before committing.</p> }
     <label for="commit-subject">Commit message</label>
-    <input id="commit-subject" placeholder="Summary of your changes" [value]="subject()" (input)="updateSubject($event)" [disabled]="busy()" required />
+    <div class="subject-wrap">
+      <input id="commit-subject" placeholder="Summary of your changes" [value]="subject()" (input)="updateSubject($event)" [disabled]="busy()" required />
+      <button type="button" class="generate-button" title="Generate message" aria-label="Generate message" [disabled]="!canGenerate()" (click)="generate()">
+        @if (generating()) { <span class="spinner"></span> } @else {
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2c.8 5.5 4.5 9.2 10 10-5.5.8-9.2 4.5-10 10-.8-5.5-4.5-9.2-10-10 5.5-.8 9.2-4.5 10-10Z" />
+            <path d="M19 3v3M17.5 4.5h3" />
+          </svg>
+        }
+      </button>
+    </div>
     <label for="commit-description">Description <span class="optional">(optional)</span></label>
     <textarea id="commit-description" rows="3" [value]="description()" (input)="updateDescription($event)" [disabled]="busy()"></textarea>
+    @if (generateError()) { <span class="generate-error" role="alert">{{ generateError() }}</span> }
     <button class="commit-button" type="submit" [disabled]="!canCommit()">Commit staged changes</button>
   </form>
 </aside>

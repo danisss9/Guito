@@ -108,6 +108,16 @@ export interface WorkingChanges {
   untracked: string[];
 }
 
+/** A commit message drafted by Claude Code from the pending changes. */
+export interface CommitMessageResult {
+  subject: string;
+  description: string;
+  /** Which changes the message was drafted from. */
+  scope: 'staged' | 'working';
+  /** Model alias or id the CLI was told to use. */
+  model: string;
+}
+
 export interface ConflictVersion {
   /** Null means the path was deleted or did not exist in this version. */
   content: string | null;
@@ -407,13 +417,30 @@ export interface AiReviewSettings {
   includeDrafts: boolean;
   /** Claude Code executable; empty means Guito looks for it. */
   claudePath: string;
-  /** Extra Claude Code arguments, e.g. ["--model", "opus"]. */
-  claudeArgs: string[];
+  /** Claude model alias or id; empty uses whatever Claude Code itself is set to. */
+  model: string;
+  /** Claude model alias or id that drafts commit messages. */
+  commitMessageModel: string;
   timeoutSeconds: number;
   maxDiffChars: number;
   /** Extra reviewing instructions handed to the model. */
   instructions: string;
 }
+
+/** Claude models offered for pull request reviews; '' defers to Claude Code's own default. */
+export const AI_REVIEW_MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: 'opus', label: 'Opus (latest)' },
+  { value: 'sonnet', label: 'Sonnet (latest)' },
+  { value: 'haiku', label: 'Haiku (latest)' },
+];
+
+/** Claude models offered for commit message drafting; haiku is the default. */
+export const COMMIT_MESSAGE_MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'haiku', label: 'Haiku (latest)' },
+  { value: 'sonnet', label: 'Sonnet (latest)' },
+  { value: 'opus', label: 'Opus (latest)' },
+];
 
 export type AiReviewSeverity = 'blocker' | 'concern' | 'suggestion' | 'nit';
 
@@ -440,6 +467,8 @@ export interface AiReviewState {
   pullRequestId: number;
   title: string;
   reviewedCommit: string;
+  /** Model that produced the last completed review; '' when unknown. */
+  model?: string;
   reviewedAt: string;
   /** Completed review passes; one per reviewed commit. */
   passes: number;
@@ -554,6 +583,8 @@ export interface PrDetail extends PrSummary {
   labels: string[];
   /** Azure's merge state (conflicts, queued, policy-rejected, ...). */
   mergeStatus: PrMergeStatus;
+  /** Merge strategies the target branch's policy allows; null when unrestricted or unknown. */
+  mergePolicy: PrMergeStrategy[] | null;
 }
 
 /** Azure DevOps pull request merge state, normalized for the dialog. */

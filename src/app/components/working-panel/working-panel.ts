@@ -47,6 +47,8 @@ export class WorkingPanel {
   readonly fileListView = input<'flat' | 'tree'>('flat');
   readonly subjectChange = output<string>();
   readonly descriptionChange = output<string>();
+  /** Asks the app to draft a commit message with Claude Code. */
+  readonly generateMessage = output<void>();
   readonly stageChange = output<{ staged: boolean; files: string[] }>();
   readonly stashChange = output<StashScope>();
   readonly discardRequest = output<string[]>();
@@ -76,6 +78,13 @@ export class WorkingPanel {
   protected readonly collapsed = signal<Set<string>>(new Set());
   protected readonly disabled = computed(
     () => this.busy() || !!this.statusError() || !this.changes(),
+  );
+  /** A message draft is running; the message box stays editable meanwhile. */
+  readonly generating = input(false);
+  /** Why the last draft attempt failed; cleared when the next one starts. */
+  readonly generateError = input('');
+  protected readonly canGenerate = computed(
+    () => !this.disabled() && !this.generating() && !!this.changes()?.files.length,
   );
   protected readonly canCommit = computed(
     () =>
@@ -315,6 +324,9 @@ export class WorkingPanel {
   }
   protected updateDescription(event: Event): void {
     this.descriptionChange.emit((event.target as HTMLTextAreaElement).value);
+  }
+  protected generate(): void {
+    if (this.canGenerate()) this.generateMessage.emit();
   }
   protected commit(event: Event): void {
     event.preventDefault();

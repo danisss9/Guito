@@ -218,6 +218,176 @@ test("serves PR details and edits title, description, and draft state", async (c
   });
 });
 
+test("derives allowed merge strategies from the branch's merge policy", async (context) => {
+  const detail = prRecord(101, {
+    repository: { id: "repo-guid", name: "Repo" },
+    labels: [],
+  });
+  const mergePolicy = (settings, extra = {}) => ({
+    isEnabled: true,
+    isDeleted: false,
+    type: { id: "fa4e907d-c16b-4a4c-9dfa-4916e5d171ab" },
+    settings,
+    ...extra,
+  });
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\?/.test(url))
+        return { status: 200, body: detail };
+      if (url.includes("/_apis/policy/configurations")) {
+        return {
+          status: 200,
+          body: {
+            value: [
+              // Project-wide scope (no repository id): squash + rebase.
+              mergePolicy({
+                allowSquash: true,
+                allowRebase: true,
+                scope: [{ refName: "refs/heads/main", matchKind: "Exact" }],
+              }),
+              // Repository-wide scope: squash + no fast-forward. The
+              // intersection with the first policy leaves squash.
+              mergePolicy({
+                allowSquash: true,
+                allowNoFastForward: true,
+                scope: [{ repositoryId: "repo-guid" }],
+              }),
+              // Another repository: ignored.
+              mergePolicy({
+                allowRebaseMerge: true,
+                scope: [
+                  { repositoryId: "other-repo", refName: "refs/heads/main" },
+                ],
+              }),
+              // A different branch: ignored.
+              mergePolicy({
+                allowRebase: true,
+                scope: [
+                  { repositoryId: "repo-guid", refName: "refs/heads/dev" },
+                ],
+              }),
+              // Disabled: ignored.
+              mergePolicy(
+                { allowRebase: true, scope: [{ repositoryId: "repo-guid" }] },
+                { isEnabled: false },
+              ),
+              // A different policy type (minimum approver count): ignored.
+              mergePolicy(
+                { minimumApproverCount: 2, scope: [{ repositoryId: "repo-guid" }] },
+                { type: { id: "fa4e907d-c16b-4a4c-9dfa-4906e5d171dd" } },
+              ),
+            ],
+          },
+        };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+
+  const response = await fetch(
+    `${server.address}/api/azure-devops/pullrequests/101`,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).mergePolicy, ["squash"]);
+  // The Policy API is addressed with its own GA version, not 5.0-preview.
+  assert.equal(
+    calls.some(
+      (call) =>
+        call.url ===
+        "https://azure.example/DefaultCollection/Project/_apis/policy/configurations?api-version=5.0",
+    ),
+    true,
+  );
+});
+
+test("falls back to unrestricted merge strategies when no policy applies", async (context) => {
+  const detail = prRecord(101, {
+    repository: { id: "repo-guid", name: "Repo" },
+    targetRefName: "refs/heads/releases/1.0",
+    labels: [],
+  });
+  const mergePolicy = (settings) => ({
+    isEnabled: true,
+    isDeleted: false,
+    type: { id: "fa4e907d-c16b-4a4c-9dfa-4916e5d171ab" },
+    settings,
+  });
+  // "unrestricted" → no policies; "prefix" → a Prefix scope matches (an
+  // Exact one does not); "legacy" → squash-only useSquashMerge shape;
+  // "error" → the policy endpoint is unreadable.
+  let mode = "unrestricted";
+  const { server, calls } = await startAzureReviewServer(
+    context,
+    (method, url) => {
+      if (url.includes("/_apis/connectionData"))
+        return connectionDataResponse();
+      if (/\/pullrequests\/\d+\?/.test(url))
+        return { status: 200, body: detail };
+      if (url.includes("/_apis/policy/configurations")) {
+        if (mode === "error") return { status: 403, body: { message: "denied" } };
+        if (mode === "unrestricted") return { status: 200, body: { value: [] } };
+        if (mode === "prefix") {
+          return {
+            status: 200,
+            body: {
+              value: [
+                mergePolicy({
+                  allowRebase: true,
+                  scope: [
+                    { refName: "refs/heads/releases", matchKind: "Prefix" },
+                  ],
+                }),
+                mergePolicy({
+                  allowSquash: true,
+                  scope: [
+                    { refName: "refs/heads/releases", matchKind: "Exact" },
+                  ],
+                }),
+              ],
+            },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            value: [
+              mergePolicy({
+                useSquashMerge: true,
+                scope: [
+                  {
+                    repositoryId: "repo-guid",
+                    refName: "refs/heads/releases/1.0",
+                  },
+                ],
+              }),
+            ],
+          },
+        };
+      }
+      return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+    },
+  );
+  const detailJson = async () =>
+    (await (await fetch(`${server.address}/api/azure-devops/pullrequests/101`)).json());
+
+  assert.equal((await detailJson()).mergePolicy, null);
+
+  mode = "prefix";
+  assert.deepEqual((await detailJson()).mergePolicy, ["rebase"]);
+
+  mode = "legacy";
+  assert.deepEqual((await detailJson()).mergePolicy, ["squash"]);
+
+  // A denied policy read must not fail the whole dialog.
+  mode = "error";
+  const denied = await detailJson();
+  assert.equal(denied.mergePolicy, null);
+  assert.equal(denied.id, 101);
+});
+
 test("votes, adds required reviewers, and removes reviewers", async (context) => {
   const { server, calls } = await startAzureReviewServer(
     context,
@@ -269,29 +439,67 @@ test("votes, adds required reviewers, and removes reviewers", async (context) =>
 });
 
 test("completes pull requests and manages auto-complete", async (context) => {
-  const detail = prRecord(101, {
+  // Stateful fake: PATCHes mutate the stored record, so the server sees the
+  // pull request state Azure DevOps would really report back.
+  const record = prRecord(101, {
     lastMergeSourceCommit: { commitId: "src-sha" },
+    autoCompleteSetBy: { id: "someone", displayName: "Someone" },
   });
+  // How the fake handles a clearing PATCH with an empty identity id:
+  // - "server-release": rejected with 400 until the null shape is used.
+  // - "cloud": honored, auto-complete is cleared.
+  // - "silent-ignore": 200 OK but the field survives (the cancel bug).
+  // - "reject-all": every clearing PATCH fails.
+  let mode = "server-release";
   const { server, calls } = await startAzureReviewServer(
     context,
     (method, url, payload) => {
       if (url.includes("/_apis/connectionData"))
         return connectionDataResponse();
       if (/\/pullrequests\/\d+\?/.test(url) && method === "GET") {
-        return { status: 200, body: detail };
+        return { status: 200, body: record };
       }
       if (method === "PATCH") {
-        // Simulate a Server release that rejects empty-identity auto-complete
-        // cancellation until the null form is used.
-        if (payload?.autoCompleteSetBy?.id === "") {
+        const clearing =
+          payload &&
+          "autoCompleteSetBy" in payload &&
+          payload.autoCompleteSetBy?.id !== ME.id;
+        if (clearing && payload?.autoCompleteSetBy?.id === "") {
+          if (mode === "server-release" || mode === "reject-all") {
+            return { status: 400, body: { message: "invalid identity" } };
+          }
+          if (mode === "silent-ignore") {
+            return { status: 200, body: record };
+          }
+        }
+        if (clearing && mode === "reject-all") {
           return { status: 400, body: { message: "invalid identity" } };
         }
-        return { status: 200, body: detail };
+        if (payload?.status === "completed") record.status = "completed";
+        if (payload && "autoCompleteSetBy" in payload) {
+          const identity = payload.autoCompleteSetBy;
+          record.autoCompleteSetBy = identity && identity.id ? identity : null;
+        }
+        return { status: 200, body: record };
       }
       return { status: 404, body: { message: `unexpected ${method} ${url}` } };
     },
   );
   const base = `${server.address}/api/azure-devops/pullrequests/101`;
+  const autoCompleteSet = () => {
+    record.autoCompleteSetBy = { id: "someone", displayName: "Someone" };
+  };
+  const clearCallsSince = (seen) =>
+    calls
+      .slice(seen)
+      .filter(
+        (call) =>
+          call.method === "PATCH" &&
+          call.payload &&
+          "autoCompleteSetBy" in call.payload &&
+          call.payload.autoCompleteSetBy?.id !== ME.id,
+      )
+      .map((call) => call.payload);
 
   const complete = await fetch(`${base}/complete`, {
     method: "POST",
@@ -332,20 +540,57 @@ test("completes pull requests and manages auto-complete", async (context) => {
     completionOptions: { mergeStrategy: "squash" },
   });
 
-  const cancel = await fetch(`${base}/autocomplete`, {
+  // Server release: the empty-identity clear is rejected, the null shape wins.
+  const cancelRejected = await fetch(`${base}/autocomplete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ enabled: false }),
   });
-  assert.equal(cancel.status, 200);
-  const cancelCalls = calls.filter(
-    (call) =>
-      call.payload &&
-      "autoCompleteSetBy" in call.payload &&
-      call.payload.autoCompleteSetBy?.id !== ME.id,
-  );
-  assert.deepEqual(cancelCalls[0].payload, { autoCompleteSetBy: { id: "" } });
-  assert.deepEqual(cancelCalls[1].payload, { autoCompleteSetBy: null });
+  assert.equal(cancelRejected.status, 200);
+  assert.deepEqual(clearCallsSince(0), [
+    { autoCompleteSetBy: { id: "" } },
+    { autoCompleteSetBy: null },
+  ]);
+
+  // Cloud: the empty-identity clear is honored on the first PATCH.
+  autoCompleteSet();
+  mode = "cloud";
+  let seen = calls.length;
+  const cancelCloud = await fetch(`${base}/autocomplete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(cancelCloud.status, 200);
+  assert.deepEqual(clearCallsSince(seen), [{ autoCompleteSetBy: { id: "" } }]);
+
+  // Regression: a 200 reply that silently keeps auto-complete must fall
+  // through to the null shape instead of reporting success.
+  autoCompleteSet();
+  mode = "silent-ignore";
+  seen = calls.length;
+  const cancelIgnored = await fetch(`${base}/autocomplete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(cancelIgnored.status, 200);
+  assert.deepEqual(clearCallsSince(seen), [
+    { autoCompleteSetBy: { id: "" } },
+    { autoCompleteSetBy: null },
+  ]);
+
+  // Both shapes rejected: the failure is surfaced instead of a fake ok.
+  autoCompleteSet();
+  mode = "reject-all";
+  const cancelFailed = await fetch(`${base}/autocomplete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  assert.equal(cancelFailed.status, 400);
+  const failure = await cancelFailed.json();
+  assert.equal(failure.error, "invalid identity");
 });
 
 test("serves comment threads and posts replies, inline comments, and statuses", async (context) => {
