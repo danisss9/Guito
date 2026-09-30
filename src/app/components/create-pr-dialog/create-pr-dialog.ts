@@ -95,40 +95,76 @@ export class CreatePrDialog implements OnInit {
   });
 
   constructor() {
-    this.bindLookup(this.requiredReviewerQuery, this.requiredReviewerSuggestions,
-      this.requiredReviewersLoading, this.requiredReviewersError,
+    this.bindLookup(
+      this.requiredReviewerQuery,
+      this.requiredReviewerSuggestions,
+      this.requiredReviewersLoading,
+      this.requiredReviewersError,
       (query) => this.git.searchReviewers(query),
-      (item) => ({ id: item.id, label: item.label, description: item.description }), 2);
-    this.bindLookup(this.optionalReviewerQuery, this.optionalReviewerSuggestions,
-      this.optionalReviewersLoading, this.optionalReviewersError,
+      (item) => ({ id: item.id, label: item.label, description: item.description }),
+      2,
+    );
+    this.bindLookup(
+      this.optionalReviewerQuery,
+      this.optionalReviewerSuggestions,
+      this.optionalReviewersLoading,
+      this.optionalReviewersError,
       (query) => this.git.searchReviewers(query),
-      (item) => ({ id: item.id, label: item.label, description: item.description }), 2);
-    this.bindLookup(this.workItemQuery, this.workItemSuggestions,
-      this.workItemsLoading, this.workItemsError,
+      (item) => ({ id: item.id, label: item.label, description: item.description }),
+      2,
+    );
+    this.bindLookup(
+      this.workItemQuery,
+      this.workItemSuggestions,
+      this.workItemsLoading,
+      this.workItemsError,
       (query) => this.git.searchWorkItems(query),
-      (item) => ({ id: String(item.id), label: `#${item.id} ${item.title}`, description: item.state }), 1);
+      (item) => ({
+        id: String(item.id),
+        label: `#${item.id} ${item.title}`,
+        description: item.state,
+      }),
+      1,
+    );
   }
 
-  private bindLookup<T>(query: WritableSignal<string>, target: WritableSignal<ChipSuggestion[]>,
-    loading: WritableSignal<boolean>, error: WritableSignal<string>,
-    search: (query: string) => Observable<T[]>, toChip: (item: T) => ChipSuggestion, minimum: number): void {
-    toObservable(query).pipe(
-      // Cancel old HTTP requests as soon as the query changes.
-      switchMap((value) => {
-        target.set([]);
-        error.set('');
-        loading.set(value.trim().length >= minimum);
-        if (value.trim().length < minimum) return of([] as T[]);
-        return new Observable<string>((subscriber) => {
-          const timeout = setTimeout(() => { subscriber.next(value.trim()); subscriber.complete(); }, 300);
-          return () => clearTimeout(timeout);
-        }).pipe(switchMap(search), catchError((err) => {
-          error.set(err?.error?.error || 'Unable to load suggestions. Try searching again.');
-          return of([] as T[]);
-        }));
-      }),
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe((items) => { target.set(items.map(toChip)); loading.set(false); });
+  private bindLookup<T>(
+    query: WritableSignal<string>,
+    target: WritableSignal<ChipSuggestion[]>,
+    loading: WritableSignal<boolean>,
+    error: WritableSignal<string>,
+    search: (query: string) => Observable<T[]>,
+    toChip: (item: T) => ChipSuggestion,
+    minimum: number,
+  ): void {
+    toObservable(query)
+      .pipe(
+        // Cancel old HTTP requests as soon as the query changes.
+        switchMap((value) => {
+          target.set([]);
+          error.set('');
+          loading.set(value.trim().length >= minimum);
+          if (value.trim().length < minimum) return of([] as T[]);
+          return new Observable<string>((subscriber) => {
+            const timeout = setTimeout(() => {
+              subscriber.next(value.trim());
+              subscriber.complete();
+            }, 300);
+            return () => clearTimeout(timeout);
+          }).pipe(
+            switchMap(search),
+            catchError((err) => {
+              error.set(err?.error?.error || 'Unable to load suggestions. Try searching again.');
+              return of([] as T[]);
+            }),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((items) => {
+        target.set(items.map(toChip));
+        loading.set(false);
+      });
   }
 
   ngOnInit(): void {
@@ -148,19 +184,24 @@ export class CreatePrDialog implements OnInit {
 
     // Tag names are a small fixed list; load them once for autocomplete.
     this.tagsLoading.set(true);
-    this.git.getPrTags().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (tags) => {
-        this.tagSuggestions.set(
-          tags.map((tag) => ({ id: tag.name.toLowerCase(), label: tag.name })),
-        );
-        this.tagsLoading.set(false);
-      },
-      error: (err) => {
-        this.tagsError.set(err?.error?.error || 'Unable to load tags. You can still add a tag with Enter.');
-        this.tagSuggestions.set([]);
-        this.tagsLoading.set(false);
-      },
-    });
+    this.git
+      .getPrTags()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (tags) => {
+          this.tagSuggestions.set(
+            tags.map((tag) => ({ id: tag.name.toLowerCase(), label: tag.name })),
+          );
+          this.tagsLoading.set(false);
+        },
+        error: (err) => {
+          this.tagsError.set(
+            err?.error?.error || 'Unable to load tags. You can still add a tag with Enter.',
+          );
+          this.tagSuggestions.set([]);
+          this.tagsLoading.set(false);
+        },
+      });
   }
 
   @HostListener('document:keydown.escape')

@@ -160,7 +160,9 @@ test('reads a plain-text reply when the model skips the JSON contract', async (c
 
 test('reports a missing or failing CLI as an error', async (context) => {
   const { server, repositoryPath } = await startMessageServer(context, [
-    new Error('Claude Code was not found at "claude". Install it, or set guito.aiReview.claudePath.'),
+    new Error(
+      'Claude Code was not found at "claude". Install it, or set guito.aiReview.claudePath.',
+    ),
   ]);
   await writeFile(join(repositoryPath, 'c.txt'), 'change\n');
   const response = await post(server, '/api/commit-message');

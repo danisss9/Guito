@@ -1,4 +1,9 @@
-import { resolveClaudeCommand, runClaudeCli, type AiReviewConfig, type AiReviewModelRunner } from './ai-review.js';
+import {
+  resolveClaudeCommand,
+  runClaudeCli,
+  type AiReviewConfig,
+  type AiReviewModelRunner,
+} from './ai-review.js';
 
 /**
  * One-shot commit message drafting.
@@ -36,7 +41,10 @@ export interface CommitMessageResult {
   model: string;
 }
 
-const oneLine = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim();
+const oneLine = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /** Renders one file's diff compactly; only +/- markers, no line numbers. */
 function renderFile(file: CommitMessageFile, budget: number): string {
@@ -49,7 +57,11 @@ function renderFile(file: CommitMessageFile, budget: number): string {
   let truncated = false;
   for (const line of file.lines) {
     const row =
-      line.type === 'add' ? `+${line.text}` : line.type === 'del' ? `-${line.text}` : ` ${line.text}`;
+      line.type === 'add'
+        ? `+${line.text}`
+        : line.type === 'del'
+          ? `-${line.text}`
+          : ` ${line.text}`;
     if (used + row.length + 1 > budget) {
       truncated = true;
       break;
@@ -158,7 +170,9 @@ export async function generateCommitMessage(options: {
   log?(line: string): void;
 }): Promise<CommitMessageResult> {
   const model =
-    options.model?.trim() || options.config.commitMessageModel.trim() || DEFAULT_COMMIT_MESSAGE_MODEL;
+    options.model?.trim() ||
+    options.config.commitMessageModel.trim() ||
+    DEFAULT_COMMIT_MESSAGE_MODEL;
   const prompt = buildCommitMessagePrompt({
     branch: options.branch,
     scope: options.scope,

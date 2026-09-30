@@ -125,7 +125,13 @@ export class WorkingPanel {
     const files = this.files(group);
     if (this.fileListView() !== 'tree') {
       // Flat view keeps the full path as the row label.
-      return files.map((file) => ({ kind: 'file', path: file.path, name: file.path, depth: 0, file }));
+      return files.map((file) => ({
+        kind: 'file',
+        path: file.path,
+        name: file.path,
+        depth: 0,
+        file,
+      }));
     }
     return buildFileTreeRows(files, this.collapsed());
   }
@@ -185,7 +191,8 @@ export class WorkingPanel {
   protected compareWithBranch(branch: string): void {
     const target = this.compareTarget;
     this.closeComparePrompt();
-    if (!target || !this.comparisonBranches().some((candidate) => candidate.name === branch)) return;
+    if (!target || !this.comparisonBranches().some((candidate) => candidate.name === branch))
+      return;
     const modifiedRef = target.group === 'staged' ? 'INDEX' : 'WORKING';
     if (this.vscode.openDiff(target.file, branch, modifiedRef, true)) return;
     this.dialog.set({ file: target.file, originalRef: branch, modifiedRef, exactOriginal: true });

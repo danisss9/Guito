@@ -1805,12 +1805,10 @@ export class App implements OnDestroy {
     }
 
     if (state.title === 'Stash uncommitted changes') {
-      this.git
-        .stashSave(value ? { message: value } : {})
-        .subscribe({
-          next: () => this.refresh(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+      this.git.stashSave(value ? { message: value } : {}).subscribe({
+        next: () => this.refresh(),
+        error: (err) => this.error.set(this.errorMessage(err)),
+      });
       return;
     }
 
