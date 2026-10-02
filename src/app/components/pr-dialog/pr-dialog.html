@@ -928,14 +928,14 @@
       >
         @for (strategy of mergeStrategies(); track strategy.value) {
         <option [value]="strategy.value" [disabled]="strategy.disabled">
-          {{ strategy.label }}{{ strategy.disabled ? ' (disabled by settings)' : '' }}
+          {{ strategy.label }}{{ strategy.disabledReason ? ' (' + strategy.disabledReason + ')' : '' }}
         </option>
         }
       </select></label
     >
     @if (mergePolicyLimited()) {
     <p class="policy-note">
-      The target branch's policy allows only the listed merge strategies.
+      The target branch's policy limits which merge strategies can be used.
     </p>
     }
     <label class="check"

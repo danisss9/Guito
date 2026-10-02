@@ -20,7 +20,7 @@ import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
 import { GitOperationDialog } from './components/git-operation-dialog/git-operation-dialog';
 import { GuitoSettingsUpdate, SettingsDialog } from './components/settings-dialog/settings-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
-import { PrDialog } from './components/pr-dialog/pr-dialog';
+import { PrDialog, PrTab } from './components/pr-dialog/pr-dialog';
 import { SidePanel } from './components/side-panel/side-panel';
 import { WorkingPanel } from './components/working-panel/working-panel';
 import { WorktreeDialog } from './components/worktree-dialog/worktree-dialog';
@@ -208,6 +208,8 @@ export class App implements OnDestroy {
   protected readonly pullRequestsError = signal('');
   /** Id of the pull request open in the PR detail dialog; null = closed. */
   protected readonly prDetailId = signal<number | null>(null);
+  /** Tab the PR detail dialog opens on. */
+  protected readonly prDetailTab = signal<PrTab>('overview');
 
   /** Hash of the focused search match; '' = none focused. */
   protected readonly searchFocusHash = signal('');
@@ -404,6 +406,13 @@ export class App implements OnDestroy {
         });
       });
     });
+
+    // The automated reviewer's notification opens its pull request's Review tab.
+    effect(() => {
+      const request = this.vscode.pullRequestRequest();
+      if (!request) return;
+      untracked(() => this.openPrReview(request.id));
+    });
   }
 
   ngOnDestroy(): void {
@@ -565,7 +574,21 @@ export class App implements OnDestroy {
 
   /** Opens the pull request detail dialog for a side panel row. */
   protected openPrDetail(id: number): void {
+    this.prDetailTab.set('overview');
     this.prDetailId.set(id);
+  }
+
+  /** Opens the PR dialog on its Review tab, replacing any dialog already open. */
+  private openPrReview(id: number): void {
+    this.prDetailTab.set('review');
+    if (this.prDetailId() === null) {
+      this.prDetailId.set(id);
+      return;
+    }
+    // The dialog only reads its pull request and tab when created, so close
+    // it first and let the next tick recreate it with the fresh review.
+    this.prDetailId.set(null);
+    setTimeout(() => this.prDetailId.set(id));
   }
 
   /** Closes the PR dialog and refreshes the list (votes/status may have changed). */

@@ -462,16 +462,23 @@ async function openRepository(
   context: vscode.ExtensionContext,
   repository: RepositoryChoice,
   forceNew = false,
+  pullRequestId?: number,
 ): Promise<void> {
   const existing = sessions.get(repository.key)?.values().next().value as
     | RepositorySession
     | undefined;
   if (existing && !forceNew) {
     existing.panel.reveal(vscode.ViewColumn.Active);
+    if (pullRequestId !== undefined) {
+      void existing.panel.webview.postMessage({
+        type: 'guito/openPullRequest',
+        pullRequestId,
+      });
+    }
     return;
   }
 
-  const started = await startRepositoryContext(context, repository);
+  const started = await startRepositoryContext(context, repository, pullRequestId);
   const server = started.server;
 
   try {
@@ -486,7 +493,7 @@ async function openRepository(
       },
     );
     const session: RepositorySession = { panel, server, repository };
-    watchFindings(server, repository);
+    watchFindings(context, server, repository);
     // Shows the extension logo on the webview's editor tab.
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
     panel.webview.html = webviewHtml(started.externalUri, randomBytes(16).toString('hex'));
@@ -592,6 +599,7 @@ async function openRepository(
 async function startRepositoryContext(
   context: vscode.ExtensionContext,
   repository: RepositoryChoice,
+  pullRequestId?: number,
 ): Promise<{ server: RunningGuitoServer; externalUri: vscode.Uri }> {
   const token = randomBytes(32).toString('hex');
   const hostSettings = readHostSettings();
@@ -605,9 +613,13 @@ async function startRepositoryContext(
     onLog: (line) => outputChannel?.appendLine(`[${repository.label}] ${line}`),
   });
   try {
-    const localUri = vscode.Uri.parse(server.address).with({
-      query: new URLSearchParams({ guitoToken: token }).toString(),
-    });
+    const query = new URLSearchParams({ guitoToken: token });
+    // A fresh panel's app is not listening for messages yet, so the pull
+    // request to open on its Review tab travels in the URL instead.
+    if (pullRequestId !== undefined) {
+      query.set('guitoPullRequest', String(pullRequestId));
+    }
+    const localUri = vscode.Uri.parse(server.address).with({ query: query.toString() });
     return { server, externalUri: await vscode.env.asExternalUri(localUri) };
   } catch (error) {
     await server.close();
@@ -694,8 +706,12 @@ function aiReviewEnabled(): boolean {
   return vscode.workspace.getConfiguration('guito').get<boolean>('aiReview.enabled', false);
 }
 
-/** Offers to open Guito on the pull request whose review just produced work. */
-function watchFindings(server: RunningGuitoServer, repository: RepositoryChoice): void {
+/** Offers to open Guito on the Review tab of the pull request whose review just produced work. */
+function watchFindings(
+  context: vscode.ExtensionContext,
+  server: RunningGuitoServer,
+  repository: RepositoryChoice,
+): void {
   server.aiReview.onFindings((state) => {
     const pending = state.findings.filter((finding) => finding.status === 'pending').length;
     if (!pending) return;
@@ -711,7 +727,11 @@ function watchFindings(server: RunningGuitoServer, repository: RepositoryChoice)
       )
       .then((choice) => {
         if (choice === 'Open Guito') {
-          void vscode.commands.executeCommand('guito.open');
+          openRepository(context, repository, false, state.pullRequestId).catch((error) => {
+            void vscode.window.showErrorMessage(
+              `Guito could not open: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
         }
       });
   });
@@ -773,7 +793,7 @@ async function syncBackgroundReviewer(
       onLog: (line) => outputChannel?.appendLine(`[${repository.label}] ${line}`),
     });
     backgroundReviewers.set(repository.key, server);
-    watchFindings(server, repository);
+    watchFindings(context, server, repository);
     updatePollingOwner(repository.key);
     // Catch up on anything pushed while VS Code was closed. This has to go to
     // whichever server owns polling: if a Guito panel is already open, the

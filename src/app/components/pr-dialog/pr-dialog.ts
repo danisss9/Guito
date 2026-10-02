@@ -48,7 +48,7 @@ import {
   PrWorkItemSuggestion,
 } from '../../models/git.models';
 
-type PrTab = 'overview' | 'files' | 'comments' | 'review';
+export type PrTab = 'overview' | 'files' | 'comments' | 'review';
 
 const SEVERITY_LABELS: Record<string, string> = {
   blocker: 'Blocker',
@@ -103,6 +103,8 @@ export class PrDialog implements OnInit {
   readonly prId = input.required<number>();
   /** Repository settings; controls which merge strategies are offered. */
   readonly settings = input<AzureSettings | null>(null);
+  /** The tab shown when the dialog opens. */
+  readonly initialTab = input<PrTab>('overview');
   readonly closed = output<void>();
   /** Notifies the app so the side-panel summary stays current after mutations. */
   readonly changed = output<void>();
@@ -237,22 +239,24 @@ export class PrDialog implements OnInit {
   });
 
   /**
-   * Strategies the target branch's policy allows. Ones turned off in the
-   * repository settings stay listed but disabled, so the user sees why.
+   * Every merge strategy, with the ones the target branch's policy or the
+   * repository settings rule out kept listed but disabled, so the user sees why.
    */
   protected readonly mergeStrategies = computed(() => {
     // The target branch's merge policy comes first: Azure DevOps rejects
     // completions with a strategy the branch does not allow anyway.
     const policy = this.pr()?.mergePolicy;
     const allowMerge = this.settings()?.allowMerge !== false;
-    return PrDialog.allMergeStrategies
-      .filter((strategy) => !policy || policy.includes(strategy.value))
-      .map((strategy) => ({
-        ...strategy,
-        disabled:
-          !allowMerge &&
-          (strategy.value === 'noFastForward' || strategy.value === 'rebaseMerge'),
-      }));
+    return PrDialog.allMergeStrategies.map((strategy) => {
+      const disabledReason =
+        policy && !policy.includes(strategy.value)
+          ? 'not allowed by branch policy'
+          : !allowMerge &&
+              (strategy.value === 'noFastForward' || strategy.value === 'rebaseMerge')
+            ? 'disabled by settings'
+            : '';
+      return { ...strategy, disabled: Boolean(disabledReason), disabledReason };
+    });
   });
 
   /** Whether the branch's merge policy removed strategies Azure would offer. */
@@ -380,6 +384,7 @@ export class PrDialog implements OnInit {
   }
 
   ngOnInit(): void {
+    this.tab.set(this.initialTab());
     this.load();
   }
 

@@ -26,17 +26,32 @@ export class VscodeService {
 
   readonly canPickFolder = this.inVsCode;
 
+  /**
+   * The pull request the extension host asked to show on its Review tab (the
+   * automated reviewer's "Open Guito" button). A fresh object per request, so
+   * asking twice for the same pull request still reopens it.
+   */
+  readonly pullRequestRequest = signal<{ id: number } | null>(null);
+
   constructor() {
     if (!this.inVsCode) {
       return;
     }
+    this.takeInitialPullRequest();
     window.addEventListener("message", (event) => {
       const data = event.data as {
         type?: string;
         diffViewer?: string;
         requestId?: number;
         path?: string;
+        pullRequestId?: number;
       } | null;
+      if (
+        data?.type === "guito/openPullRequest" &&
+        Number.isInteger(data.pullRequestId)
+      ) {
+        this.pullRequestRequest.set({ id: data.pullRequestId as number });
+      }
       if (data?.type === "guito/config") {
         if (data.diffViewer === "guito" || data.diffViewer === "vscode") {
           this.diffViewer.set(data.diffViewer);
@@ -64,6 +79,24 @@ export class VscodeService {
       },
       error: () => {},
     });
+  }
+
+  /**
+   * A freshly opened panel gets its pull request in the URL, because the app
+   * is not listening for messages yet. It is dropped from the address so a
+   * reload does not reopen the dialog; the session token stays.
+   */
+  private takeInitialPullRequest(): void {
+    const url = new URL(window.location.href);
+    const id = Number(url.searchParams.get("guitoPullRequest"));
+    if (!url.searchParams.has("guitoPullRequest")) {
+      return;
+    }
+    url.searchParams.delete("guitoPullRequest");
+    window.history.replaceState(window.history.state, "", url.toString());
+    if (Number.isInteger(id) && id > 0) {
+      this.pullRequestRequest.set({ id });
+    }
   }
 
   /** Opens VS Code's native folder picker; standalone Guito returns null. */

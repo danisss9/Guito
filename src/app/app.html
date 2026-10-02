@@ -161,6 +161,7 @@
   <app-pr-dialog
     [prId]="prId"
     [settings]="azureSettings()"
+    [initialTab]="prDetailTab()"
     (changed)="loadPullRequests()"
     (closed)="closePrDetail()"
   />
