@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.0.8
+
+- `guito.aiReview.model` now defaults to opus, so pull requests are reviewed with the latest Opus model unless you choose otherwise. Set it to the empty option to use Claude Code's own default.
+- Generate commit messages from VS Code's Source Control view. A sparkle button in the view's title bar drafts the message with Claude Code, the same way as Guito's Generate message button, and fills the Git commit message box.
+- Fix the model pickers in Guito's settings and pull request Review tab showing the first option instead of the selected model.
+
 ## 1.0.7
 
 - Pick the Claude model that drafts commit messages with the new `guito.aiReview.commitMessageModel` setting (haiku by default), alongside the existing `guito.aiReview.model` for reviews.

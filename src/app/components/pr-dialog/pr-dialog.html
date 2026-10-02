@@ -578,14 +578,19 @@
             class="review-model"
             title="Which Claude model reviews this pull request; Default uses whatever Claude Code itself is set to"
           >
-            <span>Model</span>
             <select
+              aria-label="Review model"
               [value]="reviewModel()"
               (change)="changeReviewModel($event.target)"
               [disabled]="reviewRunning()"
             >
               @for (option of reviewModelOptions(); track option.value) {
-              <option [value]="option.value">{{ option.label }}</option>
+              <option
+                [value]="option.value"
+                [selected]="option.value === reviewModel()"
+              >
+                {{ option.label }}
+              </option>
               }
             </select>
           </label>

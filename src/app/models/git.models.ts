@@ -417,7 +417,7 @@ export interface AiReviewSettings {
   includeDrafts: boolean;
   /** Claude Code executable; empty means Guito looks for it. */
   claudePath: string;
-  /** Claude model alias or id; empty uses whatever Claude Code itself is set to. */
+  /** Claude model alias or id (opus by default); empty uses whatever Claude Code itself is set to. */
   model: string;
   /** Claude model alias or id that drafts commit messages. */
   commitMessageModel: string;
@@ -427,9 +427,9 @@ export interface AiReviewSettings {
   instructions: string;
 }
 
-/** Claude models offered for pull request reviews; '' defers to Claude Code's own default. */
+/** Claude models offered for pull request reviews; opus is the default and '' defers to Claude Code's own. */
 export const AI_REVIEW_MODEL_OPTIONS: { value: string; label: string }[] = [
-  { value: '', label: 'Default' },
+  { value: '', label: "Claude Code's default" },
   { value: 'opus', label: 'Opus (latest)' },
   { value: 'sonnet', label: 'Sonnet (latest)' },
   { value: 'haiku', label: 'Haiku (latest)' },

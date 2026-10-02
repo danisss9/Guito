@@ -307,7 +307,7 @@ export class PrDialog implements OnInit {
     // The settings arrive asynchronously; the model picker follows the
     // configured model until the user chooses one.
     effect(() => {
-      const model = this.settings()?.aiReview?.model ?? '';
+      const model = this.settings()?.aiReview?.model ?? 'opus';
       if (!this.reviewModelPicked) {
         this.reviewModel.set(model);
       }

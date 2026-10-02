@@ -89,7 +89,7 @@
     </div>
     <label for="commit-description">Description <span class="optional">(optional)</span></label>
     <textarea id="commit-description" rows="3" [value]="description()" (input)="updateDescription($event)" [disabled]="busy()"></textarea>
-    @if (generateError()) { <span class="generate-error" role="alert">{{ generateError() }}</span> }
+    @if (generateError()) { <span class="generate-error" role="alert" [title]="generateError()">{{ generateError() }}</span> }
     <button class="commit-button" type="submit" [disabled]="!canCommit()">Commit staged changes</button>
   </form>
 </aside>

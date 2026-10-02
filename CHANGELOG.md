@@ -4,6 +4,20 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-10-02
+
+### Changed
+
+- Pull requests are now reviewed with the latest Opus model by default (the **Claude model** setting, `guito.aiReview.model` inside the extension). Pick **Claude Code's default** to go back to whatever Claude Code itself is set to.
+
+### Added
+
+- VS Code extension: a Generate Commit Message button in the Source Control view's title bar drafts the message with Claude Code, using the same server call as the working panel's Generate message button, and fills the Git commit message box.
+
+### Fixed
+
+- The **Claude model** and **Commit message model** pickers in Settings, and the model picker in a pull request's Review tab, now show the model actually selected instead of the first option.
+
 ## [1.0.7] - 2026-10-01
 
 ### Added

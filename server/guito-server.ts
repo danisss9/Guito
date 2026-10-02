@@ -22,7 +22,7 @@ import {
   type AiReviewStore,
   type AiReviewer,
 } from './ai-review.js';
-import { generateCommitMessage } from './commit-message.js';
+import { generateCommitMessage, type CommitMessageResult } from './commit-message.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,6 +32,8 @@ export interface RunningGuitoServer {
   updateSettings(settings: GuitoHostSettings): void;
   /** Automated pull request reviewer, for host notifications. */
   aiReview: AiReviewer;
+  /** Drafts a commit message from the pending changes, as /api/commit-message does. */
+  generateCommitMessage(model?: string): Promise<CommitMessageResult>;
 }
 
 export interface GuitoHostSettings {
@@ -3862,42 +3864,47 @@ export async function startGuitoServer({
   // ==================== AI commit message ====================
   // One Claude Code run over the pending changes; the reply fills the working
   // panel's message box. Nothing is committed and no Azure DevOps call is made.
+  // The VS Code Source Control view drafts through the same function.
+  const draftCommitMessage = async (model = ''): Promise<CommitMessageResult> => {
+    await mutationQueue;
+    const snapshot = await working.snapshot();
+    const staged = snapshot.stagedFiles;
+    const scope: 'staged' | 'working' = staged.length ? 'staged' : 'working';
+    const files = scope === 'staged' ? staged : [...staged, ...snapshot.unstagedFiles];
+    if (!files.length) {
+      throw new Error('There are no changes to write a commit message about.');
+    }
+    let branch = '';
+    try {
+      branch = await currentBranch();
+    } catch {
+      branch = '';
+    }
+    let recentSubjects: string[] = [];
+    try {
+      recentSubjects = (await git.raw(['log', '-n', '12', '--pretty=format:%s']))
+        .split(/\r?\n/)
+        .map((subject) => subject.trim())
+        .filter(Boolean);
+    } catch {
+      // No commits yet (fresh repository); the model manages without style.
+    }
+    return generateCommitMessage({
+      branch,
+      scope,
+      files,
+      recentSubjects,
+      config: await refreshAiReviewConfig(),
+      model,
+      cwd: repositoryPath,
+      runModel: aiReviewModelImpl,
+      log: (line) => onLog?.(line),
+    });
+  };
+
   app.post('/api/commit-message', async (req: any, resp) => {
     try {
-      await mutationQueue;
-      const snapshot = await working.snapshot();
-      const staged = snapshot.stagedFiles;
-      const scope: 'staged' | 'working' = staged.length ? 'staged' : 'working';
-      const files = scope === 'staged' ? staged : [...staged, ...snapshot.unstagedFiles];
-      if (!files.length) {
-        throw new Error('There are no changes to write a commit message about.');
-      }
-      let branch = '';
-      try {
-        branch = await currentBranch();
-      } catch {
-        branch = '';
-      }
-      let recentSubjects: string[] = [];
-      try {
-        recentSubjects = (await git.raw(['log', '-n', '12', '--pretty=format:%s']))
-          .split(/\r?\n/)
-          .map((subject) => subject.trim())
-          .filter(Boolean);
-      } catch {
-        // No commits yet (fresh repository); the model manages without style.
-      }
-      const message = await generateCommitMessage({
-        branch,
-        scope,
-        files,
-        recentSubjects,
-        config: await refreshAiReviewConfig(),
-        model: strField(req.body?.model),
-        cwd: repositoryPath,
-        runModel: aiReviewModelImpl,
-        log: (line) => onLog?.(line),
-      });
+      const message = await draftCommitMessage(strField(req.body?.model));
       return resp.type('application/json').send(message);
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });
@@ -4101,6 +4108,7 @@ export async function startGuitoServer({
   return {
     address,
     aiReview: aiReviewer,
+    generateCommitMessage: draftCommitMessage,
     close: async () => {
       aiReviewer.stop();
       await app.close();

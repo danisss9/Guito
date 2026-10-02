@@ -73,6 +73,17 @@ interface OpenExternalMessage {
   url: string;
 }
 
+/** The slice of the built-in Git extension's API (vscode.git, version 1) Guito uses. */
+interface GitApiRepository {
+  rootUri: vscode.Uri;
+  inputBox: { value: string };
+  ui: { selected: boolean };
+}
+
+interface GitApi {
+  repositories: GitApiRepository[];
+}
+
 const sessions = new Map<string, Set<RepositorySession>>();
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -128,6 +139,17 @@ export function activate(context: vscode.ExtensionContext): void {
         );
       }),
   );
+  const generateCommitMessageCommand = vscode.commands.registerCommand(
+    'guito.generateCommitMessage',
+    (sourceControl?: { rootUri?: vscode.Uri }) =>
+      generateCommitMessageInScm(context, sourceControl?.rootUri).catch((error) => {
+        void vscode.window.showErrorMessage(
+          `Guito could not generate a commit message: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }),
+  );
 
   updateStatusBar();
   // Pull requests are reviewed while Guito is closed too, so the reviewers
@@ -140,6 +162,7 @@ export function activate(context: vscode.ExtensionContext): void {
     configureUserDetailsCommand,
     configureRemotesCommand,
     reviewPullRequestsCommand,
+    generateCommitMessageCommand,
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       updateStatusBar();
       void syncBackgroundReviewers(context);
@@ -823,6 +846,96 @@ async function reviewPullRequestsNow(context: vscode.ExtensionContext): Promise<
   );
 }
 
+// ==================== Source Control commit message ====================
+// The sparkle button in VS Code's Source Control view drafts the message with
+// the same server call as the webview's Generate message button, then fills
+// the built-in Git commit input box.
+
+/** Repositories with a draft in flight, so a second click is ignored. */
+const generatingCommitMessages = new Set<string>();
+
+async function gitApi(): Promise<GitApi> {
+  const extension = vscode.extensions.getExtension<{ getAPI(version: 1): GitApi }>('vscode.git');
+  if (!extension) throw new Error('the built-in Git extension is not available.');
+  const exports = extension.isActive ? extension.exports : await extension.activate();
+  return exports.getAPI(1);
+}
+
+/** The Git repository the button was clicked for, else the selected or picked one. */
+async function pickScmRepository(
+  api: GitApi,
+  rootUri?: vscode.Uri,
+): Promise<GitApiRepository | undefined> {
+  const repositories = api.repositories;
+  if (rootUri) {
+    const key = repositoryKey(rootUri.fsPath);
+    const match = repositories.find((repository) => repositoryKey(repository.rootUri.fsPath) === key);
+    if (match) return match;
+  }
+  if (repositories.length === 0) {
+    void vscode.window.showInformationMessage('No Git repository is open in Source Control.');
+    return undefined;
+  }
+  if (repositories.length === 1) return repositories[0];
+  const selected = repositories.filter((repository) => repository.ui.selected);
+  if (selected.length === 1) return selected[0];
+  const choice = await vscode.window.showQuickPick(
+    repositories.map((repository) => ({
+      label: basename(repository.rootUri.fsPath),
+      description: repository.rootUri.fsPath,
+      repository,
+    })),
+    { title: 'Guito: Generate Commit Message', placeHolder: 'Choose a Git repository' },
+  );
+  return choice?.repository;
+}
+
+async function generateCommitMessageInScm(
+  context: vscode.ExtensionContext,
+  rootUri?: vscode.Uri,
+): Promise<void> {
+  const repository = await pickScmRepository(await gitApi(), rootUri);
+  if (!repository) return;
+  const root = resolve(repository.rootUri.fsPath);
+  const key = repositoryKey(root);
+  if (generatingCommitMessages.has(key)) return;
+  generatingCommitMessages.add(key);
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.SourceControl, title: 'Guito: generating commit message' },
+      async () => {
+        // Reuse a running server (an open panel or the background reviewer);
+        // otherwise start a headless one just for this draft.
+        const running = pollingServers(key)[0];
+        const settings = readHostSettings();
+        const server =
+          running ??
+          (await startGuitoServer({
+            repositoryPath: root,
+            uiRoot: vscode.Uri.joinPath(context.extensionUri, 'dist', 'ui').fsPath,
+            host: '127.0.0.1',
+            port: 0,
+            apiToken: randomBytes(32).toString('hex'),
+            ...settings,
+            // Never polls for pull requests; it closes as soon as the draft is in.
+            aiReview: { ...settings.aiReview, enabled: false },
+            onLog: (line) => outputChannel?.appendLine(`[${basename(root)}] ${line}`),
+          }));
+        try {
+          const message = await server.generateCommitMessage();
+          repository.inputBox.value = message.description
+            ? `${message.subject}\n\n${message.description}`
+            : message.subject;
+        } finally {
+          if (!running) await server.close().catch(() => {});
+        }
+      },
+    );
+  } finally {
+    generatingCommitMessages.delete(key);
+  }
+}
+
 function repositoryKey(root: string): string {
   const normalized = normalize(root);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
@@ -859,7 +972,7 @@ function readHostSettings(): GuitoHostSettings {
       pollMinutes: configuration.get<number>('aiReview.pollMinutes', 30),
       includeDrafts: configuration.get<boolean>('aiReview.includeDrafts', false),
       claudePath: configuration.get<string>('aiReview.claudePath', '').trim(),
-      model: configuration.get<string>('aiReview.model', '').trim(),
+      model: configuration.get<string>('aiReview.model', 'opus').trim(),
       commitMessageModel: configuration.get<string>('aiReview.commitMessageModel', 'haiku').trim(),
       timeoutSeconds: configuration.get<number>('aiReview.timeoutSeconds', 600),
       instructions: configuration.get<string>('aiReview.instructions', ''),

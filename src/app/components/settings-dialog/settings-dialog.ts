@@ -117,7 +117,7 @@ export class SettingsDialog {
       this.aiReviewPollMinutes.set(review?.pollMinutes ?? 30);
       this.aiReviewIncludeDrafts.set(review?.includeDrafts === true);
       this.aiReviewClaudePath.set(review?.claudePath ?? '');
-      this.aiReviewModel.set(review?.model ?? '');
+      this.aiReviewModel.set(review?.model ?? 'opus');
       this.aiReviewCommitMessageModel.set(review?.commitMessageModel || 'haiku');
       this.aiReviewInstructions.set(review?.instructions ?? '');
       if (!this.remotesLoaded) {

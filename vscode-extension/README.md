@@ -20,6 +20,10 @@ The reviewer keeps running while no Guito panel is open. Run **Guito: Review Pul
 
 Settings: `guito.aiReview.enabled`, `.scope`, `.pollMinutes`, `.includeDrafts`, `.claudePath`, `.model`, `.commitMessageModel`, `.timeoutSeconds`, and `.instructions`.
 
+## Commit messages
+
+The sparkle **Generate Commit Message** button in VS Code's Source Control view drafts a message with Claude Code, just like the Generate message button in Guito's uncommitted-changes panel. It uses the staged diff when anything is staged, and every uncommitted change otherwise. The draft fills the Git commit message box for you to review; nothing is committed. `guito.aiReview.commitMessageModel` picks the model.
+
 ## Requirements
 
 - Git must be available on the workspace extension host.

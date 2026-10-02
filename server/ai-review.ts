@@ -172,7 +172,7 @@ export interface AiReviewConfig {
   includeDrafts: boolean;
   /** Claude Code executable; empty means "discover it". */
   claudePath: string;
-  /** Claude model alias or id passed as --model; empty uses Claude Code's own default. */
+  /** Claude model alias or id passed as --model (opus by default); empty uses Claude Code's own default. */
   model: string;
   /** Claude model alias or id that drafts commit messages. */
   commitMessageModel: string;
@@ -190,7 +190,7 @@ export const DEFAULT_AI_REVIEW_CONFIG: AiReviewConfig = {
   pollMinutes: 30,
   includeDrafts: false,
   claudePath: '',
-  model: '',
+  model: 'opus',
   commitMessageModel: 'haiku',
   timeoutSeconds: 600,
   maxDiffChars: 300000,

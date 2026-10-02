@@ -9,7 +9,7 @@ export const DEFAULT_AI_REVIEW_CONFIG = {
     pollMinutes: 30,
     includeDrafts: false,
     claudePath: '',
-    model: '',
+    model: 'opus',
     commitMessageModel: 'haiku',
     timeoutSeconds: 600,
     maxDiffChars: 300000,

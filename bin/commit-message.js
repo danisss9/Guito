@@ -1,4 +1,4 @@
-import { resolveClaudeCommand, runClaudeCli } from './ai-review.js';
+import { resolveClaudeCommand, runClaudeCli, } from './ai-review.js';
 /**
  * One-shot commit message drafting.
  *
@@ -13,7 +13,9 @@ export const DEFAULT_COMMIT_MESSAGE_MODEL = 'haiku';
 const COMMIT_MESSAGE_TIMEOUT_SECONDS = 120;
 /** Haiku does not need the whole diff budget the reviewer configures. */
 const COMMIT_MESSAGE_MAX_DIFF_CHARS = 100000;
-const oneLine = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+const oneLine = (value) => String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 /** Renders one file's diff compactly; only +/- markers, no line numbers. */
 function renderFile(file, budget) {
     const renamed = file.oldPath && file.oldPath !== file.path ? ` (renamed from ${file.oldPath})` : '';
@@ -24,7 +26,11 @@ function renderFile(file, budget) {
     let used = header.length;
     let truncated = false;
     for (const line of file.lines) {
-        const row = line.type === 'add' ? `+${line.text}` : line.type === 'del' ? `-${line.text}` : ` ${line.text}`;
+        const row = line.type === 'add'
+            ? `+${line.text}`
+            : line.type === 'del'
+                ? `-${line.text}`
+                : ` ${line.text}`;
         if (used + row.length + 1 > budget) {
             truncated = true;
             break;
@@ -115,7 +121,9 @@ export function parseCommitMessage(raw) {
 }
 /** Drafts a commit message by running the Claude Code CLI over the changes. */
 export async function generateCommitMessage(options) {
-    const model = options.model?.trim() || options.config.commitMessageModel.trim() || DEFAULT_COMMIT_MESSAGE_MODEL;
+    const model = options.model?.trim() ||
+        options.config.commitMessageModel.trim() ||
+        DEFAULT_COMMIT_MESSAGE_MODEL;
     const prompt = buildCommitMessagePrompt({
         branch: options.branch,
         scope: options.scope,

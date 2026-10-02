@@ -116,6 +116,24 @@ test('falls back to every uncommitted change when nothing is staged', async (con
   assert.match(prompts[0], /\+new file/);
 });
 
+test('the host drafts through the same path as the endpoint', async (context) => {
+  // The VS Code Source Control button calls this instead of the HTTP route.
+  const { server, repositoryPath, cliCalls } = await startMessageServer(context, [
+    jsonReply({ subject: 'Add a greeting', description: 'Say hello.' }),
+  ]);
+  await writeFile(join(repositoryPath, 'c.txt'), 'hello\n');
+  execFileSync('git', ['add', 'c.txt'], { cwd: repositoryPath, stdio: 'ignore' });
+
+  const message = await server.generateCommitMessage();
+  assert.deepEqual(message, {
+    subject: 'Add a greeting',
+    description: 'Say hello.',
+    scope: 'staged',
+    model: 'haiku',
+  });
+  assert.equal(cliCalls.length, 1);
+});
+
 test('refuses to draft when the working tree is clean', async (context) => {
   const { server, prompts } = await startMessageServer(context, []);
   const response = await post(server, '/api/commit-message');

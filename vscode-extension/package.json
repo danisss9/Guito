@@ -2,7 +2,7 @@
   "name": "guito",
   "displayName": "Guito",
   "description": "Explore and manage the current Git repository with Guito inside VS Code.",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "publisher": "danisss9",
   "license": "MIT",
   "icon": "logo.png",
@@ -39,7 +39,8 @@
     "onCommand:guito.open",
     "onCommand:guito.configureUserDetails",
     "onCommand:guito.configureRemotes",
-    "onCommand:guito.reviewPullRequests"
+    "onCommand:guito.reviewPullRequests",
+    "onCommand:guito.generateCommitMessage"
   ],
   "capabilities": {
     "virtualWorkspaces": false,
@@ -78,8 +79,32 @@
         "title": "Review Pull Requests Now",
         "category": "Guito",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "guito.generateCommitMessage",
+        "title": "Generate Commit Message",
+        "category": "Guito",
+        "icon": {
+          "light": "media/generate-message-light.svg",
+          "dark": "media/generate-message-dark.svg"
+        }
       }
     ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "guito.generateCommitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "guito.generateCommitMessage",
+          "when": "workspaceFolderCount != 0"
+        }
+      ]
+    },
     "configuration": {
       "title": "Guito",
       "properties": {
@@ -256,7 +281,7 @@
             "The latest Sonnet model.",
             "The latest Haiku model."
           ],
-          "default": "",
+          "default": "opus",
           "scope": "window",
           "description": "Which Claude model reviews pull requests. The model picker in the pull request dialog's Review tab starts from this and can override it per review."
         },
