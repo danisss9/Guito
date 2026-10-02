@@ -101,12 +101,12 @@
         {
           "command": "guito.generateCommitMessage",
           "when": "scmProvider == git && scmProviderRootUri not in guito.generatingCommitMessageRoots",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "guito.cancelCommitMessage",
           "when": "scmProvider == git && scmProviderRootUri in guito.generatingCommitMessageRoots",
-          "group": "navigation"
+          "group": "navigation@1"
         }
       ],
       "commandPalette": [

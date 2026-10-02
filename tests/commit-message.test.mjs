@@ -99,6 +99,7 @@ test('drafts a message from the staged changes with the haiku default', async (c
   // Print mode with the JSON envelope and no extra arguments.
   assert.deepEqual(cliCalls[0].args, [
     '-p',
+    '--no-session-persistence',
     '--output-format',
     'json',
     '--model',

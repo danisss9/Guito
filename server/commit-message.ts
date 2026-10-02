@@ -204,6 +204,8 @@ export async function generateCommitMessage(options: {
   const effort = options.config.commitMessageEffort;
   const args = [
     '-p',
+    // Background drafts should not show up in the user's Claude Code session history.
+    '--no-session-persistence',
     '--output-format',
     'json',
     ...(model ? ['--model', model] : []),

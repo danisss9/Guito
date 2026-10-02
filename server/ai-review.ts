@@ -805,6 +805,8 @@ export function createAiReviewer(
         const command = await resolveClaudeCommand(config.claudePath);
         const args = [
           '-p',
+          // Background reviews should not show up in the user's Claude Code session history.
+          '--no-session-persistence',
           '--output-format',
           'json',
           ...(model ? ['--model', model] : []),
