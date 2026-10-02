@@ -689,12 +689,12 @@ export class GitService {
       .pipe(map((response) => response.state));
   }
 
-  /** Reviews the pull request now; force re-reads the whole diff, model overrides the configured one. */
-  runAiReview(id: number, force = false, model = ''): Observable<AiReviewState> {
+  /** Reviews the pull request now; force re-reads the whole diff, model and effort override the configured ones. */
+  runAiReview(id: number, force = false, model = '', effort?: string): Observable<AiReviewState> {
     return this.http
       .post<{
         state: AiReviewState;
-      }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review`, { force, model })
+      }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review`, { force, model, effort })
       .pipe(map((response) => response.state));
   }
 

@@ -1,8 +1,10 @@
 import {
+  effortArgs,
   resolveClaudeCommand,
   runClaudeCli,
   type AiReviewConfig,
   type AiReviewModelRunner,
+  type CommitMessageStyle,
 } from './ai-review.js';
 
 /**
@@ -73,9 +75,18 @@ function renderFile(file: CommitMessageFile, budget: number): string {
   return rows.join('\n');
 }
 
-const COMMIT_MESSAGE_CONTRACT = `Reply with one JSON object and nothing else:
+/** What the "description" field holds for each commit message style. */
+const DESCRIPTION_BY_STYLE: Record<CommitMessageStyle, string> = {
+  oneliner: '\\"\\" always; the subject line is the whole message',
+  brief:
+    'one to three short sentences or bullet points on what changed and why, wrapped at 72 characters; \\"\\" when the subject alone is clear',
+  descriptive:
+    'a full body explaining what changed, why, and anything a reviewer should know, wrapped at 72 characters, using bullet points for separate changes',
+};
+
+const commitMessageContract = (style: CommitMessageStyle) => `Reply with one JSON object and nothing else:
 {"subject": "<one line, imperative mood, at most 72 characters, no trailing period>",
- "description": "<body explaining what and why, wrapped at 72 characters; \\"\\" when the subject alone is clear>"}
+ "description": "<${DESCRIPTION_BY_STYLE[style]}>"}
 
 Rules:
 - Summarize the change as a whole; do not walk through the diff file by file.
@@ -90,6 +101,7 @@ export function buildCommitMessagePrompt(input: {
   files: CommitMessageFile[];
   recentSubjects: string[];
   maxDiffChars: number;
+  style: CommitMessageStyle;
 }): string {
   const perFile = Math.max(2000, Math.floor(input.maxDiffChars / Math.max(input.files.length, 1)));
   const body = input.files.map((file) => renderFile(file, perFile)).join('\n');
@@ -105,7 +117,7 @@ export function buildCommitMessagePrompt(input: {
         input.recentSubjects.map((subject) => `  - ${subject}`).join('\n')
       : '',
     '',
-    COMMIT_MESSAGE_CONTRACT,
+    commitMessageContract(input.style),
     '',
     'DIFF',
     '====',
@@ -161,7 +173,12 @@ export async function generateCommitMessage(options: {
   /** Shares the reviewer's claudePath/timeout/diff-budget/model settings. */
   config: Pick<
     AiReviewConfig,
-    'claudePath' | 'commitMessageModel' | 'timeoutSeconds' | 'maxDiffChars'
+    | 'claudePath'
+    | 'commitMessageModel'
+    | 'commitMessageEffort'
+    | 'commitMessageStyle'
+    | 'timeoutSeconds'
+    | 'maxDiffChars'
   >;
   /** Model alias or id; empty uses the configured one, then the haiku default. */
   model?: string;
@@ -179,10 +196,20 @@ export async function generateCommitMessage(options: {
     files: options.files,
     recentSubjects: options.recentSubjects,
     maxDiffChars: Math.min(options.config.maxDiffChars, COMMIT_MESSAGE_MAX_DIFF_CHARS),
+    style: options.config.commitMessageStyle,
   });
   const command = await resolveClaudeCommand(options.config.claudePath);
-  const args = ['-p', '--output-format', 'json', ...(model ? ['--model', model] : [])];
-  options.log?.(`AI commit message: drafting with ${command} (${model})`);
+  const effort = options.config.commitMessageEffort;
+  const args = [
+    '-p',
+    '--output-format',
+    'json',
+    ...(model ? ['--model', model] : []),
+    ...effortArgs(effort),
+  ];
+  options.log?.(
+    `AI commit message: drafting with ${command} (${model}${effort ? `, ${effort} effort` : ''})`,
+  );
   const runModel = options.runModel ?? runClaudeCli;
   const raw = await runModel(prompt, {
     command,
@@ -191,5 +218,11 @@ export async function generateCommitMessage(options: {
     timeoutMs: Math.min(options.config.timeoutSeconds, COMMIT_MESSAGE_TIMEOUT_SECONDS) * 1000,
   });
   const { subject, description } = parseCommitMessage(raw);
-  return { subject, description, scope: options.scope, model };
+  // A one-liner stays one line even when the model adds a body anyway.
+  return {
+    subject,
+    description: options.config.commitMessageStyle === 'oneliner' ? '' : description,
+    scope: options.scope,
+    model,
+  };
 }

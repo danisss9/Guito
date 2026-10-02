@@ -18,11 +18,11 @@ Guito checks for pull requests every few minutes (by default the active ones tha
 
 The reviewer keeps running while no Guito panel is open. Run **Guito: Review Pull Requests Now** from the Command Palette to check immediately.
 
-Settings: `guito.aiReview.enabled`, `.scope`, `.pollMinutes`, `.includeDrafts`, `.claudePath`, `.model`, `.commitMessageModel`, `.timeoutSeconds`, and `.instructions`.
+Settings: `guito.aiReview.enabled`, `.scope`, `.pollMinutes`, `.includeDrafts`, `.claudePath`, `.model`, `.commitMessageModel`, `.effort`, `.commitMessageEffort`, `.commitMessageStyle`, `.timeoutSeconds`, and `.instructions`.
 
 ## Commit messages
 
-The sparkle **Generate Commit Message** button in VS Code's Source Control view drafts a message with Claude Code, just like the Generate message button in Guito's uncommitted-changes panel. It uses the staged diff when anything is staged, and every uncommitted change otherwise. The draft fills the Git commit message box for you to review; nothing is committed. `guito.aiReview.commitMessageModel` picks the model.
+The sparkle **Generate Commit Message** button in VS Code's Source Control view drafts a message with Claude Code, just like the Generate message button in Guito's uncommitted-changes panel. It uses the staged diff when anything is staged, and every uncommitted change otherwise. The draft fills the Git commit message box for you to review; nothing is committed. `guito.aiReview.commitMessageModel` picks the model, and `guito.aiReview.commitMessageStyle` picks the length: `oneliner` (the default, subject only), `brief`, or `descriptive`.
 
 ## Requirements
 

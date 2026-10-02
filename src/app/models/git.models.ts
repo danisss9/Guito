@@ -421,6 +421,12 @@ export interface AiReviewSettings {
   model: string;
   /** Claude model alias or id that drafts commit messages. */
   commitMessageModel: string;
+  /** Claude Code --effort level for reviews (high by default); empty uses Claude Code's own default. */
+  effort: string;
+  /** Claude Code --effort level for commit messages (low by default); empty uses Claude Code's own default. */
+  commitMessageEffort: string;
+  /** How much the drafted message says beyond its subject; oneliner by default. */
+  commitMessageStyle: 'oneliner' | 'brief' | 'descriptive';
   timeoutSeconds: number;
   maxDiffChars: number;
   /** Extra reviewing instructions handed to the model. */
@@ -440,6 +446,26 @@ export const COMMIT_MESSAGE_MODEL_OPTIONS: { value: string; label: string }[] = 
   { value: 'haiku', label: 'Haiku (latest)' },
   { value: 'sonnet', label: 'Sonnet (latest)' },
   { value: 'opus', label: 'Opus (latest)' },
+];
+
+/** Commit message lengths; oneliner is the default. */
+export const COMMIT_MESSAGE_STYLE_OPTIONS: {
+  value: AiReviewSettings['commitMessageStyle'];
+  label: string;
+}[] = [
+  { value: 'oneliner', label: 'Oneliner' },
+  { value: 'brief', label: 'Brief' },
+  { value: 'descriptive', label: 'Descriptive' },
+];
+
+/** Claude Code --effort levels; '' defers to Claude Code's own. */
+export const AI_EFFORT_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: "Claude Code's default" },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+  { value: 'max', label: 'Max' },
 ];
 
 export type AiReviewSeverity = 'blocker' | 'concern' | 'suggestion' | 'nit';
@@ -469,6 +495,8 @@ export interface AiReviewState {
   reviewedCommit: string;
   /** Model that produced the last completed review; '' when unknown. */
   model?: string;
+  /** Effort of the last completed review; '' is Claude Code's default. */
+  effort?: string;
   reviewedAt: string;
   /** Completed review passes; one per reviewed commit. */
   passes: number;

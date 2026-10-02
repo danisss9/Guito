@@ -11,8 +11,10 @@ import {
 } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  AI_EFFORT_OPTIONS,
   AI_REVIEW_MODEL_OPTIONS,
   COMMIT_MESSAGE_MODEL_OPTIONS,
+  COMMIT_MESSAGE_STYLE_OPTIONS,
   AiReviewSettings,
   AzureSettings,
   GitIdentity,
@@ -79,6 +81,12 @@ export class SettingsDialog {
   protected readonly aiReviewClaudePath = signal('');
   protected readonly aiReviewModel = signal('');
   protected readonly aiReviewCommitMessageModel = signal('haiku');
+  protected readonly aiReviewEffort = signal('high');
+  protected readonly aiReviewCommitMessageEffort = signal('low');
+  protected readonly aiReviewCommitMessageStyle =
+    signal<AiReviewSettings['commitMessageStyle']>('oneliner');
+  protected readonly commitMessageStyleOptions = COMMIT_MESSAGE_STYLE_OPTIONS;
+  protected readonly effortOptions = AI_EFFORT_OPTIONS;
   protected readonly aiReviewInstructions = signal('');
   protected readonly remotes = signal<GitRemote[]>([]);
   protected readonly busy = signal(false);
@@ -119,6 +127,9 @@ export class SettingsDialog {
       this.aiReviewClaudePath.set(review?.claudePath ?? '');
       this.aiReviewModel.set(review?.model ?? 'opus');
       this.aiReviewCommitMessageModel.set(review?.commitMessageModel || 'haiku');
+      this.aiReviewEffort.set(review?.effort ?? 'high');
+      this.aiReviewCommitMessageEffort.set(review?.commitMessageEffort ?? 'low');
+      this.aiReviewCommitMessageStyle.set(review?.commitMessageStyle ?? 'oneliner');
       this.aiReviewInstructions.set(review?.instructions ?? '');
       if (!this.remotesLoaded) {
         this.remotesLoaded = true;
@@ -174,6 +185,9 @@ export class SettingsDialog {
         claudePath: this.aiReviewClaudePath().trim(),
         model: this.aiReviewModel(),
         commitMessageModel: this.aiReviewCommitMessageModel(),
+        effort: this.aiReviewEffort(),
+        commitMessageEffort: this.aiReviewCommitMessageEffort(),
+        commitMessageStyle: this.aiReviewCommitMessageStyle(),
         instructions: this.aiReviewInstructions(),
       },
     });
@@ -205,6 +219,13 @@ export class SettingsDialog {
 
   protected changeAiReviewCommitMessageModel(target: EventTarget | null): void {
     this.aiReviewCommitMessageModel.set((target as HTMLSelectElement).value);
+  }
+
+  protected changeAiReviewCommitMessageStyle(target: EventTarget | null): void {
+    const value = (target as HTMLSelectElement).value;
+    this.aiReviewCommitMessageStyle.set(
+      value === 'brief' || value === 'descriptive' ? value : 'oneliner',
+    );
   }
 
   protected changeSearchMode(target: EventTarget | null): void {

@@ -7,6 +7,8 @@
 - `guito.aiReview.model` now defaults to opus, so pull requests are reviewed with the latest Opus model unless you choose otherwise. Set it to the empty option to use Claude Code's own default.
 - Generate commit messages from VS Code's Source Control view. A sparkle button in the view's title bar drafts the message with Claude Code, the same way as Guito's Generate message button, and fills the Git commit message box.
 - Fix the model pickers in Guito's settings and pull request Review tab showing the first option instead of the selected model.
+- Add the `guito.aiReview.effort` and `guito.aiReview.commitMessageEffort` settings, passed to Claude Code as `--effort` (low, medium, high, xhigh or max) for pull request reviews (high by default) and commit messages (low by default). The empty option uses Claude Code's own effort. The pull request dialog's Review tab gains an effort picker that starts from `guito.aiReview.effort` and can override it for a single review.
+- Add the `guito.aiReview.commitMessageStyle` setting: `oneliner` (the default, subject line only), `brief`, or `descriptive`.
 
 ## 1.0.7
 

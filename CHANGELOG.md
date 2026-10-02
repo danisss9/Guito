@@ -13,6 +13,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 ### Added
 
 - VS Code extension: a Generate Commit Message button in the Source Control view's title bar drafts the message with Claude Code, using the same server call as the working panel's Generate message button, and fills the Git commit message box.
+- Choose how hard Claude thinks. New **Review effort** and **Commit message effort** settings (`guito.aiReview.effort` and `guito.aiReview.commitMessageEffort` inside the extension) pass Claude Code's `--effort` level, from low to max, to pull request reviews and commit message drafts. Reviews default to high and commit messages to low; pick **Claude Code's default** to use whatever Claude Code itself is set to. An effort picker next to the model picker in a pull request's **Review** tab, preselected from the setting, overrides it for a single run, and the review's summary line shows which effort produced it.
+- Choose how long drafted commit messages are. The new **Commit message style** setting (`guito.aiReview.commitMessageStyle` inside the extension) picks Oneliner, Brief or Descriptive. Oneliner is the default and drafts only the subject line; Brief adds a short description and Descriptive explains what changed and why in full.
 
 ### Fixed
 

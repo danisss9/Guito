@@ -559,6 +559,8 @@
             {{ state.passes }} review{{ state.passes === 1 ? '' : 's' }} · last
             run {{ formatDate(state.reviewedAt) }} @if (state.model) {
             <span>· {{ state.model }}</span>
+            } @if (state.effort !== undefined) {
+            <span>· {{ effortLabel(state.effort) }}</span>
             } @if (reviewStale()) {
             <span class="review-stale"
               >· new commits since this review</span
@@ -590,6 +592,26 @@
                 [selected]="option.value === reviewModel()"
               >
                 {{ option.label }}
+              </option>
+              }
+            </select>
+          </label>
+          <label
+            class="review-model"
+            title="How hard Claude thinks while reviewing this pull request; Claude Code's default uses whatever Claude Code itself is set to"
+          >
+            <select
+              aria-label="Review effort"
+              [value]="reviewEffort()"
+              (change)="changeReviewEffort($event.target)"
+              [disabled]="reviewRunning()"
+            >
+              @for (option of effortOptions; track option.value) {
+              <option
+                [value]="option.value"
+                [selected]="option.value === reviewEffort()"
+              >
+                {{ effortLabel(option.value) }}
               </option>
               }
             </select>
@@ -905,7 +927,9 @@
         (change)="mergeStrategy.set($any($event.target).value)"
       >
         @for (strategy of mergeStrategies(); track strategy.value) {
-        <option [value]="strategy.value">{{ strategy.label }}</option>
+        <option [value]="strategy.value" [disabled]="strategy.disabled">
+          {{ strategy.label }}{{ strategy.disabled ? ' (disabled by settings)' : '' }}
+        </option>
         }
       </select></label
     >

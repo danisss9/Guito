@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 const SEVERITIES = ['blocker', 'concern', 'suggestion', 'nit'];
+/** Effort levels Claude Code accepts for --effort; '' leaves it to Claude Code. */
+export const AI_REVIEW_EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
+/** How much a drafted commit message says beyond its subject line. */
+export const COMMIT_MESSAGE_STYLES = ['oneliner', 'brief', 'descriptive'];
+/** The --effort arguments for one run, or none when Claude Code decides. */
+export function effortArgs(effort) {
+    return effort ? ['--effort', effort] : [];
+}
 export const DEFAULT_AI_REVIEW_CONFIG = {
     enabled: false,
     scope: 'reviewer',
@@ -11,10 +19,22 @@ export const DEFAULT_AI_REVIEW_CONFIG = {
     claudePath: '',
     model: 'opus',
     commitMessageModel: 'haiku',
+    effort: 'high',
+    commitMessageEffort: 'low',
+    commitMessageStyle: 'oneliner',
     timeoutSeconds: 600,
     maxDiffChars: 300000,
     instructions: '',
 };
+/** A known effort level, or undefined so an unknown value keeps the default. */
+export function normalizeEffort(value) {
+    if (typeof value !== 'string')
+        return undefined;
+    const effort = value.trim().toLowerCase();
+    return AI_REVIEW_EFFORTS.includes(effort)
+        ? effort
+        : undefined;
+}
 /** Normalizes a partial config (settings file or VS Code) onto the defaults. */
 export function resolveAiReviewConfig(...sources) {
     const config = { ...DEFAULT_AI_REVIEW_CONFIG };
@@ -39,6 +59,16 @@ export function resolveAiReviewConfig(...sources) {
         }
         if (typeof source.commitMessageModel === 'string') {
             config.commitMessageModel = source.commitMessageModel.trim();
+        }
+        const effort = normalizeEffort(source.effort);
+        if (effort !== undefined)
+            config.effort = effort;
+        const commitMessageEffort = normalizeEffort(source.commitMessageEffort);
+        if (commitMessageEffort !== undefined)
+            config.commitMessageEffort = commitMessageEffort;
+        const commitMessageStyle = String(source.commitMessageStyle ?? '').trim().toLowerCase();
+        if (COMMIT_MESSAGE_STYLES.includes(commitMessageStyle)) {
+            config.commitMessageStyle = commitMessageStyle;
         }
         if (Number.isFinite(source.timeoutSeconds)) {
             config.timeoutSeconds = Math.min(Math.max(Number(source.timeoutSeconds), 30), 3600);
@@ -475,9 +505,14 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
         const model = typeof options.model === 'string' && options.model.trim()
             ? options.model.trim()
             : config.model;
-        // A different model earns a fresh look at code already reviewed at this
-        // commit; when new commits exist, they alone are reviewed with it.
-        const freshLook = (previousState.model ?? '') !== model &&
+        // A per-review effort wins too, '' included: it asks for Claude Code's
+        // own default rather than the configured level.
+        const effort = normalizeEffort(options.effort) ?? config.effort;
+        // A different model or effort earns a fresh look at code already reviewed
+        // at this commit; when new commits exist, they alone are reviewed with it.
+        // Reviews stored before effort was recorded are not re-run just for that.
+        const freshLook = ((previousState.model ?? '') !== model ||
+            (previousState.effort !== undefined && previousState.effort !== effort)) &&
             previousState.reviewedCommit === pullRequest.sourceCommit;
         if (!options.force &&
             !freshLook &&
@@ -522,8 +557,14 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                     instructions: config.instructions,
                 });
                 const command = await resolveClaudeCommand(config.claudePath);
-                const args = ['-p', '--output-format', 'json', ...(model ? ['--model', model] : [])];
-                log(`AI review: reviewing pull request ${pullRequestId} with ${command}${model ? ` (${model})` : ''}`);
+                const args = [
+                    '-p',
+                    '--output-format',
+                    'json',
+                    ...(model ? ['--model', model] : []),
+                    ...effortArgs(effort),
+                ];
+                log(`AI review: reviewing pull request ${pullRequestId} with ${command}${model ? ` (${model})` : ''}${effort ? `, ${effort} effort` : ''}`);
                 const raw = await runModel(prompt, {
                     command,
                     args,
@@ -545,6 +586,7 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                     title: pullRequest.title,
                     reviewedCommit: pullRequest.sourceCommit,
                     model,
+                    effort,
                     reviewedAt: now().toISOString(),
                     passes: current.passes + 1,
                     status: 'idle',

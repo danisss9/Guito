@@ -30,6 +30,7 @@ import {
   ThreadStatusRequest,
 } from './pr-file-diff';
 import {
+  AI_EFFORT_OPTIONS,
   AI_REVIEW_MODEL_OPTIONS,
   AiReviewFinding,
   AiReviewState,
@@ -197,6 +198,10 @@ export class PrDialog implements OnInit {
   // once the user actually chooses one for this pull request.
   protected readonly reviewModel = signal('');
   private reviewModelPicked = false;
+  // The effort picker works the same way.
+  protected readonly reviewEffort = signal('high');
+  private reviewEffortPicked = false;
+  protected readonly effortOptions = AI_EFFORT_OPTIONS;
   protected readonly pendingFindings = computed(() =>
     (this.review()?.findings ?? []).filter((finding) => finding.status === 'pending'),
   );
@@ -231,21 +236,24 @@ export class PrDialog implements OnInit {
     return buildFileTreeRows(files, this.collapsedFiles());
   });
 
-  protected readonly mergeStrategies = computed(() =>
-    PrDialog.allMergeStrategies.filter((strategy) => {
-      // The target branch's merge policy comes first: Azure DevOps rejects
-      // completions with a strategy the branch does not allow anyway.
-      const policy = this.pr()?.mergePolicy;
-      if (policy && !policy.includes(strategy.value)) {
-        return false;
-      }
-      const settings = this.settings();
-      if (strategy.value === 'noFastForward' || strategy.value === 'rebaseMerge') {
-        return settings?.allowMerge !== false;
-      }
-      return true;
-    }),
-  );
+  /**
+   * Strategies the target branch's policy allows. Ones turned off in the
+   * repository settings stay listed but disabled, so the user sees why.
+   */
+  protected readonly mergeStrategies = computed(() => {
+    // The target branch's merge policy comes first: Azure DevOps rejects
+    // completions with a strategy the branch does not allow anyway.
+    const policy = this.pr()?.mergePolicy;
+    const allowMerge = this.settings()?.allowMerge !== false;
+    return PrDialog.allMergeStrategies
+      .filter((strategy) => !policy || policy.includes(strategy.value))
+      .map((strategy) => ({
+        ...strategy,
+        disabled:
+          !allowMerge &&
+          (strategy.value === 'noFastForward' || strategy.value === 'rebaseMerge'),
+      }));
+  });
 
   /** Whether the branch's merge policy removed strategies Azure would offer. */
   protected readonly mergePolicyLimited = computed(() => {
@@ -304,12 +312,15 @@ export class PrDialog implements OnInit {
   });
 
   constructor() {
-    // The settings arrive asynchronously; the model picker follows the
-    // configured model until the user chooses one.
+    // The settings arrive asynchronously; the model and effort pickers
+    // follow the configured values until the user chooses one.
     effect(() => {
-      const model = this.settings()?.aiReview?.model ?? 'opus';
+      const review = this.settings()?.aiReview;
       if (!this.reviewModelPicked) {
-        this.reviewModel.set(model);
+        this.reviewModel.set(review?.model ?? 'opus');
+      }
+      if (!this.reviewEffortPicked) {
+        this.reviewEffort.set(review?.effort ?? 'high');
       }
     });
     // Debounced reviewer typeahead, mirroring the create-PR dialog.
@@ -715,7 +726,7 @@ export class PrDialog implements OnInit {
 
   /** First offered strategy, so a disabled default falls back gracefully. */
   private defaultMergeStrategy(): PrMergeStrategy {
-    return this.mergeStrategies()[0]?.value ?? 'noFastForward';
+    return this.mergeStrategies().find((strategy) => !strategy.disabled)?.value ?? 'noFastForward';
   }
 
   private completionOptions() {
@@ -912,7 +923,7 @@ export class PrDialog implements OnInit {
     this.reviewRunning.set(true);
     this.reviewError.set('');
     this.git
-      .runAiReview(this.prId(), force, this.reviewModel().trim())
+      .runAiReview(this.prId(), force, this.reviewModel().trim(), this.reviewEffort())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (state) => {
@@ -1042,6 +1053,17 @@ export class PrDialog implements OnInit {
   protected changeReviewModel(target: EventTarget | null): void {
     this.reviewModelPicked = true;
     this.reviewModel.set((target as HTMLSelectElement).value);
+  }
+
+  protected changeReviewEffort(target: EventTarget | null): void {
+    this.reviewEffortPicked = true;
+    this.reviewEffort.set((target as HTMLSelectElement).value);
+  }
+
+  /** The effort picker's label for a stored effort, e.g. "High effort". */
+  protected effortLabel(effort: string): string {
+    const label = AI_EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? effort;
+    return effort ? `${label} effort` : "Claude Code's default effort";
   }
 
   protected formatDate(iso: string): string {

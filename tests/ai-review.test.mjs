@@ -154,6 +154,12 @@ const modelArg = (cliCall) => {
   return index === -1 ? '' : cliCall.args[index + 1];
 };
 
+/** The effort the CLI was told to use, or "" when it was left to its default. */
+const effortArg = (cliCall) => {
+  const index = cliCall.args.indexOf('--effort');
+  return index === -1 ? '' : cliCall.args[index + 1];
+};
+
 /** The CLI envelope Claude Code prints with --output-format json. */
 const cliReply = (review) => ({
   type: 'result',
@@ -505,6 +511,70 @@ test('the configured model reaches Claude Code and a per-review model overrides 
   );
   assert.equal(third.passes, 2);
   assert.equal(prompts.length, 2);
+});
+
+test('the configured review effort reaches Claude Code and an unknown one keeps the high default', async (context) => {
+  const configured = await startReviewServer(
+    context,
+    baseState(),
+    [cliReply({ summary: 'Careful look.', findings: [] })],
+    { config: { effort: 'xhigh', commitMessageEffort: 'low' } },
+  );
+  await fetch(`${configured.server.address}/api/azure-devops/pullrequests/42/ai-review`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(effortArg(configured.cliCalls[0]), 'xhigh');
+
+  const unknown = await startReviewServer(
+    context,
+    baseState(),
+    [cliReply({ summary: 'Default look.', findings: [] })],
+    { config: { effort: 'turbo' } },
+  );
+  await fetch(`${unknown.server.address}/api/azure-devops/pullrequests/42/ai-review`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  assert.equal(effortArg(unknown.cliCalls[0]), 'high');
+});
+
+test('a per-review effort overrides the configured one and earns a fresh look', async (context) => {
+  const { server, prompts, cliCalls } = await startReviewServer(context, baseState(), [
+    cliReply({ summary: 'High effort look.', findings: [] }),
+    cliReply({ summary: 'Max effort look.', findings: [] }),
+    cliReply({ summary: 'Claude Code effort look.', findings: [] }),
+  ]);
+  const review = async (body) =>
+    json(
+      await fetch(`${server.address}/api/azure-devops/pullrequests/42/ai-review`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  const { state: first } = await review({});
+  assert.equal(effortArg(cliCalls[0]), 'high');
+  assert.equal(first.effort, 'high');
+
+  // The same commit runs again because the effort changed.
+  const { state: second } = await review({ effort: 'max' });
+  assert.equal(second.passes, 2);
+  assert.equal(second.effort, 'max');
+  assert.equal(effortArg(cliCalls[1]), 'max');
+
+  // An empty effort asks for Claude Code's own default, not the configured one.
+  const { state: third } = await review({ effort: '' });
+  assert.equal(third.passes, 3);
+  assert.equal(third.effort, '');
+  assert.equal(effortArg(cliCalls[2]), '');
+
+  const { state: fourth } = await review({ effort: '' });
+  assert.equal(fourth.passes, 3);
+  assert.equal(prompts.length, 3);
 });
 
 test('the poller reviews pull requests waiting on me and skips reviewed commits', async (context) => {

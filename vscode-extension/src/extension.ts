@@ -9,6 +9,7 @@ import {
   type GuitoHostSettings,
   type RunningGuitoServer,
 } from '../../server/guito-server.js';
+import type { AiReviewEffort, CommitMessageStyle } from '../../server/ai-review.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -974,6 +975,12 @@ function readHostSettings(): GuitoHostSettings {
       claudePath: configuration.get<string>('aiReview.claudePath', '').trim(),
       model: configuration.get<string>('aiReview.model', 'opus').trim(),
       commitMessageModel: configuration.get<string>('aiReview.commitMessageModel', 'haiku').trim(),
+      effort: configuration.get<AiReviewEffort>('aiReview.effort', 'high'),
+      commitMessageEffort: configuration.get<AiReviewEffort>('aiReview.commitMessageEffort', 'low'),
+      commitMessageStyle: configuration.get<CommitMessageStyle>(
+        'aiReview.commitMessageStyle',
+        'oneliner',
+      ),
       timeoutSeconds: configuration.get<number>('aiReview.timeoutSeconds', 600),
       instructions: configuration.get<string>('aiReview.instructions', ''),
     },

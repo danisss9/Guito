@@ -3319,13 +3319,14 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         }
     });
     // Reviews the pull request now; "force" re-reviews the whole diff even when
-    // the merge source commit has not moved, and "model" overrides the
-    // configured Claude model for this one run.
+    // the merge source commit has not moved, and "model" and "effort" override
+    // the configured Claude model and effort for this one run.
     app.post('/api/azure-devops/pullrequests/:id/ai-review', async (req, resp) => {
         try {
             const state = await aiReviewer.review(Number(req.params?.id), {
                 force: req.body?.force === true,
                 model: typeof req.body?.model === 'string' ? req.body.model : '',
+                effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
             });
             if (state.status === 'error') {
                 return resp.status(400).type('application/json').send({ error: state.error, state });

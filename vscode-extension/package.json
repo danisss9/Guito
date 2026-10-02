@@ -301,6 +301,71 @@
           "scope": "window",
           "description": "Which Claude model drafts commit messages from your pending changes. Haiku is the default because a subject line is a small job."
         },
+        "guito.aiReview.effort": {
+          "type": "string",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "enumDescriptions": [
+            "Use whatever effort Claude Code itself is configured to use.",
+            "Fastest, with the least thinking.",
+            "A balance of speed and depth.",
+            "Thinks harder before answering.",
+            "Extra high effort.",
+            "The most thinking Claude Code allows."
+          ],
+          "default": "high",
+          "scope": "window",
+          "description": "How hard Claude thinks while reviewing pull requests, passed to Claude Code as --effort. Higher effort is slower and catches subtler problems. The effort picker in the pull request dialog's Review tab starts from this and can override it per review."
+        },
+        "guito.aiReview.commitMessageEffort": {
+          "type": "string",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "enumDescriptions": [
+            "Use whatever effort Claude Code itself is configured to use.",
+            "Fastest, with the least thinking.",
+            "A balance of speed and depth.",
+            "Thinks harder before answering.",
+            "Extra high effort.",
+            "The most thinking Claude Code allows."
+          ],
+          "default": "low",
+          "scope": "window",
+          "description": "How hard Claude thinks while drafting commit messages, passed to Claude Code as --effort. Low keeps the draft quick."
+        },
+        "guito.aiReview.commitMessageStyle": {
+          "type": "string",
+          "enum": [
+            "oneliner",
+            "brief",
+            "descriptive"
+          ],
+          "enumItemLabels": [
+            "Oneliner",
+            "Brief",
+            "Descriptive"
+          ],
+          "enumDescriptions": [
+            "Only the subject line.",
+            "The subject line plus a short description of what changed and why.",
+            "The subject line plus a full description of what changed, why, and anything a reviewer should know."
+          ],
+          "default": "oneliner",
+          "scope": "window",
+          "description": "How much the drafted commit message says beyond its subject line."
+        },
         "guito.aiReview.timeoutSeconds": {
           "type": "number",
           "default": 600,

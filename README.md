@@ -60,7 +60,7 @@ Click **Uncommitted changes** to open the staged and unstaged file lists. Click 
 
 Enter a commit message and optional description, then choose **Commit staged changes**. Only staged changes are committed; unstaged edits remain on disk. Commit drafts stay available when you close and reopen the panel during the session.
 
-**Generate message** drafts a subject and description with Claude Code running on your machine, from the staged diff when anything is staged and from every uncommitted change otherwise, matching the language and style of your recent commits. The draft fills the boxes for you to review and edit; nothing is committed automatically. The **Commit message model** setting picks the model. In the VS Code extension, the same button is also in the Source Control view's title bar, and it fills the Git commit message box.
+**Generate message** drafts a subject and description with Claude Code running on your machine, from the staged diff when anything is staged and from every uncommitted change otherwise, matching the language and style of your recent commits. The draft fills the boxes for you to review and edit; nothing is committed automatically. The **Commit message model** setting picks the model, and **Commit message style** picks how much it writes: Oneliner (the default) drafts only the subject line, Brief adds a short description, and Descriptive explains the change in full. In the VS Code extension, the same button is also in the Source Control view's title bar, and it fills the Git commit message box.
 
 ## CLI options
 
@@ -144,6 +144,9 @@ Inside VS Code the reviewer also runs while no Guito panel is open, so pull requ
 | `guito.aiReview.claudePath`      | Path to the Claude Code executable. Empty means Guito looks for it (see above).           |
 | `guito.aiReview.model`           | Which Claude model reviews pull requests. Defaults to opus.                              |
 | `guito.aiReview.commitMessageModel` | Which Claude model drafts commit messages. Defaults to haiku.                          |
+| `guito.aiReview.effort`          | Claude Code effort level for reviews (`low` to `max`). Defaults to high; empty uses Claude Code's default. |
+| `guito.aiReview.commitMessageEffort` | Claude Code effort level for commit messages. Defaults to low; empty uses Claude Code's default. |
+| `guito.aiReview.commitMessageStyle` | `oneliner` (default), `brief`, or `descriptive`.                                      |
 | `guito.aiReview.timeoutSeconds`  | How long one review may take. Defaults to 600.                                           |
 | `guito.aiReview.instructions`    | Extra reviewing instructions, such as your team's conventions.                           |
 
