@@ -88,13 +88,24 @@
           "light": "media/generate-message-light.svg",
           "dark": "media/generate-message-dark.svg"
         }
+      },
+      {
+        "command": "guito.cancelCommitMessage",
+        "title": "Stop Generating Commit Message",
+        "category": "Guito",
+        "icon": "$(debug-stop)"
       }
     ],
     "menus": {
       "scm/title": [
         {
           "command": "guito.generateCommitMessage",
-          "when": "scmProvider == git",
+          "when": "scmProvider == git && scmProviderRootUri not in guito.generatingCommitMessageRoots",
+          "group": "navigation"
+        },
+        {
+          "command": "guito.cancelCommitMessage",
+          "when": "scmProvider == git && scmProviderRootUri in guito.generatingCommitMessageRoots",
           "group": "navigation"
         }
       ],
@@ -102,6 +113,10 @@
         {
           "command": "guito.generateCommitMessage",
           "when": "workspaceFolderCount != 0"
+        },
+        {
+          "command": "guito.cancelCommitMessage",
+          "when": "guito.generatingCommitMessage"
         }
       ]
     },

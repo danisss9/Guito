@@ -3373,7 +3373,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // One Claude Code run over the pending changes; the reply fills the working
     // panel's message box. Nothing is committed and no Azure DevOps call is made.
     // The VS Code Source Control view drafts through the same function.
-    const draftCommitMessage = async (model = '') => {
+    const draftCommitMessage = async (model = '', signal) => {
         await mutationQueue;
         const snapshot = await working.snapshot();
         const staged = snapshot.stagedFiles;
@@ -3407,6 +3407,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             config: await refreshAiReviewConfig(),
             model,
             cwd: repositoryPath,
+            signal,
             runModel: aiReviewModelImpl,
             log: (line) => onLog?.(line),
         });

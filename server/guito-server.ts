@@ -33,7 +33,7 @@ export interface RunningGuitoServer {
   /** Automated pull request reviewer, for host notifications. */
   aiReview: AiReviewer;
   /** Drafts a commit message from the pending changes, as /api/commit-message does. */
-  generateCommitMessage(model?: string): Promise<CommitMessageResult>;
+  generateCommitMessage(model?: string, signal?: AbortSignal): Promise<CommitMessageResult>;
 }
 
 export interface GuitoHostSettings {
@@ -3866,7 +3866,10 @@ export async function startGuitoServer({
   // One Claude Code run over the pending changes; the reply fills the working
   // panel's message box. Nothing is committed and no Azure DevOps call is made.
   // The VS Code Source Control view drafts through the same function.
-  const draftCommitMessage = async (model = ''): Promise<CommitMessageResult> => {
+  const draftCommitMessage = async (
+    model = '',
+    signal?: AbortSignal,
+  ): Promise<CommitMessageResult> => {
     await mutationQueue;
     const snapshot = await working.snapshot();
     const staged = snapshot.stagedFiles;
@@ -3898,6 +3901,7 @@ export async function startGuitoServer({
       config: await refreshAiReviewConfig(),
       model,
       cwd: repositoryPath,
+      signal,
       runModel: aiReviewModelImpl,
       log: (line) => onLog?.(line),
     });

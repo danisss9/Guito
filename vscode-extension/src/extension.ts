@@ -151,6 +151,10 @@ export function activate(context: vscode.ExtensionContext): void {
         );
       }),
   );
+  const cancelCommitMessageCommand = vscode.commands.registerCommand(
+    'guito.cancelCommitMessage',
+    (sourceControl?: { rootUri?: vscode.Uri }) => cancelCommitMessageInScm(sourceControl?.rootUri),
+  );
 
   updateStatusBar();
   // Pull requests are reviewed while Guito is closed too, so the reviewers
@@ -164,6 +168,7 @@ export function activate(context: vscode.ExtensionContext): void {
     configureRemotesCommand,
     reviewPullRequestsCommand,
     generateCommitMessageCommand,
+    cancelCommitMessageCommand,
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       updateStatusBar();
       void syncBackgroundReviewers(context);
@@ -872,8 +877,34 @@ async function reviewPullRequestsNow(context: vscode.ExtensionContext): Promise<
 // the same server call as the webview's Generate message button, then fills
 // the built-in Git commit input box.
 
-/** Repositories with a draft in flight, so a second click is ignored. */
-const generatingCommitMessages = new Set<string>();
+/**
+ * Drafts in flight, by repository key, so a second click is ignored and the
+ * Stop button can abort the Claude Code run.
+ */
+const generatingCommitMessages = new Map<string, { rootUri: string; abort: AbortController }>();
+
+/**
+ * Swaps the sparkle button for a Stop button on the repositories with a draft
+ * in flight: the menus match `scmProviderRootUri` against this list.
+ */
+function updateCommitMessageContext(): void {
+  const roots = [...generatingCommitMessages.values()].map((draft) => draft.rootUri);
+  void vscode.commands.executeCommand('setContext', 'guito.generatingCommitMessageRoots', roots);
+  void vscode.commands.executeCommand('setContext', 'guito.generatingCommitMessage', roots.length > 0);
+}
+
+/** Stops the draft for the clicked repository, or every draft from the palette. */
+function cancelCommitMessageInScm(rootUri?: vscode.Uri): void {
+  const key = rootUri && repositoryKey(rootUri.fsPath);
+  for (const [draftKey, draft] of generatingCommitMessages) {
+    if (key && draftKey !== key) continue;
+    draft.abort.abort();
+    // The button flips back at once, even while a headless server is still
+    // starting; the aborted draft never writes to the input box.
+    generatingCommitMessages.delete(draftKey);
+  }
+  updateCommitMessageContext();
+}
 
 async function gitApi(): Promise<GitApi> {
   const extension = vscode.extensions.getExtension<{ getAPI(version: 1): GitApi }>('vscode.git');
@@ -920,7 +951,10 @@ async function generateCommitMessageInScm(
   const root = resolve(repository.rootUri.fsPath);
   const key = repositoryKey(root);
   if (generatingCommitMessages.has(key)) return;
-  generatingCommitMessages.add(key);
+  const draft = { rootUri: repository.rootUri.toString(), abort: new AbortController() };
+  const { signal } = draft.abort;
+  generatingCommitMessages.set(key, draft);
+  updateCommitMessageContext();
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.SourceControl, title: 'Guito: generating commit message' },
@@ -943,7 +977,9 @@ async function generateCommitMessageInScm(
             onLog: (line) => outputChannel?.appendLine(`[${basename(root)}] ${line}`),
           }));
         try {
-          const message = await server.generateCommitMessage();
+          if (signal.aborted) return;
+          const message = await server.generateCommitMessage('', signal);
+          if (signal.aborted) return;
           repository.inputBox.value = message.description
             ? `${message.subject}\n\n${message.description}`
             : message.subject;
@@ -952,8 +988,15 @@ async function generateCommitMessageInScm(
         }
       },
     );
+  } catch (error) {
+    // Stopping the draft is not a failure worth reporting.
+    if (!signal.aborted) throw error;
   } finally {
-    generatingCommitMessages.delete(key);
+    // A cancelled draft has already left the map, and a new one may own the key.
+    if (generatingCommitMessages.get(key) === draft) {
+      generatingCommitMessages.delete(key);
+      updateCommitMessageContext();
+    }
   }
 }
 

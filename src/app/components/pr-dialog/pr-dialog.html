@@ -923,11 +923,14 @@
     </h2>
     <label
       >Merge strategy<select
-        [value]="mergeStrategy()"
         (change)="mergeStrategy.set($any($event.target).value)"
       >
         @for (strategy of mergeStrategies(); track strategy.value) {
-        <option [value]="strategy.value" [disabled]="strategy.disabled">
+        <option
+          [value]="strategy.value"
+          [disabled]="strategy.disabled"
+          [selected]="strategy.value === mergeStrategy()"
+        >
           {{ strategy.label }}{{ strategy.disabledReason ? ' (' + strategy.disabledReason + ')' : '' }}
         </option>
         }

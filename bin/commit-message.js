@@ -154,6 +154,7 @@ export async function generateCommitMessage(options) {
         args,
         cwd: options.cwd,
         timeoutMs: Math.min(options.config.timeoutSeconds, COMMIT_MESSAGE_TIMEOUT_SECONDS) * 1000,
+        signal: options.signal,
     });
     const { subject, description } = parseCommitMessage(raw);
     // A one-liner stays one line even when the model adds a body anyway.

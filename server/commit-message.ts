@@ -183,6 +183,8 @@ export async function generateCommitMessage(options: {
   /** Model alias or id; empty uses the configured one, then the haiku default. */
   model?: string;
   cwd: string;
+  /** Aborted when the draft is cancelled; kills the Claude Code process. */
+  signal?: AbortSignal;
   runModel?: AiReviewModelRunner;
   log?(line: string): void;
 }): Promise<CommitMessageResult> {
@@ -216,6 +218,7 @@ export async function generateCommitMessage(options: {
     args,
     cwd: options.cwd,
     timeoutMs: Math.min(options.config.timeoutSeconds, COMMIT_MESSAGE_TIMEOUT_SECONDS) * 1000,
+    signal: options.signal,
   });
   const { subject, description } = parseCommitMessage(raw);
   // A one-liner stays one line even when the model adds a body anyway.
