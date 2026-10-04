@@ -119,6 +119,16 @@ export class VscodeService {
     window.parent.postMessage({ type: "guito/openSettings" }, "*");
     return true;
   }
+
+  /** Reveals VS Code's Source Control view; standalone callers return false. */
+  openSourceControl(): boolean {
+    if (!this.inVsCode) {
+      return false;
+    }
+    window.parent.postMessage({ type: "guito/openSourceControl" }, "*");
+    return true;
+  }
+
   /** Opens an http(s) URL in the default browser via the extension host. */
   openExternal(url: string): void {
     if (this.inVsCode) {

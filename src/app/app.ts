@@ -48,12 +48,47 @@ import {
 } from './models/git.models';
 import { GitService } from './services/git.service';
 import { VscodeService } from './services/vscode.service';
+import { copyTextToClipboard } from './utils/clipboard';
 import { authenticatedApiUrl } from './utils/session';
 import { normalizeSearchText } from './utils/search-text';
 import { loadJson, saveJson } from './utils/storage';
 
 /** Number of commits fetched from the server per request. */
 const LOAD_PAGE_SIZE = 500;
+
+/**
+ * Context-menu actions that change repository state or context. While a
+ * fetch/push runs they are visibly disabled instead of silently dropped.
+ */
+const MUTATING_MENU_ACTIONS = new Set([
+  'add-tag',
+  'create-branch',
+  'checkout-commit',
+  'cherry-pick',
+  'revert-commit',
+  'drop-commit',
+  'merge-commit',
+  'rebase-commit',
+  'reset-commit',
+  'tag-delete',
+  'tag-push',
+  'checkout-branch',
+  'rename-branch',
+  'delete-branch',
+  'delete-remote-branch',
+  'merge-branch',
+  'pull-branch',
+  'stash-apply',
+  'stash-pop',
+  'stash-drop',
+  'switch-worktree',
+  'open-worktree-tab',
+  'open-worktree-window',
+  'delete-worktree',
+  'stash-working',
+  'reset-working',
+  'clean-untracked',
+]);
 
 /** localStorage key holding the persisted commit message draft. */
 const COMMIT_DRAFT_KEY = 'guito.commitDraft';
@@ -1146,7 +1181,17 @@ export class App implements OnDestroy {
     }
 
     this.contextMenuTarget.set(event.target);
-    this.contextMenuState.set({ x: event.x, y: event.y, items });
+    this.contextMenuState.set({
+      x: event.x,
+      y: event.y,
+      items: this.busy() || this.mutationBusy()
+        ? items.map((item) =>
+            item.action && MUTATING_MENU_ACTIONS.has(item.action)
+              ? { ...item, disabled: true }
+              : item,
+          )
+        : items,
+    });
   }
 
   /** Commit a tag points to, looked up in the loaded history. */
@@ -1190,6 +1235,13 @@ export class App implements OnDestroy {
     this.gitOperationState.set(state);
   }
 
+  /** Copies text, surfacing a banner when the clipboard is unreachable. */
+  private copyToClipboard(text: string): void {
+    void copyTextToClipboard(text).then((copied) => {
+      if (!copied) this.error.set('Could not copy to the clipboard.');
+    });
+  }
+
   /** Closes the Git operation dialog. */
   protected closeGitOperation(): void {
     if (this.mutationBusy()) return;
@@ -1199,7 +1251,9 @@ export class App implements OnDestroy {
 
   /** Runs the confirmed Git operation, showing warnings and refreshing state. */
   protected onGitOperationConfirm(request: GitOperationRequest): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
+    // Background refreshes supersede safely; only in-flight user operations
+    // and mutations block the confirmation (the dialog shows those inline).
+    if (this.busy() || this.mutationBusy()) return;
     this.gitOperationError.set('');
     const done = (result: GitMutationResult) => {
       this.gitOperationState.set(null);
@@ -1408,7 +1462,10 @@ export class App implements OnDestroy {
   }
 
   protected onContextAction(action: string): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
+    // Background refreshes supersede safely; only user-initiated remote
+    // operations and in-flight mutations block menu actions (visibly
+    // disabled while the menu is open).
+    if (this.busy() || this.mutationBusy()) return;
     const selected = this.contextMenuTarget()?.commit ?? this.selectedCommit();
 
     switch (action) {
@@ -1451,12 +1508,12 @@ export class App implements OnDestroy {
         break;
       case 'copy-hash':
         if (selected) {
-          void navigator.clipboard?.writeText(selected.hash);
+          this.copyToClipboard(selected.hash);
         }
         break;
       case 'copy-subject':
         if (selected) {
-          void navigator.clipboard?.writeText(selected.message);
+          this.copyToClipboard(selected.message);
         }
         break;
       case 'view-commit-diff':
@@ -1565,17 +1622,27 @@ export class App implements OnDestroy {
       }
       case 'create-archive': {
         const target = this.contextMenuTarget();
-        const ref = target?.kind === 'tag' ? target.branch?.name : target?.commit?.hash;
+        // Commit badges archive the exact commit; side-panel rows only know
+        // their ref name, which git archive resolves the same way.
+        const ref = target?.commit?.hash ?? target?.branch?.name;
         if (ref) {
           window.open(authenticatedApiUrl(`/api/archive?ref=${encodeURIComponent(ref)}`), '_blank');
         }
         break;
       }
-      case 'tag-details':
-        if (this.contextMenuTarget()?.commit) {
-          this.selectedCommit.set(this.contextMenuTarget().commit);
+      case 'tag-details': {
+        const target = this.contextMenuTarget();
+        if (target?.commit) {
+          this.selectedCommit.set(target.commit);
+        } else {
+          // The tagged commit is not in the loaded history page; page until
+          // it appears and select it, exactly like clicking the tag row.
+          const name = target?.branch?.name ?? '';
+          const tag = this.tags().find((candidate) => candidate.name === name);
+          if (tag) this.selectTag(tag);
         }
         break;
+      }
       case 'tag-delete': {
         const name = this.contextMenuTarget()?.branch?.name ?? '';
         this.openGitOperation({
@@ -1596,7 +1663,7 @@ export class App implements OnDestroy {
       }
       case 'copy-tag-name':
         if (this.contextMenuTarget()?.branch?.name) {
-          void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
+          this.copyToClipboard(this.contextMenuTarget().branch.name);
         }
         break;
       case 'unselect-branch':
@@ -1640,14 +1707,14 @@ export class App implements OnDestroy {
       case 'copy-stash-name': {
         const stash = this.contextMenuTarget()?.stash;
         if (stash) {
-          void navigator.clipboard?.writeText(`stash@{${stash.index}}`);
+          this.copyToClipboard(`stash@{${stash.index}}`);
         }
         break;
       }
       case 'copy-worktree-path': {
         const path = this.contextMenuTarget()?.worktree?.path;
         if (path) {
-          void navigator.clipboard?.writeText(path);
+          this.copyToClipboard(path);
         }
         break;
       }
@@ -1681,7 +1748,7 @@ export class App implements OnDestroy {
       }
       case 'copy-branch-name':
         if (this.contextMenuTarget()?.branch?.name) {
-          void navigator.clipboard?.writeText(this.contextMenuTarget().branch.name);
+          this.copyToClipboard(this.contextMenuTarget().branch.name);
         }
         break;
       case 'rename-branch': {
@@ -1761,7 +1828,10 @@ export class App implements OnDestroy {
         this.refresh();
         break;
       case 'open-source-control':
-        window.open('vscode://command/workbench.view.scm', '_blank');
+        if (!this.vscode.openSourceControl()) {
+          // Standalone browser: hand the command link to the OS.
+          window.open('vscode://command/workbench.view.scm', '_blank');
+        }
         break;
       default:
         break;
@@ -1776,7 +1846,8 @@ export class App implements OnDestroy {
   }
 
   protected onPromptConfirm(value: string): void {
-    if (this.busy() || this.mutationBusy() || this.statusLoading()) return;
+    // Background refreshes supersede safely; see onContextAction.
+    if (this.busy() || this.mutationBusy()) return;
     const state = this.promptState();
     if (!state) {
       return;

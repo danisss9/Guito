@@ -4,6 +4,15 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-10-04
+
+### Fixed
+
+- Every right-click menu now does what it says. The copy actions (commit hash, commit subject, tag, branch, stash and worktree names, worktree paths, file paths) reach the clipboard even where the browser's Async Clipboard API is unavailable — Guito served on a LAN address or inside a webview — and show a message when copying is refused instead of failing silently. Menu items are no longer swallowed by an in-flight background refresh either: while a fetch runs, items that change the repository are visibly disabled until it finishes, and read-only ones stay clickable.
+- **View Details** on a tag whose commit lies outside the loaded history now pages the log to it and selects it, exactly like clicking the tag row, and **Create Archive** on a side-panel row archives that row's ref instead of doing nothing.
+- Checking out a remote branch whose local name already exists no longer fails: the dialog warns before running, and the checkout switches to the existing local branch and fast-forwards it to the remote, reporting a warning when the two have diverged.
+- **Open Source Control View** works inside the VS Code panel (it now asks the extension host) instead of trying to open a `vscode://` link from an iframe.
+
 ## [1.0.8] - 2026-10-02
 
 ### Changed

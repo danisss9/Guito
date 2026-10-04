@@ -906,6 +906,75 @@ test('staged and unstaged file menus copy the repository-relative path', async (
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('a.txt');
 });
 
+test('repository panel tag and branch rows copy their names to the clipboard', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { errors } = await setup(page);
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+
+  await panel.getByRole('button', { name: 'v0.5.0', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Copy Tag Name to Clipboard', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('v0.5.0');
+
+  await panel.getByRole('button', { name: 'feature', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Copy Branch Name to Clipboard', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('feature');
+  expect(errors).toEqual([]);
+});
+
+test('repository panel Create Archive archives the row ref', async ({ page }) => {
+  const { errors } = await setup(page);
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+
+  await panel.getByRole('button', { name: 'feature', exact: true }).click({ button: 'right' });
+  const popupPromise = page.waitForEvent('popup');
+  await page.getByRole('menuitem', { name: 'Create Archive', exact: true }).click();
+  const popup = await popupPromise;
+  expect(new URL(popup.url()).searchParams.get('ref')).toBe('feature');
+  await popup.close();
+  expect(errors).toEqual([]);
+});
+
+test('tag View Details pages history to a tagged commit outside the loaded range', async ({
+  page,
+}) => {
+  const { state, commits, errors } = await setup(page);
+  // A tag pointing past the first loaded page (500 of 700 commits).
+  state.tags = [{ name: 'old-tag', hash: commits[600].hash }];
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+
+  await panel.getByRole('button', { name: 'old-tag', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'View Details', exact: true }).click();
+
+  await expect.poll(() => state.historyRequests).toBeGreaterThan(1);
+  await expect(page.locator('app-commit-detail')).toBeVisible();
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 600');
+  expect(errors).toEqual([]);
+});
+
+test('context menu actions ignore in-flight status refreshes', async ({ page }) => {
+  const { state, errors } = await setup(page, 700, { refreshDelay: 1500 });
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const panel = page.locator('.side-panel');
+
+  // Start a refresh (statusLoading in flight for ~1.5s) and open the menu
+  // while it runs: the click must not be silently swallowed.
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await panel.getByRole('button', { name: 'feature', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Rename Branch...', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Rename Branch');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(state.gitMutations).toEqual([]);
+  await expect(page.locator('.table-loading')).toHaveCount(0, { timeout: 5000 });
+  expect(errors).toEqual([]);
+});
+
 test('staged and unstaged files can be compared with another branch', async ({ page }) => {
   const { state } = await setup(page);
   await page.locator('.working-row').click();
@@ -2075,12 +2144,25 @@ test('pull request panel reviews, edits, comments, diffs, and completes a PR', a
 
   await dialog.getByRole('button', { name: 'Set auto-complete' }).click();
   const autoComplete = page.getByRole('dialog', { name: 'Set auto-complete' });
-  // The branch's merge policy limits the offered strategies.
+  // The branch's merge policy keeps only squash and rebase selectable; the
+  // remaining strategies stay listed but disabled, with the reason shown.
   await expect(autoComplete.getByLabel('Merge strategy').locator('option')).toHaveText([
+    'No fast-forward (merge commit) (not allowed by branch policy)',
     'Squash changes',
     'Rebase and fast-forward',
+    'Semi-linear merge (not allowed by branch policy)',
   ]);
-  await expect(autoComplete).toContainText('policy allows only the listed merge strategies');
+  // Native <option> disabled state is asserted by attribute; Playwright's
+  // toBeDisabled does not read the disabled attribute on options.
+  await expect(
+    autoComplete.getByLabel('Merge strategy').locator('option[value="noFastForward"]'),
+  ).toHaveAttribute('disabled', '');
+  await expect(
+    autoComplete.getByLabel('Merge strategy').locator('option[value="squash"]'),
+  ).not.toHaveAttribute('disabled');
+  await expect(autoComplete).toContainText(
+    "The target branch's policy limits which merge strategies can be used",
+  );
   await autoComplete.getByLabel('Merge strategy').selectOption('squash');
   await autoComplete.getByLabel('Delete source branch').check();
   await autoComplete.getByRole('button', { name: 'Enable' }).click();
@@ -2098,8 +2180,10 @@ test('pull request panel reviews, edits, comments, diffs, and completes a PR', a
   await dialog.getByRole('button', { name: 'Complete', exact: true }).click();
   const complete = page.getByRole('dialog', { name: 'Complete pull request' });
   await expect(complete.getByLabel('Merge strategy').locator('option')).toHaveText([
+    'No fast-forward (merge commit) (not allowed by branch policy)',
     'Squash changes',
     'Rebase and fast-forward',
+    'Semi-linear merge (not allowed by branch policy)',
   ]);
   await complete.getByLabel('Complete associated work items').check();
   await complete.getByRole('button', { name: 'Complete', exact: true }).click();
@@ -2436,7 +2520,15 @@ test('branch dialogs offer checkout, publishing and remote tracking', async ({ p
     'aria-checked',
     'true',
   );
+
+  // A name that already exists locally warns that checkout switches to and
+  // syncs that branch instead of creating it.
+  await expect(remote.getByLabel('Local branch name')).toHaveValue('main');
+  await expect(remote.locator('.notice')).toContainText(
+    'A local branch "main" already exists. Checkout will switch to it and sync it with origin/main.',
+  );
   await remote.getByLabel('Local branch name').fill('main-fresh');
+  await expect(remote.locator('.notice')).toHaveCount(0);
   await remote.getByRole('button', { name: 'Checkout' }).click();
   await expect(remote).toHaveCount(0);
   await expect

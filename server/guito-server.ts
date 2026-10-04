@@ -1591,8 +1591,27 @@ export async function startGuitoServer({
             : '';
         if (newBranch) {
           await verifyBranchName(newBranch);
-          // --track sets the upstream when checking out a remote-tracking ref.
-          await git.raw(['checkout', '-b', newBranch, ...(track ? ['--track'] : []), ref]);
+          const branchExists = track && (await git.branchLocal()).all.includes(newBranch);
+          if (branchExists) {
+            // The name is taken: switch to the existing branch and sync it with
+            // the remote ref instead of failing to create a duplicate.
+            await git.raw(['checkout', newBranch]);
+            try {
+              await git.raw(['branch', '--set-upstream-to', ref, newBranch]);
+            } catch {
+              // Tracking is best effort; keep the branch's existing upstream.
+            }
+            try {
+              await git.raw(['merge', '--ff-only', ref]);
+            } catch (err: any) {
+              warnings.push(
+                `Branch "${newBranch}" was checked out but could not be synced with "${ref}". It may have diverged: ${err.message}`,
+              );
+            }
+          } else {
+            // --track sets the upstream when checking out a remote-tracking ref.
+            await git.raw(['checkout', '-b', newBranch, ...(track ? ['--track'] : []), ref]);
+          }
         } else {
           await git.raw(['checkout', ...(detach ? ['--detach'] : []), ref]);
         }

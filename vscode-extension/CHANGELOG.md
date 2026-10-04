@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.9
+
+- Right-click menus do what they say again. Copy actions (commit hash, commit subject, tag, branch, stash and worktree names, worktree and file paths) reach the clipboard even where the browser's Async Clipboard API is unavailable, and menu items are visibly disabled while a background refresh runs instead of silently ignoring clicks.
+- "Open Source Control View" in the repository panel now reveals VS Code's Source Control view when Guito runs inside the editor, instead of trying to open a `vscode://` link from the panel.
+
 ## 1.0.8
 
 - `guito.aiReview.model` now defaults to opus, so pull requests are reviewed with the latest Opus model unless you choose otherwise. Set it to the empty option to use Claude Code's own default.

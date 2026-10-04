@@ -233,6 +233,12 @@
             [disabled]="busy()"
             (input)="setText($event, remoteBranchName)"
           />
+          @if (existingTrackingBranch()) {
+            <p class="notice">
+              A local branch "{{ existingTrackingBranch() }}" already exists. Checkout will switch
+              to it and sync it with {{ state().ref }}.
+            </p>
+          }
         }
       }
     }

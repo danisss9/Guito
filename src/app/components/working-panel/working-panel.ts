@@ -18,6 +18,7 @@ import {
   WorkingChanges,
 } from '../../models/git.models';
 import { VscodeService } from '../../services/vscode.service';
+import { copyTextToClipboard } from '../../utils/clipboard';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import { ContextMenu } from '../context-menu/context-menu';
 import { ConflictDialog } from '../conflict-dialog/conflict-dialog';
@@ -237,7 +238,7 @@ export class WorkingPanel {
     } else if (action === 'open-file') {
       this.vscode.openFile(target.file.path);
     } else if (action === 'copy-file-path') {
-      void navigator.clipboard?.writeText(target.file.path);
+      void copyTextToClipboard(target.file.path);
     }
   }
 

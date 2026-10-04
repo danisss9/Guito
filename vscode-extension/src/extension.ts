@@ -47,6 +47,11 @@ interface OpenSettingsMessage {
   type: 'guito/openSettings';
 }
 
+/** The app asks the extension host to reveal the Source Control view. */
+interface OpenSourceControlMessage {
+  type: 'guito/openSourceControl';
+}
+
 interface OpenFileMessage {
   type: 'guito/openFile';
   path: string;
@@ -510,6 +515,7 @@ async function openRepository(
           | OpenRepositoryMessage
           | OpenMergeConflictMessage
           | OpenSettingsMessage
+          | OpenSourceControlMessage
           | PickFolderMessage
           | OpenExternalMessage,
       ) => {
@@ -518,6 +524,10 @@ async function openRepository(
             'workbench.action.openSettings',
             '@ext:danisss9.guito',
           );
+          return;
+        }
+        if (message?.type === 'guito/openSourceControl') {
+          void vscode.commands.executeCommand('workbench.view.scm');
           return;
         }
         if (message?.type === 'guito/openExternal' && typeof message.url === 'string') {

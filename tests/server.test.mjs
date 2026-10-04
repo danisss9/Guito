@@ -546,7 +546,8 @@ test('lists worktrees and stashes, and prunes deleted remote branches on fetch',
     ),
   );
   // Deleting on the remote itself leaves the local remote-tracking ref stale.
-  execFileSync('git', ['branch', '-d', 'stale-remote'], {
+  // -c safe.bareRepository=all: git ≥ 2.45 refuses bare repos it does not own.
+  execFileSync('git', ['-c', 'safe.bareRepository=all', 'branch', '-d', 'stale-remote'], {
     cwd: originPath,
     stdio: 'ignore',
   });
@@ -972,6 +973,87 @@ test('creates, checks out, publishes and deletes branches with options', async (
   });
   assert.equal(removedRemote.status, 200);
   assert.ok(!remoteBranches().includes('to-remove'));
+});
+
+test('checking out a remote ref with an existing local branch switches and syncs it', async (
+  context,
+) => {
+  const { repositoryPath, remotePath } = await createRepositoryWithRemote();
+  context.after(() => rm(repositoryPath, { recursive: true, force: true }));
+  context.after(() => rm(remotePath, { recursive: true, force: true }));
+
+  const server = await startGuitoServer({
+    repositoryPath,
+    uiRoot: resolve('bin/ui'),
+    host: '127.0.0.1',
+    port: 0,
+  });
+  context.after(() => server.close());
+
+  const branch = () =>
+    execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repositoryPath })
+      .toString()
+      .trim();
+  const head = (rev = 'HEAD') =>
+    execFileSync('git', ['rev-parse', rev], { cwd: repositoryPath }).toString().trim();
+  const initialBranch = branch();
+
+  // The remote gains a commit the local branch does not have yet.
+  const clonePath = await mkdtemp(join(tmpdir(), 'guito-sync-clone-'));
+  context.after(() => rm(clonePath, { recursive: true, force: true }));
+  execFileSync('git', ['clone', remotePath, clonePath], { stdio: 'ignore' });
+  configureIdentity(clonePath);
+  await writeFile(join(clonePath, 'sync.txt'), 'sync\n');
+  execFileSync('git', ['add', 'sync.txt'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'Remote work'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['push', 'origin', 'HEAD'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['fetch', 'origin'], { cwd: repositoryPath, stdio: 'ignore' });
+  const remoteHead = head(`origin/${initialBranch}`);
+
+  // Detach the branch from its upstream so the tracking update is observable.
+  execFileSync('git', ['branch', '--unset-upstream'], { cwd: repositoryPath, stdio: 'ignore' });
+
+  // Checking out the remote ref as the existing branch switches to it, syncs
+  // it with the remote commit, and tracks the remote ref.
+  const synced = await post(server, '/api/checkout', {
+    ref: `origin/${initialBranch}`,
+    newBranch: initialBranch,
+    track: true,
+  });
+  assert.equal(synced.status, 200);
+  assert.deepEqual((await synced.json()).warnings ?? [], []);
+  assert.equal(branch(), initialBranch);
+  assert.equal(head(), remoteHead);
+  const upstream = execFileSync('git', ['rev-parse', '--abbrev-ref', '@{upstream}'], {
+    cwd: repositoryPath,
+  })
+    .toString()
+    .trim();
+  assert.equal(upstream, `origin/${initialBranch}`);
+
+  // A diverged branch stays on its own commit and reports the failed sync.
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'Local work'], {
+    cwd: repositoryPath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['commit', '--allow-empty', '-m', 'More remote work'], {
+    cwd: clonePath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['push', 'origin', 'HEAD'], { cwd: clonePath, stdio: 'ignore' });
+  execFileSync('git', ['fetch', 'origin'], { cwd: repositoryPath, stdio: 'ignore' });
+  const localHead = head();
+  const diverged = await post(server, '/api/checkout', {
+    ref: `origin/${initialBranch}`,
+    newBranch: initialBranch,
+    track: true,
+  });
+  assert.equal(diverged.status, 200);
+  const divergedBody = await diverged.json();
+  assert.ok(divergedBody.warnings?.length, 'expected a warning about the failed sync');
+  assert.match(divergedBody.warnings[0], /could not be synced/);
+  assert.equal(branch(), initialBranch);
+  assert.equal(head(), localHead);
 });
 
 test('cherry-picks and reverts with option flags and mainline parents', async (context) => {

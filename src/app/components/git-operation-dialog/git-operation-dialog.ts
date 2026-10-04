@@ -85,6 +85,8 @@ export class GitOperationDialog {
   protected readonly checkoutMode = signal<'detach' | 'branch'>('detach');
   protected readonly remoteCheckoutMode = signal<'track' | 'detach'>('track');
   protected readonly remoteBranchName = signal('');
+  /** Existing local branch names, loaded to warn about name collisions. */
+  protected readonly localBranches = signal<string[]>([]);
 
   // cherry-pick / revert
   protected readonly noCommit = signal(false);
@@ -298,6 +300,15 @@ export class GitOperationDialog {
   protected readonly isMerge = computed(
     () => (this.state().commit?.parents.length ?? 0) > 1,
   );
+
+  /** Tracking name that collides with an existing local branch, if any. */
+  protected readonly existingTrackingBranch = computed(() => {
+    const state = this.state();
+    if (state.action !== 'checkout-branch' || !state.isRemote) return '';
+    if (this.remoteCheckoutMode() !== 'track') return '';
+    const name = this.remoteBranchName().trim();
+    return name && this.localBranches().includes(name) ? name : '';
+  });
 
   protected readonly parentCount = computed(() => this.state().commit?.parents.length ?? 0);
 
@@ -577,6 +588,7 @@ export class GitOperationDialog {
 
     this.checkoutMode.set('detach');
     this.remoteCheckoutMode.set('track');
+    this.localBranches.set([]);
     const ref = state.ref ?? '';
     const slash = ref.indexOf('/');
     this.remoteBranchName.set(state.isRemote && slash > 0 ? ref.slice(slash + 1) : '');
@@ -608,6 +620,7 @@ export class GitOperationDialog {
     this.restoreIndex.set(false);
 
     this.loadRemotes(state.action);
+    if (state.action === 'checkout-branch' && state.isRemote) this.loadLocalBranches();
   }
 
   private loadRemotes(action: GitOperationDialogState['action']): void {
@@ -621,6 +634,16 @@ export class GitOperationDialog {
         this.remotes.set([]);
         this.remotesLoaded.set(true);
       },
+    });
+  }
+
+  private loadLocalBranches(): void {
+    this.git.getAllBranches().subscribe({
+      next: (branches) =>
+        this.localBranches.set(
+          branches.filter((branch) => !branch.remote).map((branch) => branch.name),
+        ),
+      error: () => this.localBranches.set([]),
     });
   }
 }
