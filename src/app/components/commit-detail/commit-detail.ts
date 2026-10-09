@@ -5,6 +5,7 @@ import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnDestroy,
   computed,
   effect,
@@ -18,7 +19,19 @@ import { CommitDiff, FileDiff, GitCommit, IssueLinkingSettings, WORKING_HASH } f
 import { GitService } from '../../services/git.service';
 import { VscodeService } from '../../services/vscode.service';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
+import {
+  clearPanelWidth,
+  clampPanelWidth,
+  loadPanelWidth,
+  savePanelWidth,
+  startPanelResize,
+} from '../../utils/panel-resize';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
+
+/** localStorage key holding the persisted detail-panel width; shared with the working panel. */
+const DETAIL_WIDTH_KEY = 'guito.detailPanelWidth';
+/** Narrowest usable detail panel. */
+const DETAIL_MIN_WIDTH = 300;
 
 @Component({
   selector: 'app-commit-detail',
@@ -26,10 +39,15 @@ import { DiffDialog } from '../diff-dialog/diff-dialog';
   templateUrl: './commit-detail.html',
   styleUrl: './commit-detail.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[style.--panel-width]': 'panelWidthCss()',
+    '[class.resizing]': 'resizing()',
+  },
 })
 export class CommitDetail implements OnDestroy {
   private readonly git = inject(GitService);
   private readonly vscode = inject(VscodeService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly commit = input.required<GitCommit>();
   readonly issueLinking = input<IssueLinkingSettings | null>(null);
@@ -84,6 +102,8 @@ export class CommitDetail implements OnDestroy {
 
   ngOnDestroy(): void {
     this.bodySub?.unsubscribe();
+    this.detachResize?.();
+    this.detachResize = null;
   }
 
   protected openFile(file: FileDiff): void {
@@ -152,5 +172,60 @@ export class CommitDetail implements OnDestroy {
         this.error.set('Failed to load the commit diff.');
       },
     });
+  }
+
+  // ==================== Panel resizing ====================
+
+  /** Customized panel width; null keeps the stylesheet default. */
+  protected readonly panelWidth = signal<number | null>(loadPanelWidth(DETAIL_WIDTH_KEY));
+  /** True while the edge is dragged; pauses the open/close width animation. */
+  protected readonly resizing = signal(false);
+  /** Value for the host's --panel-width property; null removes the override. */
+  protected readonly panelWidthCss = computed(() => {
+    const width = this.panelWidth();
+    return width === null ? null : `${width}px`;
+  });
+
+  /** Ends an in-flight drag early when the component is torn down. */
+  private detachResize: (() => void) | null = null;
+
+  /** Starts dragging the panel's left edge. */
+  protected startResize(event: MouseEvent): void {
+    if (this.detachResize) return;
+    this.resizing.set(true);
+    this.detachResize = startPanelResize(event, {
+      direction: -1,
+      startWidth: this.effectiveWidth(),
+      min: DETAIL_MIN_WIDTH,
+      onResize: (width) => this.panelWidth.set(width),
+      onEnd: (width) => {
+        this.detachResize = null;
+        this.resizing.set(false);
+        this.panelWidth.set(width);
+        savePanelWidth(DETAIL_WIDTH_KEY, width);
+      },
+    });
+  }
+
+  /** Arrow keys resize (Shift for coarse steps); the panel grows leftwards. */
+  protected resizeKeydown(event: KeyboardEvent): void {
+    const step = event.shiftKey ? 50 : 10;
+    const delta = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    const width = clampPanelWidth(this.effectiveWidth() - delta, DETAIL_MIN_WIDTH);
+    this.panelWidth.set(width);
+    savePanelWidth(DETAIL_WIDTH_KEY, width);
+  }
+
+  /** Double-click restores the stylesheet default. */
+  protected resetWidth(): void {
+    this.panelWidth.set(null);
+    clearPanelWidth(DETAIL_WIDTH_KEY);
+  }
+
+  /** The width in effect right now: customized or whatever the stylesheet says. */
+  private effectiveWidth(): number {
+    return this.panelWidth() ?? this.host.nativeElement.offsetWidth;
   }
 }

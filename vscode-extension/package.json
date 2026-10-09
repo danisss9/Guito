@@ -234,6 +234,40 @@
           "scope": "window",
           "description": "Match commit and repository panel searches using the query's exact letter casing and accents."
         },
+        "guito.worktreeSort": {
+          "type": "string",
+          "enum": [
+            "default",
+            "name-asc",
+            "name-desc"
+          ],
+          "enumDescriptions": [
+            "Keep worktrees in the order Git reports them.",
+            "Order worktrees by name from A to Z.",
+            "Order worktrees by name from Z to A."
+          ],
+          "default": "default",
+          "scope": "window",
+          "description": "How worktrees are ordered in the repository panel."
+        },
+        "guito.prSort": {
+          "type": "string",
+          "enum": [
+            "newest",
+            "oldest",
+            "title-asc",
+            "title-desc"
+          ],
+          "enumDescriptions": [
+            "Show the most recently created pull requests first.",
+            "Show the oldest pull requests first.",
+            "Order pull requests by title from A to Z.",
+            "Order pull requests by title from Z to A."
+          ],
+          "default": "newest",
+          "scope": "window",
+          "description": "How pull requests are ordered in the repository panel."
+        },
         "guito.allowMerge": {
           "type": "boolean",
           "default": true,

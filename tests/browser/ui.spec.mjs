@@ -1655,6 +1655,79 @@ test('repository panel animation follows live reduced-motion changes', async ({ 
   expect(errors).toEqual([]);
 });
 
+test('repository panel can be resized and remembers its width', async ({ page }) => {
+  const { errors } = await setup(page);
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  const host = page.locator('app-side-panel');
+  await expect(host).toHaveCSS('width', '260px');
+
+  // Dragging the handle on the panel's right edge resizes it live.
+  const handle = page.locator('app-side-panel .panel-resizer');
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 90, box.y + 200, { steps: 5 });
+  await page.mouse.up();
+  await expect(host).toHaveCSS('width', '350px');
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('guito.sidePanelWidth')))
+    .toBe('350');
+
+  // The customized width survives a close/open round trip.
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  await expect(host).toBeHidden();
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  await expect(host).toHaveCSS('width', '350px');
+
+  // Keyboard resizing from the focused handle; Shift takes coarse steps.
+  await handle.focus();
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(host).toHaveCSS('width', '400px');
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('guito.sidePanelWidth')))
+    .toBe('400');
+
+  // Double-clicking the handle restores the stylesheet default.
+  await handle.dblclick();
+  await expect(host).toHaveCSS('width', '260px');
+  expect(await page.evaluate(() => localStorage.getItem('guito.sidePanelWidth'))).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('commit detail and working panel share one resizable width', async ({ page }) => {
+  const { errors } = await setup(page);
+  await page.locator('.list-viewport .row').first().click();
+  const detail = page.locator('app-commit-detail');
+  await expect(detail).toBeVisible();
+  await expect(detail).toHaveCSS('width', '480px');
+
+  // Dragging the handle on the panel's left edge widens it leftwards.
+  const handle = detail.locator('.panel-resizer');
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 60, box.y + 200, { steps: 5 });
+  await page.mouse.up();
+  await expect(detail).toHaveCSS('width', '540px');
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('guito.detailPanelWidth')))
+    .toBe('540');
+
+  // The working panel picks up the same customized width.
+  await detail.locator('button.close-btn').click();
+  await expect(page.locator('app-commit-detail')).toHaveCount(0);
+  await page.locator('.working-row').click();
+  const working = page.locator('app-working-panel');
+  await expect(working).toBeVisible();
+  await expect(working).toHaveCSS('width', '540px');
+
+  // Double-clicking the handle restores the stylesheet default.
+  await working.locator('.panel-resizer').dblclick();
+  await expect(working).toHaveCSS('width', '480px');
+  expect(await page.evaluate(() => localStorage.getItem('guito.detailPanelWidth'))).toBeNull();
+  expect(errors).toEqual([]);
+});
+
 test('repository panel shows loading feedback inside each expanded section', async ({ page }) => {
   const { errors } = await setup(page, 700, { panelDelay: 500 });
   await page.getByRole('button', { name: 'Toggle repository panel' }).click();
@@ -2774,5 +2847,33 @@ test('git operation dialogs cancel and reset their options', async ({ page }) =>
       publish: true,
       remote: 'origin',
     });
+  expect(errors).toEqual([]);
+});
+
+test('diff dialog shows a code minimap preview that can be toggled', async ({ page }) => {
+  const { state, errors } = await setup(page);
+  await page.locator('.working-row').click();
+  const staged = page.getByRole('listbox', { name: 'staged files', exact: true });
+  await staged.getByRole('option', { name: 'partial.txt', exact: true }).dblclick();
+  await expect.poll(() => state.contentRequests.length).toBe(2);
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  const toggle = page.getByRole('button', { name: 'Toggle minimap', exact: true });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+  // The minimap previews the modified side of the diff.
+  const editor = page.locator('.monaco-editor.modified-in-monaco-diff-editor');
+  const minimap = editor.locator('.minimap');
+  await expect(minimap).toBeVisible();
+  await expect(minimap.locator('.minimap-decorations-layer')).toBeVisible();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(minimap).toBeHidden();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(minimap).toBeVisible();
   expect(errors).toEqual([]);
 });

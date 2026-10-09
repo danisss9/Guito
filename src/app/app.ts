@@ -211,6 +211,18 @@ export class App implements OnDestroy {
   protected readonly searchCaseSensitive = computed(
     () => this.azureSettings()?.searchCaseSensitive === true,
   );
+  /** How worktrees are ordered in the repository panel. */
+  protected readonly worktreeSort = computed(() => {
+    const sort = this.azureSettings()?.worktreeSort;
+    return sort === 'name-asc' || sort === 'name-desc' ? sort : 'default';
+  });
+  /** How pull requests are ordered in the repository panel. */
+  protected readonly prSort = computed(() => {
+    const sort = this.azureSettings()?.prSort;
+    return sort === 'oldest' || sort === 'title-asc' || sort === 'title-desc'
+      ? sort
+      : 'newest';
+  });
   /** Whether the Create Pull Request dialog is open. */
   protected readonly prDialogOpen = signal(false);
   /** Full standalone settings dialog; VS Code uses its native Settings editor instead. */

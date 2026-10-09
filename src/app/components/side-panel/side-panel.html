@@ -436,3 +436,14 @@
   }
 
 </aside>
+<div
+  class="panel-resizer"
+  role="separator"
+  aria-orientation="vertical"
+  aria-label="Resize repository panel"
+  tabindex="0"
+  [attr.aria-valuenow]="panelWidth()"
+  (mousedown)="startResize($event)"
+  (dblclick)="resetWidth()"
+  (keydown)="resizeKeydown($event)"
+></div>

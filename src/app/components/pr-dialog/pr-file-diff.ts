@@ -16,6 +16,7 @@ import { AuthorAvatar } from "../author-avatar/author-avatar";
 import { MarkdownText } from "../markdown-text/markdown-text";
 import { FileDiff, PrThread, PrThreadStatus } from "../../models/git.models";
 import { MonacoService } from "../../services/monaco.service";
+import { diffMinimapMarks, diffMinimapOptions } from "../../utils/diff-minimap";
 
 /** A comment the user wrote on a specific diff line. */
 export interface LineCommentRequest {
@@ -106,6 +107,7 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
   private models: any[] = [];
   private disposables: any[] = [];
   private decorations: any[] = [];
+  private minimapMarks: any = null;
 
   protected readonly threadsByAnchor = computed(() => {
     const map = new Map<string, PrThread[]>();
@@ -308,6 +310,8 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
         fontSize: 12,
         fontFamily:
           "ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace",
+        // Monaco disables the minimap inside diff editors; it is enabled on
+        // the modified sub editor below instead.
         minimap: { enabled: false },
         glyphMargin: true,
         scrollBeyondLastLine: false,
@@ -320,6 +324,9 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
         original: originalModel,
         modified: modifiedModel,
       });
+      this.minimapMarks = null;
+      this.applyMinimapOptions();
+      this.editor.onDidUpdateDiff(() => this.applyMinimapMarks());
       this.watchSelection(this.editor.getOriginalEditor(), "left");
       this.watchSelection(this.editor.getModifiedEditor(), "right");
       this.updateThreadDecorations();
@@ -334,6 +341,23 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
     } finally {
       if (version === this.renderVersion) this.editorLoading.set(false);
     }
+  }
+
+  private applyMinimapOptions(): void {
+    if (!this.editor) return;
+    this.editor.getModifiedEditor().updateOptions({
+      minimap: diffMinimapOptions(true),
+    });
+  }
+
+  private applyMinimapMarks(): void {
+    if (!this.editor) return;
+    if (!this.minimapMarks) {
+      this.minimapMarks = this.editor
+        .getModifiedEditor()
+        .createDecorationsCollection();
+    }
+    this.minimapMarks.set(diffMinimapMarks(this.editor.getLineChanges() ?? []));
   }
 
   private watchSelection(editor: any, side: "left" | "right"): void {
@@ -406,6 +430,7 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
     this.disposables = [];
     for (const collection of this.decorations) collection.clear();
     this.decorations = [];
+    this.minimapMarks = null;
     this.editor?.dispose();
     this.editor = null;
     for (const model of this.models) model.dispose();

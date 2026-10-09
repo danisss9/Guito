@@ -1037,6 +1037,14 @@ function readHostSettings(): GuitoHostSettings {
     sidePanelSectionsExpanded: configuration.get<boolean>('sidePanelSectionsExpanded', true),
     searchMode: configuration.get<'navigate' | 'filter'>('searchMode', 'navigate'),
     searchCaseSensitive: configuration.get<boolean>('searchCaseSensitive', false),
+    worktreeSort: configuration.get<'default' | 'name-asc' | 'name-desc'>(
+      'worktreeSort',
+      'default',
+    ),
+    prSort: configuration.get<'newest' | 'oldest' | 'title-asc' | 'title-desc'>(
+      'prSort',
+      'newest',
+    ),
     allowMerge: configuration.get<boolean>('allowMerge', true),
     issueRegex: configuration.get<string>('issueRegex')?.trim() || undefined,
     issueUrl: configuration.get<string>('issueUrl')?.trim() || undefined,

@@ -371,6 +371,27 @@ export type GitOperationRequest =
     }
   | { action: 'stash-apply' | 'stash-pop'; index: number; restoreIndex: boolean };
 
+/** How worktrees are ordered in the repository panel. */
+export type WorktreeSort = 'default' | 'name-asc' | 'name-desc';
+
+/** How pull requests are ordered in the repository panel. */
+export type PrSort = 'newest' | 'oldest' | 'title-asc' | 'title-desc';
+
+/** Worktree sort orders offered in settings; default preserves git order. */
+export const WORKTREE_SORT_OPTIONS: { value: WorktreeSort; label: string }[] = [
+  { value: 'default', label: 'Default order' },
+  { value: 'name-asc', label: 'Name A–Z' },
+  { value: 'name-desc', label: 'Name Z–A' },
+];
+
+/** Pull request sort orders offered in settings; newest is the default. */
+export const PR_SORT_OPTIONS: { value: PrSort; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'title-asc', label: 'Title A–Z' },
+  { value: 'title-desc', label: 'Title Z–A' },
+];
+
 /** Azure DevOps integration settings served by the Guito server. */
 export interface AzureSettings {
   azureDevOpsUrl: string;
@@ -400,6 +421,10 @@ export interface AzureSettings {
   searchMode?: 'navigate' | 'filter';
   /** Whether commit and repository-panel searches preserve casing and accents; defaults to false. */
   searchCaseSensitive?: boolean;
+  /** How worktrees are ordered in the repository panel; defaults to default. */
+  worktreeSort?: WorktreeSort;
+  /** How pull requests are ordered in the repository panel; defaults to newest. */
+  prSort?: PrSort;
   /** Optional conversion of issue references in commit messages to links. */
   issueLinking?: IssueLinkingSettings | null;
   /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; defaults to true. */

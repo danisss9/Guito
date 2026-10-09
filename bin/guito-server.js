@@ -250,7 +250,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, aiReview, azureRequestImpl, aiReviewModelImpl, avatarFetchImpl, onLog, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, worktreeSort, prSort, aiReview, azureRequestImpl, aiReviewModelImpl, avatarFetchImpl, onLog, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -685,6 +685,17 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         const fileSearchMode = file.searchMode === 'filter' || file.searchMode === 'navigate' ? file.searchMode : undefined;
         const fileAllowMerge = typeof file.allowMerge === 'boolean' ? file.allowMerge : undefined;
         const fileSearchCaseSensitive = typeof file.searchCaseSensitive === 'boolean' ? file.searchCaseSensitive : undefined;
+        const fileWorktreeSort = file.worktreeSort === 'default' ||
+            file.worktreeSort === 'name-asc' ||
+            file.worktreeSort === 'name-desc'
+            ? file.worktreeSort
+            : undefined;
+        const filePrSort = file.prSort === 'newest' ||
+            file.prSort === 'oldest' ||
+            file.prSort === 'title-asc' ||
+            file.prSort === 'title-desc'
+            ? file.prSort
+            : undefined;
         const filePrBranchNameTemplate = typeof file.prBranchNameTemplate === 'string' && file.prBranchNameTemplate.trim()
             ? file.prBranchNameTemplate.trim()
             : undefined;
@@ -738,6 +749,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             searchCaseSensitive: typeof searchCaseSensitive === 'boolean'
                 ? searchCaseSensitive
                 : (fileSearchCaseSensitive ?? false),
+            worktreeSort: worktreeSort ?? fileWorktreeSort ?? 'default',
+            prSort: prSort ?? filePrSort ?? 'newest',
             allowMerge: typeof allowMerge === 'boolean' ? allowMerge : (fileAllowMerge ?? true),
             aiReview: resolveAiReviewConfig(file.aiReview, aiReview),
             issueLinking,
@@ -1861,6 +1874,17 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             if (typeof body.searchCaseSensitive === 'boolean') {
                 settings.searchCaseSensitive = body.searchCaseSensitive;
+            }
+            if (body.worktreeSort === 'default' ||
+                body.worktreeSort === 'name-asc' ||
+                body.worktreeSort === 'name-desc') {
+                settings.worktreeSort = body.worktreeSort;
+            }
+            if (body.prSort === 'newest' ||
+                body.prSort === 'oldest' ||
+                body.prSort === 'title-asc' ||
+                body.prSort === 'title-desc') {
+                settings.prSort = body.prSort;
             }
             if (typeof body.allowMerge === 'boolean') {
                 settings.allowMerge = body.allowMerge;
@@ -3648,6 +3672,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             sidePanelSectionsExpanded = settings.sidePanelSectionsExpanded;
             searchMode = settings.searchMode;
             searchCaseSensitive = settings.searchCaseSensitive;
+            worktreeSort = settings.worktreeSort;
+            prSort = settings.prSort;
             showTags = settings.showTags;
             showRemoteBranches = settings.showRemoteBranches;
             issueRegex = settings.issueRegex;

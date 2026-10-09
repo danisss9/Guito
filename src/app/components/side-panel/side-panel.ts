@@ -3,6 +3,7 @@ import {
   Component,
   ElementRef,
   NgZone,
+  OnDestroy,
   afterRenderEffect,
   computed,
   effect,
@@ -18,19 +19,33 @@ import {
   BranchInfo,
   ContextMenuEvent,
   ContextMenuTarget,
+  PrSort,
   PrSummary,
   RefBadge,
   StashEntry,
   TagInfo,
   WorktreeInfo,
+  WorktreeSort,
 } from '../../models/git.models';
 import { RefTreeRow, buildRefTreeRows, flatRefRows } from '../../utils/ref-tree';
 import { normalizeSearchText } from '../../utils/search-text';
+import {
+  clearPanelWidth,
+  clampPanelWidth,
+  loadPanelWidth,
+  savePanelWidth,
+  startPanelResize,
+} from '../../utils/panel-resize';
 
 /** Height of one row in a windowed section; must match `.row` in side-panel.css. */
 const PANEL_ROW_HEIGHT = 24;
 /** Extra rows rendered above and below the viewport in windowed sections. */
 const PANEL_WINDOW_BUFFER = 10;
+
+/** localStorage key holding the persisted repository-panel width. */
+const PANEL_WIDTH_KEY = 'guito.sidePanelWidth';
+/** Narrowest usable repository panel. */
+const PANEL_MIN_WIDTH = 200;
 
 /** One uniformly tall line of the windowed branch section body. */
 type BranchSectionItem =
@@ -84,8 +99,12 @@ function panelWindowRange(
   templateUrl: './side-panel.html',
   styleUrl: './side-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '[style.--panel-width]': 'panelWidthCss()',
+    '[class.resizing]': 'resizing()',
+  },
 })
-export class SidePanel {
+export class SidePanel implements OnDestroy {
   readonly branches = input.required<BranchInfo[]>();
   /** Names of the branches whose history is shown; [] = all branches. */
   readonly selectedBranches = input.required<string[]>();
@@ -97,6 +116,10 @@ export class SidePanel {
   readonly refListView = input<'flat' | 'tree'>('flat');
   /** Whether panel filtering preserves case and accents. */
   readonly searchCaseSensitive = input(false);
+  /** How worktrees are ordered; 'default' preserves git order. */
+  readonly worktreeSort = input<WorktreeSort>('default');
+  /** How pull requests are ordered; 'newest' is the default. */
+  readonly prSort = input<PrSort>('newest');
   /** Initial state for every top-level section. */
   readonly sectionsExpandedByDefault = input(true);
   /** Hash of the commit open in the detail panel; '' = none. */
@@ -395,32 +418,61 @@ export class SidePanel {
     this.filtering() ? this.filteredStashes().length : this.stashes().length,
   );
 
-  /** Worktrees matching by folder name, branch or full path. */
+  /** Worktrees matching by folder name, branch or full path, in sort order. */
   protected readonly filteredWorktrees = computed(() => {
     const worktrees = this.worktrees();
-    if (!this.filtering()) return worktrees;
-    return worktrees.filter(
-      (worktree) =>
-        this.matchesFilter(this.worktreeLabel(worktree)) ||
-        this.matchesFilter(worktree.branch ?? '') ||
-        this.matchesFilter(worktree.path),
-    );
+    const matches = !this.filtering()
+      ? [...worktrees]
+      : worktrees.filter(
+          (worktree) =>
+            this.matchesFilter(this.worktreeLabel(worktree)) ||
+            this.matchesFilter(worktree.branch ?? '') ||
+            this.matchesFilter(worktree.path),
+        );
+    const sort = this.worktreeSort();
+    if (sort === 'name-asc' || sort === 'name-desc') {
+      const direction = sort === 'name-asc' ? 1 : -1;
+      matches.sort(
+        (a, b) =>
+          direction *
+          this.worktreeLabel(a).localeCompare(this.worktreeLabel(b), undefined, {
+            sensitivity: 'base',
+          }),
+      );
+    }
+    return matches;
   });
   protected readonly worktreeCount = computed(() =>
     this.filtering() ? this.filteredWorktrees().length : this.worktrees().length,
   );
 
-  /** Pull requests matching by id, title, branches or author. */
+  /** Pull requests matching by id, title, branches or author, in sort order. */
   protected readonly filteredPullRequests = computed(() => {
     const pullRequests = this.pullRequests();
-    if (pullRequests === null || !this.filtering()) return pullRequests;
-    return pullRequests.filter(
-      (pr) =>
-        this.matchesFilter(pr.title) ||
-        this.matchesFilter(pr.sourceBranch) ||
-        this.matchesFilter(pr.targetBranch) ||
-        this.matchesFilter(pr.author.name),
-    );
+    if (pullRequests === null) return pullRequests;
+    const matches = !this.filtering()
+      ? [...pullRequests]
+      : pullRequests.filter(
+          (pr) =>
+            this.matchesFilter(pr.title) ||
+            this.matchesFilter(pr.sourceBranch) ||
+            this.matchesFilter(pr.targetBranch) ||
+            this.matchesFilter(pr.author.name),
+        );
+    const sort = this.prSort();
+    if (sort === 'oldest') {
+      matches.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    } else if (sort === 'title-asc' || sort === 'title-desc') {
+      const direction = sort === 'title-asc' ? 1 : -1;
+      matches.sort(
+        (a, b) =>
+          direction * a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) ||
+          a.id - b.id,
+      );
+    } else {
+      matches.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    }
+    return matches;
   });
   protected readonly prCount = computed(() => {
     if (!this.filtering()) return (this.pullRequests() ?? []).length;
@@ -559,5 +611,65 @@ export class SidePanel {
   /** Display name of a stash, e.g. stash@{0}. */
   protected stashLabel(stash: StashEntry): string {
     return `stash@{${stash.index}}`;
+  }
+
+  // ==================== Panel resizing ====================
+
+  /** Customized panel width; null keeps the stylesheet default. */
+  protected readonly panelWidth = signal<number | null>(loadPanelWidth(PANEL_WIDTH_KEY));
+  /** True while the edge is dragged; pauses the open/close width transition. */
+  protected readonly resizing = signal(false);
+  /** Value for the host's --panel-width property; null removes the override. */
+  protected readonly panelWidthCss = computed(() => {
+    const width = this.panelWidth();
+    return width === null ? null : `${width}px`;
+  });
+
+  /** Ends an in-flight drag early when the component is torn down. */
+  private detachResize: (() => void) | null = null;
+
+  /** Starts dragging the panel's right edge. */
+  protected startResize(event: MouseEvent): void {
+    if (this.detachResize) return;
+    this.resizing.set(true);
+    this.detachResize = startPanelResize(event, {
+      direction: 1,
+      startWidth: this.effectiveWidth(),
+      min: PANEL_MIN_WIDTH,
+      onResize: (width) => this.panelWidth.set(width),
+      onEnd: (width) => {
+        this.detachResize = null;
+        this.resizing.set(false);
+        this.panelWidth.set(width);
+        savePanelWidth(PANEL_WIDTH_KEY, width);
+      },
+    });
+  }
+
+  /** Arrow keys resize (Shift for coarse steps). */
+  protected resizeKeydown(event: KeyboardEvent): void {
+    const step = event.shiftKey ? 50 : 10;
+    const delta = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    const width = clampPanelWidth(this.effectiveWidth() + delta, PANEL_MIN_WIDTH);
+    this.panelWidth.set(width);
+    savePanelWidth(PANEL_WIDTH_KEY, width);
+  }
+
+  /** Double-click restores the stylesheet default. */
+  protected resetWidth(): void {
+    this.panelWidth.set(null);
+    clearPanelWidth(PANEL_WIDTH_KEY);
+  }
+
+  /** The width in effect right now: customized or whatever the stylesheet says. */
+  private effectiveWidth(): number {
+    return this.panelWidth() ?? this.panelEl().nativeElement.offsetWidth;
+  }
+
+  ngOnDestroy(): void {
+    this.detachResize?.();
+    this.detachResize = null;
   }
 }

@@ -93,6 +93,17 @@
     <button class="commit-button" type="submit" [disabled]="!canCommit()">Commit staged changes</button>
   </form>
 </aside>
+<div
+  class="panel-resizer"
+  role="separator"
+  aria-orientation="vertical"
+  aria-label="Resize working panel"
+  tabindex="0"
+  [attr.aria-valuenow]="panelWidth()"
+  (mousedown)="startResize($event)"
+  (dblclick)="resetWidth()"
+  (keydown)="resizeKeydown($event)"
+></div>
 @if (dialog(); as value) {
   <app-diff-dialog [file]="value.file" [originalRef]="value.originalRef"
     [modifiedRef]="value.modifiedRef" [exactOriginal]="value.exactOriginal" (closed)="dialog.set(null)" />

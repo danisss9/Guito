@@ -112,6 +112,11 @@
   color: var(--text-bright);
 }
 
+.icon-btn.on {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
 .icon-btn svg {
   width: 15px;
   height: 15px;

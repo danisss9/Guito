@@ -4,6 +4,12 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Added
+
+- Sort the repository panel's worktrees and pull requests. New **Worktree order** and **Pull request order** settings (`guito.worktreeSort` and `guito.prSort` inside the extension) order each section independently: worktrees offer Default order, Name A–Z and Name Z–A, while pull requests offer Newest first, Oldest first, Title A–Z and Title Z–A. The defaults keep the current behavior.
+- Both side panels can now be resized. Drag the thin handle on the repository panel's right edge or on a commit detail / working panel's left edge to give it more or less room; arrow keys resize too (hold Shift for bigger steps), and double-clicking the handle returns the panel to its default width. Each choice is remembered between sessions, and the two right-hand panels share one width so the detail view keeps its size as you move between commits and uncommitted changes.
+- The diff viewers now include a code minimap. A scaled-down preview of the changed file sits on the modified side of every diff — commits, working-tree and branch comparisons, and pull request reviews alike — with green marks where lines were added and red marks where lines were removed, so the shape of a change is visible without scrolling. Clicking or dragging the minimap moves the diff, and the diff dialog's header has a new **Toggle minimap** button for hiding it when you would rather give the code the full width.
+
 ## [1.0.9] - 2026-10-04
 
 ### Fixed

@@ -14,7 +14,7 @@ The name combines **GUI** and **Git**: **G**u**IT**o. It is also a [Portuguese w
 - Stashes listed in the commit table with apply, pop, and drop actions.
 - Commit search by subject, body, author, or hash, with loading feedback and retries.
 - Local and remote branch filtering.
-- Commit and working-tree diffs powered by the Monaco editor, with inline and side-by-side layouts.
+- Commit and working-tree diffs powered by the Monaco editor, with inline and side-by-side layouts and a code minimap preview of the changed file.
 - Fetch, pull, pull with rebase, push, and sync actions.
 - Context actions for creating branches and tags, checking out commits, cherry-picking, reverting, merging, rebasing, resetting, and exporting archives.
 - Working-tree actions for stashing changes, resetting tracked changes, and cleaning untracked files.

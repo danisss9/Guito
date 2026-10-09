@@ -38,6 +38,31 @@
   }
 }
 
+/* ---- Panel resize handle ---- */
+
+/* Drag handle on the panel's right edge. It lives on the host, outside the
+   scrolling list, so it stays on the edge while the sections scroll. */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3; /* above the sticky filter bar */
+}
+
+.panel-resizer:hover,
+.panel-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+/* A live drag must move the edge directly instead of easing after it. */
+:host(.resizing) {
+  transition: none;
+}
+
 .tree {
   border-bottom: 1px solid var(--border);
 }

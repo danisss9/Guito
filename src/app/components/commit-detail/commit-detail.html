@@ -82,6 +82,18 @@
   </div>
 </aside>
 
+<div
+  class="panel-resizer"
+  role="separator"
+  aria-orientation="vertical"
+  aria-label="Resize commit detail panel"
+  tabindex="0"
+  [attr.aria-valuenow]="panelWidth()"
+  (mousedown)="startResize($event)"
+  (dblclick)="resetWidth()"
+  (keydown)="resizeKeydown($event)"
+></div>
+
 @if (dialogFile(); as file) {
   <app-diff-dialog
     [file]="file"

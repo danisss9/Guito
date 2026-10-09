@@ -49,6 +49,28 @@
   animation: panel-leave 150ms cubic-bezier(0.3, 0, 0.8, 0.15) forwards;
 }
 
+/* Pauses the enter/leave width animation while the panel is being resized. */
+:host(.resizing) {
+  animation: none;
+}
+
+/* Drag handle on the panel's left edge. */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.panel-resizer:hover,
+.panel-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :host(.panel-enter),
   :host(.panel-leave) {

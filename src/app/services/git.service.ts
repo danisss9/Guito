@@ -31,6 +31,7 @@ import {
   PrIdentity,
   PrLinkedWorkItem,
   PrReviewerSuggestion,
+  PrSort,
   PrSummary,
   PrTagSuggestion,
   PrThread,
@@ -44,6 +45,7 @@ import {
   TagInfo,
   WorkingChanges,
   WorktreeInfo,
+  WorktreeSort,
 } from '../models/git.models';
 
 @Injectable({ providedIn: 'root' })
@@ -412,6 +414,8 @@ export class GitService {
     sidePanelSectionsExpanded?: boolean;
     searchMode?: 'navigate' | 'filter';
     searchCaseSensitive?: boolean;
+    worktreeSort?: WorktreeSort;
+    prSort?: PrSort;
     allowMerge?: boolean;
     aiReview?: Partial<AiReviewSettings>;
     issueLinking?: IssueLinkingSettings | null;

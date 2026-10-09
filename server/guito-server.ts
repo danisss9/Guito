@@ -52,6 +52,8 @@ export interface GuitoHostSettings {
   sidePanelSectionsExpanded?: boolean;
   searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
+  worktreeSort?: 'default' | 'name-asc' | 'name-desc';
+  prSort?: 'newest' | 'oldest' | 'title-asc' | 'title-desc';
   allowMerge?: boolean;
   /** Automated pull request review settings (guito.aiReview.*). */
   aiReview?: Partial<AiReviewConfig>;
@@ -100,6 +102,10 @@ export interface GuitoServerOptions {
   sidePanelSectionsExpanded?: boolean;
   searchMode?: 'navigate' | 'filter';
   searchCaseSensitive?: boolean;
+  /** How worktrees are ordered in the repository panel; wins over the settings file. */
+  worktreeSort?: 'default' | 'name-asc' | 'name-desc';
+  /** How pull requests are ordered in the repository panel; wins over the settings file. */
+  prSort?: 'newest' | 'oldest' | 'title-asc' | 'title-desc';
   /** Whether merge completion strategies ("No fast-forward (merge commit)" and "Semi-linear merge") are offered; wins over the settings file. */
   allowMerge?: boolean;
   /** Automated pull request review settings; win over the settings file. */
@@ -415,6 +421,8 @@ export async function startGuitoServer({
   sidePanelSectionsExpanded,
   searchMode,
   searchCaseSensitive,
+  worktreeSort,
+  prSort,
   aiReview,
   azureRequestImpl,
   aiReviewModelImpl,
@@ -938,6 +946,8 @@ export async function startGuitoServer({
     sidePanelSectionsExpanded: boolean;
     searchMode: 'navigate' | 'filter';
     searchCaseSensitive: boolean;
+    worktreeSort: 'default' | 'name-asc' | 'name-desc';
+    prSort: 'newest' | 'oldest' | 'title-asc' | 'title-desc';
     issueLinking: { regex: string; url: string; useGlobally: boolean } | null;
     allowMerge: boolean;
     aiReview: AiReviewConfig;
@@ -962,6 +972,19 @@ export async function startGuitoServer({
     const fileAllowMerge = typeof file.allowMerge === 'boolean' ? file.allowMerge : undefined;
     const fileSearchCaseSensitive =
       typeof file.searchCaseSensitive === 'boolean' ? file.searchCaseSensitive : undefined;
+    const fileWorktreeSort =
+      file.worktreeSort === 'default' ||
+      file.worktreeSort === 'name-asc' ||
+      file.worktreeSort === 'name-desc'
+        ? file.worktreeSort
+        : undefined;
+    const filePrSort =
+      file.prSort === 'newest' ||
+      file.prSort === 'oldest' ||
+      file.prSort === 'title-asc' ||
+      file.prSort === 'title-desc'
+        ? file.prSort
+        : undefined;
     const filePrBranchNameTemplate =
       typeof file.prBranchNameTemplate === 'string' && file.prBranchNameTemplate.trim()
         ? file.prBranchNameTemplate.trim()
@@ -1022,6 +1045,8 @@ export async function startGuitoServer({
         typeof searchCaseSensitive === 'boolean'
           ? searchCaseSensitive
           : (fileSearchCaseSensitive ?? false),
+      worktreeSort: worktreeSort ?? fileWorktreeSort ?? 'default',
+      prSort: prSort ?? filePrSort ?? 'newest',
       allowMerge: typeof allowMerge === 'boolean' ? allowMerge : (fileAllowMerge ?? true),
       aiReview: resolveAiReviewConfig(
         file.aiReview as Partial<AiReviewConfig> | undefined,
@@ -2147,6 +2172,21 @@ export async function startGuitoServer({
       }
       if (typeof body.searchCaseSensitive === 'boolean') {
         settings.searchCaseSensitive = body.searchCaseSensitive;
+      }
+      if (
+        body.worktreeSort === 'default' ||
+        body.worktreeSort === 'name-asc' ||
+        body.worktreeSort === 'name-desc'
+      ) {
+        settings.worktreeSort = body.worktreeSort;
+      }
+      if (
+        body.prSort === 'newest' ||
+        body.prSort === 'oldest' ||
+        body.prSort === 'title-asc' ||
+        body.prSort === 'title-desc'
+      ) {
+        settings.prSort = body.prSort;
       }
       if (typeof body.allowMerge === 'boolean') {
         settings.allowMerge = body.allowMerge;
@@ -4148,6 +4188,8 @@ export async function startGuitoServer({
       sidePanelSectionsExpanded = settings.sidePanelSectionsExpanded;
       searchMode = settings.searchMode;
       searchCaseSensitive = settings.searchCaseSensitive;
+      worktreeSort = settings.worktreeSort;
+      prSort = settings.prSort;
       showTags = settings.showTags;
       showRemoteBranches = settings.showRemoteBranches;
       issueRegex = settings.issueRegex;

@@ -16,6 +16,7 @@ import { firstValueFrom } from 'rxjs';
 import { FileDiff } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 import { MonacoService } from '../../services/monaco.service';
+import { diffMinimapMarks, diffMinimapOptions } from '../../utils/diff-minimap';
 
 let dialogCounter = 0;
 
@@ -45,10 +46,12 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
   protected readonly error = signal('');
   protected readonly binary = signal(false);
   protected readonly sideBySide = signal(true);
+  protected readonly minimapEnabled = signal(true);
 
   private destroyed = false;
   private editor: any = null;
   private models: any[] = [];
+  private minimapMarks: any = null;
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
@@ -108,6 +111,8 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
         automaticLayout: true,
         fontSize: 12,
         fontFamily: "ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace",
+        // Monaco disables the minimap inside diff editors; it is enabled on the
+        // modified sub editor below instead.
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         renderOverviewRuler: false,
@@ -117,6 +122,9 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
       });
 
       this.editor.setModel({ original: originalModel, modified: modifiedModel });
+      this.minimapMarks = null;
+      this.applyMinimapOptions();
+      this.editor.onDidUpdateDiff(() => this.applyMinimapMarks());
       this.loading.set(false);
     } catch {
       this.error.set('Failed to load the diff.');
@@ -126,6 +134,7 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.minimapMarks = null;
     this.editor?.dispose();
     this.editor = null;
     for (const model of this.models) {
@@ -137,5 +146,28 @@ export class DiffDialog implements AfterViewInit, OnDestroy {
   protected toggleLayout(): void {
     this.sideBySide.update((value) => !value);
     this.editor?.updateOptions({ renderSideBySide: this.sideBySide() });
+    // Applying diff editor options makes Monaco re-disable the sub editor
+    // minimap, so restore it once the update has settled.
+    queueMicrotask(() => this.applyMinimapOptions());
+  }
+
+  protected toggleMinimap(): void {
+    this.minimapEnabled.update((value) => !value);
+    this.applyMinimapOptions();
+  }
+
+  private applyMinimapOptions(): void {
+    if (!this.editor) return;
+    this.editor.getModifiedEditor().updateOptions({
+      minimap: diffMinimapOptions(this.minimapEnabled()),
+    });
+  }
+
+  private applyMinimapMarks(): void {
+    if (!this.editor) return;
+    if (!this.minimapMarks) {
+      this.minimapMarks = this.editor.getModifiedEditor().createDecorationsCollection();
+    }
+    this.minimapMarks.set(diffMinimapMarks(this.editor.getLineChanges() ?? []));
   }
 }

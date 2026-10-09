@@ -15,11 +15,15 @@ import {
   AI_REVIEW_MODEL_OPTIONS,
   COMMIT_MESSAGE_MODEL_OPTIONS,
   COMMIT_MESSAGE_STYLE_OPTIONS,
+  PR_SORT_OPTIONS,
+  WORKTREE_SORT_OPTIONS,
   AiReviewSettings,
   AzureSettings,
   GitIdentity,
   GitRemote,
   IssueLinkingSettings,
+  PrSort,
+  WorktreeSort,
 } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 
@@ -36,6 +40,8 @@ export interface GuitoSettingsUpdate {
   sidePanelSectionsExpanded: boolean;
   searchMode: 'navigate' | 'filter';
   searchCaseSensitive: boolean;
+  worktreeSort: WorktreeSort;
+  prSort: PrSort;
   allowMerge: boolean;
   aiReview: Partial<AiReviewSettings>;
 }
@@ -71,6 +77,10 @@ export class SettingsDialog {
   protected readonly sidePanelSectionsExpanded = signal(true);
   protected readonly searchMode = signal<'navigate' | 'filter'>('navigate');
   protected readonly searchCaseSensitive = signal(false);
+  protected readonly worktreeSort = signal<WorktreeSort>('default');
+  protected readonly prSort = signal<PrSort>('newest');
+  protected readonly worktreeSortOptions = WORKTREE_SORT_OPTIONS;
+  protected readonly prSortOptions = PR_SORT_OPTIONS;
   protected readonly allowMerge = signal(true);
   // Automated pull request review; the VS Code settings win over these when
   // Guito runs inside the extension.
@@ -118,6 +128,18 @@ export class SettingsDialog {
       this.sidePanelSectionsExpanded.set(settings.sidePanelSectionsExpanded !== false);
       this.searchMode.set(settings.searchMode === 'filter' ? 'filter' : 'navigate');
       this.searchCaseSensitive.set(settings.searchCaseSensitive === true);
+      this.worktreeSort.set(
+        settings.worktreeSort === 'name-asc' || settings.worktreeSort === 'name-desc'
+          ? settings.worktreeSort
+          : 'default',
+      );
+      this.prSort.set(
+        settings.prSort === 'oldest' ||
+          settings.prSort === 'title-asc' ||
+          settings.prSort === 'title-desc'
+          ? settings.prSort
+          : 'newest',
+      );
       this.allowMerge.set(settings.allowMerge !== false);
       const review = settings.aiReview;
       this.aiReviewEnabled.set(review?.enabled === true);
@@ -176,6 +198,8 @@ export class SettingsDialog {
       sidePanelSectionsExpanded: this.sidePanelSectionsExpanded(),
       searchMode: this.searchMode(),
       searchCaseSensitive: this.searchCaseSensitive(),
+      worktreeSort: this.worktreeSort(),
+      prSort: this.prSort(),
       allowMerge: this.allowMerge(),
       aiReview: {
         enabled: this.aiReviewEnabled(),
@@ -231,6 +255,22 @@ export class SettingsDialog {
   protected changeSearchMode(target: EventTarget | null): void {
     const value = (target as HTMLSelectElement).value;
     this.searchMode.set(value === 'filter' ? 'filter' : 'navigate');
+  }
+
+  protected changeWorktreeSort(target: EventTarget | null): void {
+    const value = (target as HTMLSelectElement).value as WorktreeSort;
+    this.worktreeSort.set(
+      value === 'name-asc' || value === 'name-desc' ? value : 'default',
+    );
+  }
+
+  protected changePrSort(target: EventTarget | null): void {
+    const value = (target as HTMLSelectElement).value as PrSort;
+    this.prSort.set(
+      value === 'oldest' || value === 'title-asc' || value === 'title-desc'
+        ? value
+        : 'newest',
+    );
   }
 
   protected editIdentity(): void {
