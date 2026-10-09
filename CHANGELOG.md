@@ -4,6 +4,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-10-10
+
 ### Added
 
 - Sort the repository panel's worktrees and pull requests. New **Worktree order** and **Pull request order** settings (`guito.worktreeSort` and `guito.prSort` inside the extension) order each section independently: worktrees offer Default order, Name A–Z and Name Z–A, while pull requests offer Newest first, Oldest first, Title A–Z and Title Z–A. The defaults keep the current behavior.

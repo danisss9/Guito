@@ -1240,7 +1240,11 @@ test('authenticated iframe loads real history and working changes', async ({ pag
     '<iframe title="Guito" style="width:100%;height:700px" src="/?guitoToken=browser-test-token"></iframe>',
   );
   const frame = page.frameLocator('iframe');
-  await expect(frame.locator('.list-viewport .row').first()).toContainText('Browser fixture');
+  // Cold iframe boot (fresh bundle fetch plus Angular bootstrap) can take
+  // longer than the default 5s expect timeout on a loaded machine.
+  await expect(frame.locator('.list-viewport .row').first()).toContainText('Browser fixture', {
+    timeout: 15000,
+  });
   await frame.locator('.working-row').click();
   await expect(frame.getByRole('option', { name: 'example.txt' })).toBeVisible();
 });
@@ -2867,6 +2871,21 @@ test('diff dialog shows a code minimap preview that can be toggled', async ({ pa
   const minimap = editor.locator('.minimap');
   await expect(minimap).toBeVisible();
   await expect(minimap.locator('.minimap-decorations-layer')).toBeVisible();
+
+  // Change marks must use colors Monaco's minimap can parse (plain hex):
+  // rgba() strings are rejected and silently painted pure red.
+  const markColors = await page.evaluate(() => {
+    const modified = window.monaco.editor.getDiffEditors()[0].getModifiedEditor();
+    return modified
+      .getModel()
+      .getAllDecorations()
+      .filter((decoration) => decoration.options.minimap)
+      .map((decoration) => decoration.options.minimap.color);
+  });
+  expect(markColors.length).toBeGreaterThan(0);
+  for (const color of markColors) {
+    expect(color).toMatch(/^#[0-9a-fA-F]{6}$/);
+  }
 
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');

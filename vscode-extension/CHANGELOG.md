@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.0.10
+
+- Sort the repository panel's worktrees and pull requests with the new `guito.worktreeSort` and `guito.prSort` settings: worktrees offer Default order, Name A–Z and Name Z–A, while pull requests offer Newest first, Oldest first, Title A–Z and Title Z–A.
+- Resize both side panels by dragging the handle on the repository panel's right edge or on a commit detail / working panel's left edge (arrow keys work too, double-click resets to the default width). Each choice is remembered between sessions, and the two right-hand panels share one width.
+- The diff viewers gain a code minimap: a scaled-down preview of the changed file on the modified side of every diff, with green marks where lines were added and red marks where lines were removed. Clicking or dragging the minimap moves the diff, and the diff dialog's header has a new Toggle minimap button for hiding it.
+
 ## 1.0.9
 
 - Right-click menus do what they say again. Copy actions (commit hash, commit subject, tag, branch, stash and worktree names, worktree and file paths) reach the clipboard even where the browser's Async Clipboard API is unavailable, and menu items are visibly disabled while a background refresh runs instead of silently ignoring clicks.

@@ -7,11 +7,19 @@
  * minimap on the modified side and turn diff hunks into minimap marks.
  */
 
-/** Monaco `MinimapPosition.Gutter` (avoids depending on the monaco global here). */
-const MINIMAP_GUTTER = 2;
+/**
+ * Mark colors as plain hex. Monaco's minimap only parses `#rrggbb` here —
+ * `rgba()` strings fall back to pure red, and 8-digit hex paints nothing.
+ * Inline marks are painted at half opacity, which keeps the miniaturized
+ * code underneath readable.
+ */
+const INSERT_COLOR = '#89d185';
+const REMOVE_COLOR = '#f48771';
 
-const INSERT_COLOR = 'rgba(137, 209, 133, 0.6)';
-const REMOVE_COLOR = 'rgba(244, 135, 113, 0.6)';
+/** Monaco `MinimapPosition.Inline`; spans the changed lines like VS Code's diff minimap. */
+const MINIMAP_INLINE = 1;
+/** Monaco `MinimapPosition.Gutter`; a narrow mark at the minimap's left edge. */
+const MINIMAP_GUTTER = 2;
 
 /** Minimap options to apply to the modified sub editor of a diff editor. */
 export function diffMinimapOptions(enabled: boolean): any {
@@ -24,9 +32,10 @@ export function diffMinimapOptions(enabled: boolean): any {
 }
 
 /**
- * Minimap decorations for the modified side of a diff: added or replaced lines
- * get an insert mark, pure deletions a remove mark at the position they were
- * removed from. `changes` comes from the diff editor's `getLineChanges()`.
+ * Minimap decorations for the modified side of a diff: added or replaced
+ * lines get a green mark spanning the line, pure deletions a red gutter mark
+ * at the position they were removed from. `changes` comes from the diff
+ * editor's `getLineChanges()`.
  */
 export function diffMinimapMarks(changes: readonly any[]): any[] {
   const marks: any[] = [];
@@ -52,7 +61,7 @@ export function diffMinimapMarks(changes: readonly any[]): any[] {
           endLineNumber: end,
           endColumn: 1,
         },
-        options: { minimap: { position: MINIMAP_GUTTER, color: INSERT_COLOR } },
+        options: { minimap: { position: MINIMAP_INLINE, color: INSERT_COLOR } },
       });
     }
   }
