@@ -1,5 +1,5 @@
 <aside class="detail" aria-label="Uncommitted changes">
-  <header><h2>Uncommitted changes</h2><button type="button" aria-label="Close changes" (click)="closed.emit()">×</button></header>
+  <header><h2>Uncommitted changes</h2><app-close-button label="Close changes" (pressed)="closed.emit()" /></header>
   <div class="stash-actions" role="group" aria-label="Stash changes">
     <button type="button" [disabled]="disabled() || (!files('staged').length && !files('unstaged').length)" (click)="stash('all')">Stash all</button>
     <button type="button" [disabled]="disabled() || !files('staged').length" (click)="stash('staged')">Stash staged</button>

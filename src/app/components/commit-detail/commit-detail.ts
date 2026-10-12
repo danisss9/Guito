@@ -27,6 +27,7 @@ import {
   startPanelResize,
 } from '../../utils/panel-resize';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
+import { CloseButton } from '../close-button/close-button';
 
 /** localStorage key holding the persisted detail-panel width; shared with the working panel. */
 const DETAIL_WIDTH_KEY = 'guito.detailPanelWidth';
@@ -35,7 +36,7 @@ const DETAIL_MIN_WIDTH = 300;
 
 @Component({
   selector: 'app-commit-detail',
-  imports: [ErrorBanner, AuthorAvatar, DatePipe, DiffDialog, IssueText],
+  imports: [ErrorBanner, AuthorAvatar, DatePipe, DiffDialog, IssueText, CloseButton],
   templateUrl: './commit-detail.html',
   styleUrl: './commit-detail.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

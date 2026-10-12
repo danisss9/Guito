@@ -2,7 +2,7 @@
 <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <header class="dialog-header">
     <div><h2 id="settings-title">{{ mode() === 'main' ? 'Settings' : mode() === 'identity' ? 'Edit User Details' : mode() === 'remote' ? (originalRemoteName() ? 'Edit Remote' : 'Add Remote') : 'Issue Linking' }}</h2>@if (mode() === 'main') { <p>Repository preferences and Git configuration.</p> }</div>
-    <button class="close-btn" type="button" aria-label="Close settings" [disabled]="saving() || busy()" (click)="closed.emit()">&times;</button>
+    <app-close-button label="Close settings" [disabled]="saving() || busy()" (pressed)="closed.emit()" />
   </header>
   @if (error()) { <div class="dialog-error" role="alert">{{ error() }}</div> }
 

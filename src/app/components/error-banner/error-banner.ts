@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, effect, input, output, signal } from '@angular/core';
+import { CloseButton } from '../close-button/close-button';
 
 @Component({
   selector: 'app-error-banner',
+  imports: [CloseButton],
   templateUrl: './error-banner.html',
   styleUrl: './error-banner.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

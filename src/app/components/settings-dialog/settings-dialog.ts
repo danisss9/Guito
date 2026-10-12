@@ -26,6 +26,7 @@ import {
   WorktreeSort,
 } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
+import { CloseButton } from '../close-button/close-button';
 
 export interface GuitoSettingsUpdate {
   azureDevOpsUrl: string;
@@ -50,6 +51,7 @@ type EditorMode = 'main' | 'identity' | 'remote' | 'issue';
 
 @Component({
   selector: 'app-settings-dialog',
+  imports: [CloseButton],
   templateUrl: './settings-dialog.html',
   styleUrl: './settings-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

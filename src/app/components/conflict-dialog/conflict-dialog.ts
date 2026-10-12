@@ -3,10 +3,11 @@ import { finalize } from 'rxjs/operators';
 import { ConflictResolution, MergeConflict } from '../../models/git.models';
 import { GitService } from '../../services/git.service';
 import { ErrorBanner } from '../error-banner/error-banner';
+import { CloseButton } from '../close-button/close-button';
 
 @Component({
   selector: 'app-conflict-dialog',
-  imports: [ErrorBanner],
+  imports: [ErrorBanner, CloseButton],
   templateUrl: './conflict-dialog.html',
   styleUrl: './conflict-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -21,6 +21,7 @@ import { AuthorAvatar } from '../author-avatar/author-avatar';
 import { ChipInput, ChipSuggestion } from '../create-pr-dialog/chip-input';
 import { MarkdownText } from '../markdown-text/markdown-text';
 import { ErrorBanner } from '../error-banner/error-banner';
+import { CloseButton } from '../close-button/close-button';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
 import {
   DiffFocus,
@@ -89,7 +90,7 @@ const CHECK_STATE_LABELS: Record<string, string> = {
  */
 @Component({
   selector: 'app-pr-dialog',
-  imports: [AuthorAvatar, ChipInput, ErrorBanner, MarkdownText, NgTemplateOutlet, PrFileDiff],
+  imports: [AuthorAvatar, ChipInput, CloseButton, ErrorBanner, MarkdownText, NgTemplateOutlet, PrFileDiff],
   templateUrl: './pr-dialog.html',
   styleUrl: './pr-dialog.css',
   changeDetection: ChangeDetectionStrategy.OnPush,

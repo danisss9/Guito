@@ -101,16 +101,11 @@
         Complete
       </button>
       }
-      <button
-        type="button"
-        class="icon-btn close"
-        aria-label="Close pull request"
-        title="Close"
-        (click)="closed.emit()"
+      <app-close-button
+        label="Close pull request"
         [disabled]="busy()"
-      >
-        ×
-      </button>
+        (pressed)="closed.emit()"
+      />
     </div>
   </header>
 

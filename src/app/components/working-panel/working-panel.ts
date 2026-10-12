@@ -33,6 +33,7 @@ import { ContextMenu } from '../context-menu/context-menu';
 import { ConflictDialog } from '../conflict-dialog/conflict-dialog';
 import { DiffDialog } from '../diff-dialog/diff-dialog';
 import { PromptDialog } from '../prompt-dialog/prompt-dialog';
+import { CloseButton } from '../close-button/close-button';
 
 type Group = 'staged' | 'unstaged';
 
@@ -43,7 +44,7 @@ const DETAIL_MIN_WIDTH = 300;
 
 @Component({
   selector: 'app-working-panel',
-  imports: [ErrorBanner, ContextMenu, ConflictDialog, DiffDialog, PromptDialog],
+  imports: [ErrorBanner, ContextMenu, ConflictDialog, DiffDialog, PromptDialog, CloseButton],
   templateUrl: './working-panel.html',
   styleUrl: './working-panel.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
