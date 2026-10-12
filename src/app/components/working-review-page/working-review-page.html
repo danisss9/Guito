@@ -1,0 +1,86 @@
+<main class="page">
+  <header class="review-header card">
+    <div class="review-summary">
+      <h1>Code review of uncommitted changes</h1>
+      @if (state(); as review) {
+        @switch (review.status) {
+          @case ('running') { <p class="review-line"><span class="spinner"></span>Claude Code is reviewing the uncommitted changes…</p> }
+          @case ('done') { <p class="review-line">{{ review.summary || 'Review finished.' }}</p> }
+          @case ('error') { <p class="review-line error">{{ review.error }}</p> }
+          @case ('cancelled') { <p class="review-line">The review was stopped.</p> }
+          @default { <p class="review-line">No code review has run yet.</p> }
+        }
+        @if (review.status !== 'idle') {
+          <p class="review-meta">
+            @if (review.branch) { {{ review.branch }} · }
+            {{ review.files.length }} file{{ review.files.length === 1 ? '' : 's' }}
+            @if (review.model) { · {{ review.model }} }
+            @if (review.effort) { · {{ review.effort }} effort }
+            @if (review.finishedAt) { · {{ formatTime(review.finishedAt) }} }
+          </p>
+        }
+      }
+    </div>
+    <div class="review-actions">
+      @if (running()) {
+        <button type="button" class="btn small danger" (click)="stopReview()">Stop review</button>
+      } @else {
+        <button type="button" class="btn small" [disabled]="busy()" (click)="reviewAgain()">Review again</button>
+      }
+    </div>
+  </header>
+
+  @if (loadError()) { <p class="banner error" role="alert">{{ loadError() }}</p> }
+  @if (actionError()) { <p class="banner error" role="alert">{{ actionError() }}</p> }
+
+  @if (state()?.status === 'done') {
+    @if (counts().length) {
+      <div class="counts">
+        @for (entry of counts(); track entry.severity) {
+          <span [class]="'severity-badge severity-' + entry.severity">{{ entry.count }} {{ severityLabel(entry.severity) }}</span>
+        }
+      </div>
+    }
+    @for (finding of state()!.findings; track finding.id) {
+      <article class="finding-card card" [class]="'severity-' + finding.severity">
+        <header>
+          <span [class]="'severity-badge severity-' + finding.severity">{{ severityLabel(finding.severity) }}</span>
+          <strong>{{ finding.title }}</strong>
+          @if (finding.file) {
+            <button type="button" class="path-chip" [title]="'Open ' + finding.file" (click)="open(finding)">
+              {{ finding.file }}@if (finding.line) {<span>:{{ finding.line }}@if (finding.endLine && finding.endLine !== finding.line) {-{{ finding.endLine }}}</span>}
+            </button>
+          } @else {
+            <span class="path-chip muted">All changes</span>
+          }
+        </header>
+        <app-markdown-text [markdown]="finding.comment" />
+        <footer class="fix-row">
+          @if (finding.fix?.status === 'running') {
+            <span class="fix-state"><span class="spinner"></span>Claude Code is fixing this…</span>
+            <button type="button" class="btn small danger" (click)="stopFix()">Stop</button>
+          } @else {
+            @if (finding.fix?.status === 'fixed') {
+              <span class="fix-state fixed">Fixed</span>
+              <span class="fix-summary">{{ finding.fix?.summary }}</span>
+            } @else if (finding.fix?.status === 'error') {
+              <span class="fix-state failed" [title]="finding.fix?.error ?? ''">{{ finding.fix?.error }}</span>
+            }
+            @if (finding.fix?.status === 'fixed' && finding.file) {
+              <button type="button" class="btn small" (click)="showDiff(finding.file)">Open diff</button>
+            }
+            <button type="button" class="btn small primary" [disabled]="busy()" (click)="fix(finding)"
+              [title]="'Ask Claude Code to fix this in the working tree'">
+              {{ finding.fix?.status === 'fixed' ? 'Fix again' : 'Auto fix' }}
+            </button>
+          }
+        </footer>
+      </article>
+    } @empty {
+      <p class="state">The review found no problems worth raising.</p>
+    }
+  }
+</main>
+@if (diff(); as file) {
+  <app-diff-dialog [file]="file" originalRef="HEAD" modifiedRef="WORKING" (closed)="diff.set(null)" />
+}

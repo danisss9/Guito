@@ -44,6 +44,7 @@ import {
   StashScope,
   TagInfo,
   WorkingChanges,
+  WorkingReviewState,
   WorktreeInfo,
   WorktreeSort,
 } from '../models/git.models';
@@ -219,6 +220,38 @@ export class GitService {
    */
   generateCommitMessage(model = ''): Observable<CommitMessageResult> {
     return this.http.post<CommitMessageResult>(`${this.base}/commit-message`, { model });
+  }
+
+  /** The last code review of the uncommitted changes, or the one running. */
+  getWorkingReview(): Observable<WorkingReviewState> {
+    return this.http
+      .get<{ state: WorkingReviewState }>(`${this.base}/working-review`)
+      .pipe(map((response) => response.state));
+  }
+
+  /** Starts a code review of the uncommitted changes; poll getWorkingReview for the result. */
+  startWorkingReview(): Observable<WorkingReviewState> {
+    return this.http
+      .post<{ state: WorkingReviewState }>(`${this.base}/working-review`, {})
+      .pipe(map((response) => response.state));
+  }
+
+  cancelWorkingReview(): Observable<unknown> {
+    return this.http.post(`${this.base}/working-review/cancel`, {});
+  }
+
+  /** Asks Claude Code to fix one finding in the working tree. */
+  fixWorkingReviewFinding(id: string): Observable<WorkingReviewState> {
+    return this.http
+      .post<{ state: WorkingReviewState }>(
+        `${this.base}/working-review/findings/${encodeURIComponent(id)}/fix`,
+        {},
+      )
+      .pipe(map((response) => response.state));
+  }
+
+  cancelWorkingReviewFix(): Observable<unknown> {
+    return this.http.post(`${this.base}/working-review/fix/cancel`, {});
   }
 
   stage(files: string[]): Observable<unknown> {

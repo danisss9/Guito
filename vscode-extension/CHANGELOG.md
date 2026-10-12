@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add keyboard shortcuts while the Guito panel has focus. Ctrl+F focuses the commit search box, Ctrl+J jumps to the current branch, and Ctrl+G opens a Go to Commit dialog that accepts a row number or a commit hash and loads more history when needed.
+- Add **Code Review Uncommitted Changes** to the Source Control title bar (next to Generate Commit Message) and to Guito's uncommitted changes panel. Claude Code reviews the staged, unstaged and untracked changes, and the button becomes a Stop button while the review runs. The findings then open in a "Code Review" editor tab. Each finding links to its file and line and has an **Auto fix** button that asks Claude Code to fix it in the working tree; Claude Code may only read and edit files during a fix.
 - Branch pills in the commit history take the color of their graph line, and the current branch stays filled in its line color. Remote branches show a cloud icon. Tags use a soft yellow that no graph line uses. Enable the new `guito.grayRefBadges` setting to show every branch and tag pill in one neutral gray instead.
 - The close buttons on the uncommitted changes, commit detail, settings, pull request, diff and merge conflict views, and the error banner's dismiss button now share one look and behavior.
 - Remove the `guito.showStashes` setting. Stashes no longer appear in the commit history or graph and are listed only in the repository panel.

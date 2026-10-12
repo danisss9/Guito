@@ -4,7 +4,19 @@
     <button type="button" [disabled]="disabled() || (!files('staged').length && !files('unstaged').length)" (click)="stash('all')">Stash all</button>
     <button type="button" [disabled]="disabled() || !files('staged').length" (click)="stash('staged')">Stash staged</button>
     <button type="button" [disabled]="disabled() || !files('unstaged').length" (click)="stash('unstaged')">Stash unstaged</button>
+    <span class="separator" aria-hidden="true"></span>
+    @if (reviewing()) {
+      <button type="button" class="review-button" title="Stop the code review" aria-label="Stop the code review" (click)="stopReview.emit()">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1" /></svg>Stop review
+      </button>
+    } @else {
+      <button type="button" class="review-button" title="Code Review Uncommitted Changes" aria-label="Code Review Uncommitted Changes" [disabled]="!canReview()" (click)="review()">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h7M2.5 7h5M2.5 10.5h3.5M9 11l2 2 3.5-4" /></svg>Code review
+      </button>
+    }
   </div>
+  @if (reviewError()) { <p class="review-error" role="alert" [title]="reviewError()">{{ reviewError() }}</p> }
+  @if (reviewLink()) { <p class="review-link" role="status">The code review is ready: <a [href]="reviewLink()" target="_blank">View code review</a></p> }
   @if (busy()) { <div class="state" role="status"><span class="spinner"></span>{{ statusLoading() ? 'Refreshing changes…' : 'Updating repository…' }}</div> }
   @if (statusError()) {
     <app-error-banner [message]="statusError()" retryLabel="Retry status" [busy]="statusLoading()" (retry)="retry.emit()" />

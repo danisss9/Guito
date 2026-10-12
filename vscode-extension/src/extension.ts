@@ -55,6 +55,9 @@ interface OpenSourceControlMessage {
 interface OpenFileMessage {
   type: 'guito/openFile';
   path: string;
+  /** 1-based line range to select, e.g. a code review finding. */
+  line?: number;
+  endLine?: number;
 }
 
 interface OpenRepositoryMessage {
@@ -160,6 +163,21 @@ export function activate(context: vscode.ExtensionContext): void {
     'guito.cancelCommitMessage',
     (sourceControl?: { rootUri?: vscode.Uri }) => cancelCommitMessageInScm(sourceControl?.rootUri),
   );
+  const reviewChangesCommand = vscode.commands.registerCommand(
+    'guito.reviewChanges',
+    (sourceControl?: { rootUri?: vscode.Uri }) =>
+      reviewChangesInScm(context, sourceControl?.rootUri).catch((error) => {
+        void vscode.window.showErrorMessage(
+          `Guito could not review the uncommitted changes: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }),
+  );
+  const cancelReviewChangesCommand = vscode.commands.registerCommand(
+    'guito.cancelReviewChanges',
+    (sourceControl?: { rootUri?: vscode.Uri }) => cancelReviewChangesInScm(sourceControl?.rootUri),
+  );
 
   updateStatusBar();
   // Pull requests are reviewed while Guito is closed too, so the reviewers
@@ -174,6 +192,8 @@ export function activate(context: vscode.ExtensionContext): void {
     reviewPullRequestsCommand,
     generateCommitMessageCommand,
     cancelCommitMessageCommand,
+    reviewChangesCommand,
+    cancelReviewChangesCommand,
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       updateStatusBar();
       void syncBackgroundReviewers(context);
@@ -187,6 +207,12 @@ export function activate(context: vscode.ExtensionContext): void {
         void syncBackgroundReviewers(context);
       }
       const settings = readHostSettings();
+      for (const review of reviewPanels.values()) {
+        review.server.updateSettings({
+          ...settings,
+          aiReview: { ...settings.aiReview, enabled: false },
+        });
+      }
       for (const [key, repositorySessions] of sessions) {
         // Applies the new settings to every server of this repository and
         // keeps exactly one of them polling.
@@ -488,7 +514,7 @@ async function openRepository(
     return;
   }
 
-  const started = await startRepositoryContext(context, repository, pullRequestId);
+  const started = await startRepositoryContext(context, repository, { pullRequestId });
   const server = started.server;
 
   try {
@@ -504,100 +530,12 @@ async function openRepository(
     );
     const session: RepositorySession = { panel, server, repository };
     watchFindings(context, server, repository);
+    watchWorkingReview(context, server, repository);
     // Shows the extension logo on the webview's editor tab.
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
     panel.webview.html = webviewHtml(started.externalUri, randomBytes(16).toString('hex'));
-    panel.webview.onDidReceiveMessage(
-      (
-        message:
-          | OpenDiffMessage
-          | OpenFileMessage
-          | OpenRepositoryMessage
-          | OpenMergeConflictMessage
-          | OpenSettingsMessage
-          | OpenSourceControlMessage
-          | PickFolderMessage
-          | OpenExternalMessage,
-      ) => {
-        if (message?.type === 'guito/openSettings') {
-          void vscode.commands.executeCommand(
-            'workbench.action.openSettings',
-            '@ext:danisss9.guito',
-          );
-          return;
-        }
-        if (message?.type === 'guito/openSourceControl') {
-          void vscode.commands.executeCommand('workbench.view.scm');
-          return;
-        }
-        if (message?.type === 'guito/openExternal' && typeof message.url === 'string') {
-          try {
-            const uri = vscode.Uri.parse(message.url);
-            // Only real web links go to the OS default browser.
-            if (uri.scheme === 'http' || uri.scheme === 'https') {
-              void vscode.env.openExternal(uri);
-            } else {
-              void vscode.window.showErrorMessage(
-                `Guito can only open http(s) links, not: ${uri.scheme}`,
-              );
-            }
-          } catch {
-            void vscode.window.showErrorMessage(`Guito could not open the link: ${message.url}`);
-          }
-          return;
-        }
-        if (message?.type === 'guito/pickFolder' && Number.isInteger(message.requestId)) {
-          void vscode.window
-            .showOpenDialog({
-              canSelectFiles: false,
-              canSelectFolders: true,
-              canSelectMany: false,
-              defaultUri: vscode.Uri.file(resolve(session.repository.root, '..')),
-              openLabel: 'Select Worktree Folder',
-              title: 'Select a folder for the new worktree',
-            })
-            .then((selection) =>
-              panel.webview.postMessage({
-                type: 'guito/folderSelected',
-                requestId: message.requestId,
-                path: selection?.[0]?.fsPath ?? '',
-              }),
-            );
-          return;
-        }
-        if (message?.type === 'guito/openFile' && typeof message.path === 'string') {
-          openFileInVsCode(session.repository.root, message.path).catch((error) => {
-            void vscode.window.showErrorMessage(
-              `Guito could not open the file: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
-          return;
-        }
-        if (message?.type === 'guito/openRepository' && typeof message.path === 'string') {
-          handleWorktreeRepositoryRequest(context, session, message).catch((error) => {
-            void vscode.window.showErrorMessage(
-              `Guito could not open the worktree: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
-          return;
-        }
-        if (message?.type === 'guito/openMergeConflict' && typeof message.path === 'string') {
-          openMergeConflictInVsCode(session.repository.root, message.path).catch((error) => {
-            void vscode.window.showErrorMessage(
-              `Guito could not open the merge editor: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
-          return;
-        }
-        if (message?.type !== 'guito/openDiff' || typeof message.path !== 'string') {
-          return;
-        }
-        openDiffInVsCode(session.repository.root, message).catch((error) => {
-          void vscode.window.showErrorMessage(
-            `Guito could not open the diff: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
-      },
+    panel.webview.onDidReceiveMessage((message: WebviewMessage) =>
+      handleWebviewMessage(context, session, message),
     );
 
     addSession(session);
@@ -611,10 +549,110 @@ async function openRepository(
   }
 }
 
+type WebviewMessage =
+  | OpenDiffMessage
+  | OpenFileMessage
+  | OpenRepositoryMessage
+  | OpenMergeConflictMessage
+  | OpenSettingsMessage
+  | OpenSourceControlMessage
+  | PickFolderMessage
+  | OpenExternalMessage;
+
+/** Acts on a request from the app in a Guito or code review panel. */
+function handleWebviewMessage(
+  context: vscode.ExtensionContext,
+  session: RepositorySession,
+  message: WebviewMessage,
+): void {
+  if (message?.type === 'guito/openSettings') {
+    void vscode.commands.executeCommand(
+      'workbench.action.openSettings',
+      '@ext:danisss9.guito',
+    );
+    return;
+  }
+  if (message?.type === 'guito/openSourceControl') {
+    void vscode.commands.executeCommand('workbench.view.scm');
+    return;
+  }
+  if (message?.type === 'guito/openExternal' && typeof message.url === 'string') {
+    try {
+      const uri = vscode.Uri.parse(message.url);
+      // Only real web links go to the OS default browser.
+      if (uri.scheme === 'http' || uri.scheme === 'https') {
+        void vscode.env.openExternal(uri);
+      } else {
+        void vscode.window.showErrorMessage(
+          `Guito can only open http(s) links, not: ${uri.scheme}`,
+        );
+      }
+    } catch {
+      void vscode.window.showErrorMessage(`Guito could not open the link: ${message.url}`);
+    }
+    return;
+  }
+  if (message?.type === 'guito/pickFolder' && Number.isInteger(message.requestId)) {
+    void vscode.window
+      .showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(resolve(session.repository.root, '..')),
+        openLabel: 'Select Worktree Folder',
+        title: 'Select a folder for the new worktree',
+      })
+      .then((selection) =>
+        session.panel.webview.postMessage({
+          type: 'guito/folderSelected',
+          requestId: message.requestId,
+          path: selection?.[0]?.fsPath ?? '',
+        }),
+      );
+    return;
+  }
+  if (message?.type === 'guito/openFile' && typeof message.path === 'string') {
+    openFileInVsCode(session.repository.root, message.path, message.line, message.endLine).catch((error) => {
+      void vscode.window.showErrorMessage(
+        `Guito could not open the file: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return;
+  }
+  if (message?.type === 'guito/openRepository' && typeof message.path === 'string') {
+    handleWorktreeRepositoryRequest(context, session, message).catch((error) => {
+      void vscode.window.showErrorMessage(
+        `Guito could not open the worktree: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return;
+  }
+  if (message?.type === 'guito/openMergeConflict' && typeof message.path === 'string') {
+    openMergeConflictInVsCode(session.repository.root, message.path).catch((error) => {
+      void vscode.window.showErrorMessage(
+        `Guito could not open the merge editor: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return;
+  }
+  if (message?.type !== 'guito/openDiff' || typeof message.path !== 'string') {
+    return;
+  }
+  openDiffInVsCode(session.repository.root, message).catch((error) => {
+    void vscode.window.showErrorMessage(
+      `Guito could not open the diff: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
+}
+
 async function startRepositoryContext(
   context: vscode.ExtensionContext,
   repository: RepositoryChoice,
-  pullRequestId?: number,
+  options: {
+    pullRequestId?: number;
+    /** The app view to show instead of the repository, e.g. 'working-review'. */
+    view?: string;
+  } = {},
 ): Promise<{ server: RunningGuitoServer; externalUri: vscode.Uri }> {
   const token = randomBytes(32).toString('hex');
   const hostSettings = readHostSettings();
@@ -625,15 +663,18 @@ async function startRepositoryContext(
     port: 0,
     apiToken: token,
     ...hostSettings,
+    // Only a repository panel may own pull request polling.
+    ...(options.view ? { aiReview: { ...hostSettings.aiReview, enabled: false } } : {}),
     onLog: (line) => outputChannel?.appendLine(`[${repository.label}] ${line}`),
   });
   try {
     const query = new URLSearchParams({ guitoToken: token });
     // A fresh panel's app is not listening for messages yet, so the pull
     // request to open on its Review tab travels in the URL instead.
-    if (pullRequestId !== undefined) {
-      query.set('guitoPullRequest', String(pullRequestId));
+    if (options.pullRequestId !== undefined) {
+      query.set('guitoPullRequest', String(options.pullRequestId));
     }
+    if (options.view) query.set('guitoView', options.view);
     const localUri = vscode.Uri.parse(server.address).with({ query: query.toString() });
     return { server, externalUri: await vscode.env.asExternalUri(localUri) };
   } catch (error) {
@@ -809,6 +850,7 @@ async function syncBackgroundReviewer(
     });
     backgroundReviewers.set(repository.key, server);
     watchFindings(context, server, repository);
+    watchWorkingReview(context, server, repository);
     updatePollingOwner(repository.key);
     // Catch up on anything pushed while VS Code was closed. This has to go to
     // whichever server owns polling: if a Guito panel is already open, the
@@ -927,6 +969,7 @@ async function gitApi(): Promise<GitApi> {
 async function pickScmRepository(
   api: GitApi,
   rootUri?: vscode.Uri,
+  title = 'Guito: Generate Commit Message',
 ): Promise<GitApiRepository | undefined> {
   const repositories = api.repositories;
   if (rootUri) {
@@ -947,7 +990,7 @@ async function pickScmRepository(
       description: repository.rootUri.fsPath,
       repository,
     })),
-    { title: 'Guito: Generate Commit Message', placeHolder: 'Choose a Git repository' },
+    { title, placeHolder: 'Choose a Git repository' },
   );
   return choice?.repository;
 }
@@ -1008,6 +1051,204 @@ async function generateCommitMessageInScm(
       updateCommitMessageContext();
     }
   }
+}
+
+// ==================== Code review of uncommitted changes ====================
+// Each Guito server runs at most one review of the working tree. The Source
+// Control button starts one on the repository's open server (or a headless
+// one), the working panel's button on its own; either way the extension
+// follows it through onChange, flips the button to Stop meanwhile, and opens
+// the results in a "Code Review" editor tab when it is done.
+
+interface ReviewInFlight {
+  rootUri: string;
+  /** Unset while the Source Control button's headless server is starting. */
+  server?: RunningGuitoServer;
+}
+
+/** Reviews in flight, by repository key, so the Stop button can reach them. */
+const reviewingChanges = new Map<string, ReviewInFlight>();
+
+/** The open results tab of each repository; it runs a server of its own. */
+const reviewPanels = new Map<string, RepositorySession>();
+const openingReviewPanels = new Map<string, Promise<void>>();
+const watchedReviewServers = new WeakSet<RunningGuitoServer>();
+
+/** Swaps the review button for a Stop button on the repositories being reviewed. */
+function updateReviewContext(): void {
+  const roots = [...reviewingChanges.values()].map((review) => review.rootUri);
+  void vscode.commands.executeCommand('setContext', 'guito.reviewingChangesRoots', roots);
+  void vscode.commands.executeCommand('setContext', 'guito.reviewingChanges', roots.length > 0);
+}
+
+/** The Source Control root URI of a repository, as the menus' scmProviderRootUri sees it. */
+async function scmRootUri(root: string): Promise<string> {
+  const key = repositoryKey(root);
+  try {
+    const match = (await gitApi()).repositories.find(
+      (repository) => repositoryKey(repository.rootUri.fsPath) === key,
+    );
+    if (match) return match.rootUri.toString();
+  } catch {
+    // Without the Git extension there is no Source Control button to flip.
+  }
+  return vscode.Uri.file(root).toString();
+}
+
+/** Follows the reviews a server runs: the Stop button, errors, and the results tab. */
+function watchWorkingReview(
+  context: vscode.ExtensionContext,
+  server: RunningGuitoServer,
+  repository: RepositoryChoice,
+): void {
+  if (watchedReviewServers.has(server)) return;
+  watchedReviewServers.add(server);
+  // Fixes report through onChange too; only the end of a review counts.
+  let reviewing = false;
+  server.workingReview.onChange((state) => {
+    if (state.status === 'running') {
+      if (reviewing) return;
+      reviewing = true;
+      void scmRootUri(repository.root).then((rootUri) => {
+        if (!reviewing) return;
+        reviewingChanges.set(repository.key, { rootUri, server });
+        updateReviewContext();
+      });
+      return;
+    }
+    if (!reviewing) return;
+    reviewing = false;
+    if (reviewingChanges.get(repository.key)?.server === server) {
+      reviewingChanges.delete(repository.key);
+      updateReviewContext();
+    }
+    if (state.status === 'done') {
+      openWorkingReviewPanel(context, repository).catch((error) => {
+        void vscode.window.showErrorMessage(
+          `Guito could not show the code review: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+    } else if (state.status === 'error') {
+      void vscode.window.showErrorMessage(`Guito code review failed: ${state.error}`);
+    }
+  });
+}
+
+async function reviewChangesInScm(
+  context: vscode.ExtensionContext,
+  rootUri?: vscode.Uri,
+): Promise<void> {
+  const repository = await pickScmRepository(
+    await gitApi(),
+    rootUri,
+    'Guito: Code Review Uncommitted Changes',
+  );
+  if (!repository) return;
+  const root = resolve(repository.rootUri.fsPath);
+  const key = repositoryKey(root);
+  if (reviewingChanges.has(key)) return;
+  const choice: RepositoryChoice = { label: basename(root), description: root, root, key };
+  // The button flips at once, before a headless server has even started.
+  const placeholder: ReviewInFlight = { rootUri: repository.rootUri.toString() };
+  reviewingChanges.set(key, placeholder);
+  updateReviewContext();
+  try {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.SourceControl, title: 'Guito: reviewing uncommitted changes' },
+      async () => {
+        // Reuse a running server (an open panel or the background reviewer), so
+        // its working panel shows the review too; otherwise start a headless one.
+        const running = pollingServers(key)[0];
+        const settings = readHostSettings();
+        const server =
+          running ??
+          (await startGuitoServer({
+            repositoryPath: root,
+            uiRoot: vscode.Uri.joinPath(context.extensionUri, 'dist', 'ui').fsPath,
+            host: '127.0.0.1',
+            port: 0,
+            apiToken: randomBytes(32).toString('hex'),
+            ...settings,
+            // Never polls for pull requests; it closes as soon as the review is in.
+            aiReview: { ...settings.aiReview, enabled: false },
+            onLog: (line) => outputChannel?.appendLine(`[${choice.label}] ${line}`),
+          }));
+        try {
+          // Stopped while the headless server was starting.
+          if (reviewingChanges.get(key) !== placeholder) return;
+          reviewingChanges.set(key, { rootUri: placeholder.rootUri, server });
+          watchWorkingReview(context, server, choice);
+          await server.workingReview.run();
+        } finally {
+          if (!running) await server.close().catch(() => {});
+        }
+      },
+    );
+  } finally {
+    // Normally the watcher has already cleared it; this covers a failed start.
+    const entry = reviewingChanges.get(key);
+    if (entry === placeholder || (entry?.server && !entry.server.workingReview.busy())) {
+      reviewingChanges.delete(key);
+      updateReviewContext();
+    }
+  }
+}
+
+/** Stops the review of the clicked repository, or every review from the palette. */
+function cancelReviewChangesInScm(rootUri?: vscode.Uri): void {
+  const key = rootUri && repositoryKey(rootUri.fsPath);
+  for (const [reviewKey, review] of reviewingChanges) {
+    if (key && reviewKey !== key) continue;
+    // A placeholder has no server yet; dropping it stops the review from starting.
+    review.server?.workingReview.cancel();
+    reviewingChanges.delete(reviewKey);
+  }
+  updateReviewContext();
+}
+
+/** Opens, or reveals and refreshes, the repository's code review results tab. */
+function openWorkingReviewPanel(
+  context: vscode.ExtensionContext,
+  repository: RepositoryChoice,
+): Promise<void> {
+  const existing = reviewPanels.get(repository.key);
+  if (existing) {
+    existing.panel.reveal(vscode.ViewColumn.Active);
+    void existing.panel.webview.postMessage({ type: 'guito/workingReviewUpdated' });
+    return Promise.resolve();
+  }
+  const opening = openingReviewPanels.get(repository.key);
+  if (opening) return opening;
+  const open = (async () => {
+    const started = await startRepositoryContext(context, repository, { view: 'working-review' });
+    try {
+      const panel = vscode.window.createWebviewPanel(
+        'guito.workingReview',
+        `Code Review — ${repository.label}`,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] },
+      );
+      const session: RepositorySession = { panel, server: started.server, repository };
+      reviewPanels.set(repository.key, session);
+      watchWorkingReview(context, started.server, repository);
+      panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'logo.png');
+      panel.webview.html = webviewHtml(started.externalUri, randomBytes(16).toString('hex'));
+      panel.webview.onDidReceiveMessage((message: WebviewMessage) =>
+        handleWebviewMessage(context, session, message),
+      );
+      panel.onDidDispose(() => {
+        if (reviewPanels.get(repository.key) === session) reviewPanels.delete(repository.key);
+        void session.server.close();
+      });
+    } catch (error) {
+      await started.server.close();
+      throw error;
+    }
+  })();
+  openingReviewPanels.set(repository.key, open);
+  return open.finally(() => openingReviewPanels.delete(repository.key));
 }
 
 function repositoryKey(root: string): string {
@@ -1144,7 +1385,12 @@ async function openDiffInVsCode(root: string, message: OpenDiffMessage): Promise
   });
 }
 
-async function openFileInVsCode(root: string, path: string): Promise<void> {
+async function openFileInVsCode(
+  root: string,
+  path: string,
+  line?: number,
+  endLine?: number,
+): Promise<void> {
   const absolutePath = resolve(root, path);
   const repositoryPath = relative(root, absolutePath);
   if (
@@ -1159,7 +1405,21 @@ async function openFileInVsCode(root: string, path: string): Promise<void> {
     throw new Error('Select a repository-relative file path.');
   }
   const document = await vscode.workspace.openTextDocument(vscode.Uri.file(absolutePath));
-  await vscode.window.showTextDocument(document, { preview: true });
+  const start = Number.isInteger(line) && line! > 0 ? line! - 1 : undefined;
+  if (start === undefined) {
+    await vscode.window.showTextDocument(document, { preview: true });
+    return;
+  }
+  const end = Number.isInteger(endLine) && endLine! >= line! ? endLine! - 1 : start;
+  const lastLine = Math.max(document.lineCount - 1, 0);
+  const selection = new vscode.Range(
+    Math.min(start, lastLine),
+    0,
+    Math.min(end, lastLine),
+    document.lineAt(Math.min(end, lastLine)).text.length,
+  );
+  const editor = await vscode.window.showTextDocument(document, { preview: true, selection });
+  editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 }
 
 /** Handles the three worktree-opening dispositions requested by the embedded app. */
@@ -1201,6 +1461,7 @@ async function switchRepositoryContext(
   removeSession(session);
   session.repository = repository;
   session.server = started.server;
+  watchWorkingReview(context, started.server, repository);
   addSession(session);
   session.panel.title = `Guito — ${repository.label}`;
   session.panel.webview.html = webviewHtml(started.externalUri, randomBytes(16).toString('hex'));

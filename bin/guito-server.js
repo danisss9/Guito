@@ -16,6 +16,7 @@ import { avatarCache } from './avatars.js';
 import { repositoryState } from './repository-state.js';
 import { createAiReviewer, resolveAiReviewConfig, } from './ai-review.js';
 import { generateCommitMessage } from './commit-message.js';
+import { WorkingReviewBusyError, createWorkingReviewer, } from './working-review.js';
 const execFileAsync = promisify(execFile);
 const AZURE_API_VERSION = '5.0-preview';
 // The Policy API has been GA since 4.1 and does not answer to the
@@ -501,14 +502,18 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     // azureDevOpsUrl, which wins over the file.
     let settingsPath = '';
     let reviewStorePath = '';
+    // Per worktree: each one has its own uncommitted changes.
+    let workingReviewStorePath = '';
     try {
         const gitDir = (await git.revparse(['--absolute-git-dir'])).trim();
         settingsPath = join(gitDir, 'guito-settings.json');
         reviewStorePath = join(gitDir, 'guito-ai-reviews.json');
+        workingReviewStorePath = join(gitDir, 'guito-working-review.json');
     }
     catch {
         settingsPath = join(repositoryPath, '.git', 'guito-settings.json');
         reviewStorePath = join(repositoryPath, '.git', 'guito-ai-reviews.json');
+        workingReviewStorePath = join(repositoryPath, '.git', 'guito-working-review.json');
     }
     const readSettings = async () => {
         try {
@@ -3467,6 +3472,79 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             return resp.status(400).type('application/json').send({ error: err.message });
         }
     });
+    // ==================== Code review of uncommitted changes ====================
+    // One Claude Code run over everything not yet committed; the findings open
+    // in their own tab, where each one can be handed back to Claude Code to fix.
+    // Runs are started here and followed by polling GET /api/working-review.
+    const workingReviewer = createWorkingReviewer({
+        storePath: workingReviewStorePath,
+        cwd: repositoryPath,
+        loadChanges: async () => {
+            await mutationQueue;
+            const snapshot = await working.snapshot();
+            let branch = '';
+            try {
+                branch = await currentBranch();
+            }
+            catch {
+                branch = '';
+            }
+            return {
+                branch,
+                diffs: snapshot.files.map((file) => ({
+                    path: file.path,
+                    oldPath: file.oldPath ?? '',
+                    status: file.status,
+                    binary: file.status === 'binary',
+                    lines: file.lines ?? [],
+                })),
+            };
+        },
+        config: refreshAiReviewConfig,
+        runModel: aiReviewModelImpl,
+        log: (line) => onLog?.(line),
+    });
+    const workingReviewError = (resp, err) => resp
+        .status(err instanceof WorkingReviewBusyError ? 409 : 400)
+        .type('application/json')
+        .send({ error: err.message });
+    app.get('/api/working-review', async (_req, resp) => {
+        try {
+            return resp.type('application/json').send({ state: await workingReviewer.state() });
+        }
+        catch (err) {
+            return workingReviewError(resp, err);
+        }
+    });
+    app.post('/api/working-review', async (req, resp) => {
+        try {
+            const state = await workingReviewer.start({
+                model: strField(req.body?.model),
+                effort: typeof req.body?.effort === 'string' ? req.body.effort : undefined,
+            });
+            return resp.type('application/json').send({ state });
+        }
+        catch (err) {
+            return workingReviewError(resp, err);
+        }
+    });
+    app.post('/api/working-review/cancel', async (_req, resp) => {
+        workingReviewer.cancel();
+        return resp.type('application/json').send({ ok: true });
+    });
+    app.post('/api/working-review/findings/:id/fix', async (req, resp) => {
+        try {
+            const state = await workingReviewer.startFix(String(req.params?.id ?? ''));
+            return resp.type('application/json').send({ state });
+        }
+        catch (err) {
+            return workingReviewError(resp, err);
+        }
+    });
+    app.post('/api/working-review/fix/cancel', async (_req, resp) => {
+        workingReviewer.cancelFix();
+        return resp.type('application/json').send({ ok: true });
+    });
     // ==================== Commit Detail ====================
     app.post('/api/commit/detail', async (req, resp) => {
         try {
@@ -3659,8 +3737,11 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         address,
         aiReview: aiReviewer,
         generateCommitMessage: draftCommitMessage,
+        workingReview: workingReviewer,
         close: async () => {
             aiReviewer.stop();
+            workingReviewer.cancel();
+            workingReviewer.cancelFix();
             await app.close();
         },
         updateSettings: (settings) => {

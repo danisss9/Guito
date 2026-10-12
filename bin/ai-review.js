@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-const SEVERITIES = ['blocker', 'concern', 'suggestion', 'nit'];
+export const SEVERITIES = ['blocker', 'concern', 'suggestion', 'nit'];
 /** Effort levels Claude Code accepts for --effort; '' leaves it to Claude Code. */
 export const AI_REVIEW_EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 /** How much a drafted commit message says beyond its subject line. */
@@ -267,7 +267,7 @@ export function parseModelReview(raw) {
     };
 }
 /** Identity of a finding across re-reviews: same place, same point. */
-function fingerprint(file, title) {
+export function fingerprint(file, title) {
     const normalized = title
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, ' ')
@@ -275,7 +275,7 @@ function fingerprint(file, title) {
     return createHash('sha1').update(`${file}\u0000${normalized}`).digest('hex').slice(0, 16);
 }
 /** Renders one file's diff with the line numbers the model must cite. */
-function renderFileDiff(diff, budget) {
+export function renderFileDiff(diff, budget) {
     const header = `--- FILE: ${diff.path}${diff.oldPath && diff.oldPath !== diff.path ? ` (renamed from ${diff.oldPath})` : ''} [${diff.status}] ---`;
     if (diff.binary)
         return `${header}\n(binary file, not reviewable)\n`;
@@ -320,7 +320,7 @@ function renderThreads(threads) {
     })
         .join('\n');
 }
-const REVIEW_CONTRACT = `Reply with one JSON object and nothing else:
+export const REVIEW_CONTRACT = `Reply with one JSON object and nothing else:
 {"summary": "<one or two sentences on the change as a whole>",
  "findings": [
    {"file": "<path exactly as given in the diff header, or \\"\\" for the change as a whole>",

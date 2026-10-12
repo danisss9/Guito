@@ -2074,6 +2074,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     body: JSON.stringify({
       showTags: false,
       showRemoteBranches: false,
+      grayRefBadges: true,
       issueLinking: {
         regex: '#(\\d+)',
         url: 'https://example.test/issues/$1',
@@ -2085,6 +2086,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   assertSettings(await linked.json(), {
     showTags: false,
     showRemoteBranches: false,
+    grayRefBadges: true,
     issueLinking: {
       regex: '#(\\d+)',
       url: 'https://example.test/issues/$1',

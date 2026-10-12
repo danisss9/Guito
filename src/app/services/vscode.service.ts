@@ -33,6 +33,12 @@ export class VscodeService {
    */
   readonly pullRequestRequest = signal<{ id: number } | null>(null);
 
+  /** Increments when the extension host reports a new code review of the uncommitted changes. */
+  readonly workingReviewVersion = signal(0);
+
+  /** Whether the extension host opens the code review results in their own tab. */
+  readonly opensWorkingReview = this.inVsCode;
+
   constructor() {
     if (!this.inVsCode) {
       return;
@@ -51,6 +57,9 @@ export class VscodeService {
         Number.isInteger(data.pullRequestId)
       ) {
         this.pullRequestRequest.set({ id: data.pullRequestId as number });
+      }
+      if (data?.type === "guito/workingReviewUpdated") {
+        this.workingReviewVersion.update((version) => version + 1);
       }
       if (data?.type === "guito/config") {
         if (data.diffViewer === "guito" || data.diffViewer === "vscode") {
@@ -176,12 +185,19 @@ export class VscodeService {
     return true;
   }
 
-  /** Opens a repository-relative working-tree file in VS Code. */
-  openFile(path: string): boolean {
+  /** Opens a repository-relative working-tree file in VS Code, optionally at a line range. */
+  openFile(path: string, line?: number | null, endLine?: number | null): boolean {
     if (!this.inVsCode) {
       return false;
     }
-    window.parent.postMessage({ type: "guito/openFile", path }, "*");
+    window.parent.postMessage(
+      {
+        type: "guito/openFile",
+        path,
+        ...(line ? { line, endLine: endLine ?? line } : {}),
+      },
+      "*",
+    );
     return true;
   }
 

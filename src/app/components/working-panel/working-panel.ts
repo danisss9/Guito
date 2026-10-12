@@ -70,6 +70,10 @@ export class WorkingPanel implements OnDestroy {
   readonly descriptionChange = output<string>();
   /** Asks the app to draft a commit message with Claude Code. */
   readonly generateMessage = output<void>();
+  /** Asks the app to code review the uncommitted changes with Claude Code. */
+  readonly reviewChanges = output<void>();
+  /** Asks the app to stop the running code review. */
+  readonly stopReview = output<void>();
   readonly stageChange = output<{ staged: boolean; files: string[] }>();
   readonly stashChange = output<StashScope>();
   readonly discardRequest = output<string[]>();
@@ -106,6 +110,15 @@ export class WorkingPanel implements OnDestroy {
   readonly generateError = input('');
   protected readonly canGenerate = computed(
     () => !this.disabled() && !this.generating() && !!this.changes()?.files.length,
+  );
+  /** A code review of the uncommitted changes is running. */
+  readonly reviewing = input(false);
+  /** Why the last code review failed. */
+  readonly reviewError = input('');
+  /** The finished code review, when the browser would not open it by itself. */
+  readonly reviewLink = input('');
+  protected readonly canReview = computed(
+    () => !this.disabled() && !!this.changes()?.files.length,
   );
   protected readonly canCommit = computed(
     () =>
@@ -355,6 +368,9 @@ export class WorkingPanel implements OnDestroy {
   }
   protected generate(): void {
     if (this.canGenerate()) this.generateMessage.emit();
+  }
+  protected review(): void {
+    if (this.canReview()) this.reviewChanges.emit();
   }
   protected commit(event: Event): void {
     event.preventDefault();

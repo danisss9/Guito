@@ -41,7 +41,7 @@ export interface AiReviewFinding {
 
 export type AiReviewSeverity = 'blocker' | 'concern' | 'suggestion' | 'nit';
 
-const SEVERITIES: AiReviewSeverity[] = ['blocker', 'concern', 'suggestion', 'nit'];
+export const SEVERITIES: AiReviewSeverity[] = ['blocker', 'concern', 'suggestion', 'nit'];
 
 /** Everything known about the automated review of one pull request. */
 export interface AiReviewState {
@@ -452,7 +452,7 @@ export function parseModelReview(raw: string): { summary: string; findings: RawF
   };
 }
 
-interface RawFinding {
+export interface RawFinding {
   file?: unknown;
   line?: unknown;
   endLine?: unknown;
@@ -462,7 +462,7 @@ interface RawFinding {
 }
 
 /** Identity of a finding across re-reviews: same place, same point. */
-function fingerprint(file: string, title: string): string {
+export function fingerprint(file: string, title: string): string {
   const normalized = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
@@ -471,7 +471,7 @@ function fingerprint(file: string, title: string): string {
 }
 
 /** Renders one file's diff with the line numbers the model must cite. */
-function renderFileDiff(diff: AiReviewFileDiff, budget: number): string {
+export function renderFileDiff(diff: AiReviewFileDiff, budget: number): string {
   const header = `--- FILE: ${diff.path}${diff.oldPath && diff.oldPath !== diff.path ? ` (renamed from ${diff.oldPath})` : ''} [${diff.status}] ---`;
   if (diff.binary) return `${header}\n(binary file, not reviewable)\n`;
   const rows: string[] = [header];
@@ -511,7 +511,7 @@ function renderThreads(threads: AiReviewThread[]): string {
     .join('\n');
 }
 
-const REVIEW_CONTRACT = `Reply with one JSON object and nothing else:
+export const REVIEW_CONTRACT = `Reply with one JSON object and nothing else:
 {"summary": "<one or two sentences on the change as a whole>",
  "findings": [
    {"file": "<path exactly as given in the diff header, or \\"\\" for the change as a whole>",

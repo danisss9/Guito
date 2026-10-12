@@ -531,6 +531,43 @@ export interface AiReviewState {
   findings: AiReviewFinding[];
 }
 
+/** Outcome of asking Claude Code to fix one code review finding. */
+export interface WorkingReviewFix {
+  status: 'running' | 'fixed' | 'error';
+  /** Claude Code's own account of what it changed. */
+  summary: string;
+  error: string;
+}
+
+/** One problem the code review of the uncommitted changes found. */
+export interface WorkingReviewFinding {
+  id: string;
+  /** Repository-relative path, or '' for a finding about the changes as a whole. */
+  file: string;
+  line: number | null;
+  endLine: number | null;
+  severity: AiReviewSeverity;
+  title: string;
+  comment: string;
+  fix?: WorkingReviewFix;
+}
+
+/** The last code review of the uncommitted changes, or the one running. */
+export interface WorkingReviewState {
+  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
+  startedAt: string;
+  finishedAt: string;
+  branch: string;
+  model: string;
+  effort: string;
+  files: string[];
+  summary: string;
+  error: string;
+  findings: WorkingReviewFinding[];
+  /** Finding whose fix is running, or ''. */
+  fixingId: string;
+}
+
 /** The review queue across the repository's pull requests. */
 export interface AiReviewOverview {
   enabled: boolean;

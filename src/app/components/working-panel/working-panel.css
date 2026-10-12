@@ -15,6 +15,14 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 h2 { font-size: 15px; margin: 0; }
 h3 { font-size: 13px; margin: 0 0 8px; }
 .stash-actions { display: flex; align-items: center; gap: 5px; padding: 0 12px 10px; flex-wrap: wrap; font-size: 11px; }
+/* Sets the code review button apart from the stash buttons. */
+.stash-actions .separator { width: 1px; align-self: stretch; margin: 2px 3px; background: var(--border); }
+.review-button { display: inline-flex; align-items: center; gap: 4px; }
+.review-button svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.review-button rect { fill: #f48771; stroke: none; }
+.review-link { margin: -4px 12px 8px; font-size: 12px; }
+.review-link a { color: var(--accent); }
+.review-error { margin: -4px 12px 8px; color: #f48771; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button, input, textarea { font: inherit; color: var(--text); border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
 button { cursor: pointer; padding: 4px 7px; white-space: nowrap; }
 button:hover:not(:disabled) { background: var(--bg-hover); }

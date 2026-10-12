@@ -125,6 +125,20 @@ async function setup(page, count = 700, overrides = {}) {
     commitRequests: [],
     commitMessageRequests: [],
     commitMessageError: false,
+    workingReview: {
+      status: 'idle',
+      startedAt: '',
+      finishedAt: '',
+      branch: '',
+      model: '',
+      effort: '',
+      files: [],
+      summary: '',
+      error: '',
+      findings: [],
+      fixingId: '',
+    },
+    workingReviewRequests: [],
     contentRequests: [],
     conflicts: [],
     conflictResolutions: [],
@@ -473,6 +487,20 @@ async function setup(page, count = 700, overrides = {}) {
         state.staged = [];
         return send({ success: true });
       }
+      case '/api/working-review':
+        if (request.method() === 'POST') {
+          state.workingReviewRequests.push(parsed.pathname);
+          state.workingReview = {
+            ...state.workingReview,
+            status: 'running',
+            startedAt: '2026-01-01T00:00:00.000Z',
+          };
+        }
+        return send({ state: state.workingReview });
+      case '/api/working-review/cancel':
+        state.workingReviewRequests.push(parsed.pathname);
+        state.workingReview = { ...state.workingReview, status: 'cancelled' };
+        return send({ ok: true });
       case '/api/commit-message': {
         state.commitMessageRequests.push(body);
         await delay(state.delay);
@@ -873,6 +901,25 @@ test('Claude drafts the commit message into the message boxes', async ({ page })
   await expect(page.locator('.generate-error')).toHaveCount(0);
   // One request for the failed attempt, one for the successful one.
   expect(state.commitMessageRequests).toEqual([{ model: '' }, { model: '' }]);
+});
+
+test('code review button sits after a separator and turns into Stop while it runs', async ({
+  page,
+}) => {
+  const { state } = await setup(page);
+  await page.locator('.working-row').click();
+  const actions = page.locator('.stash-actions');
+  await expect(actions.locator('.separator')).toHaveCount(1);
+  const review = page.getByRole('button', { name: 'Code Review Uncommitted Changes' });
+  await expect(review).toHaveText('Code review');
+  await expect(review).toBeEnabled();
+
+  await review.click();
+  const stop = page.getByRole('button', { name: 'Stop the code review' });
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(review).toBeVisible();
+  expect(state.workingReviewRequests).toEqual(['/api/working-review', '/api/working-review/cancel']);
 });
 
 test('generating is disabled while a commit runs and while generating', async ({ page }) => {

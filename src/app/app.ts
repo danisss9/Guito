@@ -47,6 +47,7 @@ import {
   WORKING_HASH,
   WorkingChanges,
   WorktreeInfo,
+  WorkingReviewState,
 } from './models/git.models';
 import { GitService } from './services/git.service';
 import { VscodeService } from './services/vscode.service';
@@ -147,6 +148,18 @@ export class App implements OnDestroy {
   protected readonly generatingMessage = signal(false);
   /** Why the last draft attempt failed. */
   protected readonly messageError = signal('');
+  /** A code review of the uncommitted changes is running. */
+  protected readonly reviewingChanges = signal(false);
+  /** Why the last code review failed. */
+  protected readonly reviewError = signal('');
+  /** The finished code review, when the browser blocked opening it in a new tab. */
+  protected readonly reviewLink = signal('');
+  /** Start time of the review this tab is following, so only its end is reported. */
+  private followedReview = '';
+  /** The start request is in flight; a status poll must not flip the button back meanwhile. */
+  private startingReview = false;
+  private reviewTimer: number | undefined;
+  private reviewSub?: Subscription;
   protected readonly displayedCommits = signal<GitCommit[]>([]);
   protected readonly searchLoading = signal(false);
   private readonly historyGeneration = signal(0);
@@ -371,6 +384,13 @@ export class App implements OnDestroy {
   constructor() {
     this.refresh();
 
+    // A review started elsewhere (the Source Control button) shows here too:
+    // look again whenever the working tree changes.
+    effect(() => {
+      this.workingChanges();
+      untracked(() => this.checkWorkingReview());
+    });
+
     // Only a new filter or history generation starts requests. A failed request
     // must not retrigger itself by clearing its loading flag.
     effect(() => {
@@ -499,6 +519,8 @@ export class App implements OnDestroy {
 
   ngOnDestroy(): void {
     window.clearInterval(this.refreshTimer);
+    window.clearTimeout(this.reviewTimer);
+    this.reviewSub?.unsubscribe();
     if (this.panelOpenFrame !== null) window.cancelAnimationFrame(this.panelOpenFrame);
     this.stateSub?.unsubscribe();
     this.refreshSub?.unsubscribe();
@@ -884,6 +906,68 @@ export class App implements OnDestroy {
         this.generatingMessage.set(false);
       },
     });
+  }
+
+  /** Starts a Claude Code review of the uncommitted changes; the results open in a new tab. */
+  protected startWorkingReview(): void {
+    if (this.reviewingChanges()) return;
+    this.reviewError.set('');
+    this.reviewLink.set('');
+    this.reviewingChanges.set(true);
+    this.startingReview = true;
+    this.git.startWorkingReview().subscribe({
+      next: (state) => {
+        this.startingReview = false;
+        this.followedReview = state.startedAt;
+        this.trackWorkingReview(state);
+      },
+      error: (err) => {
+        this.startingReview = false;
+        this.reviewingChanges.set(false);
+        this.reviewError.set(this.errorMessage(err));
+      },
+    });
+  }
+
+  protected stopWorkingReview(): void {
+    this.git.cancelWorkingReview().subscribe({
+      next: () => this.checkWorkingReview(),
+      error: (err) => this.reviewError.set(this.errorMessage(err)),
+    });
+  }
+
+  private checkWorkingReview(): void {
+    this.reviewSub?.unsubscribe();
+    this.reviewSub = this.git.getWorkingReview().subscribe({
+      next: (state) => this.trackWorkingReview(state),
+      error: () => {},
+    });
+  }
+
+  /** Polls while a review runs, and reports the end of the one this tab followed. */
+  private trackWorkingReview(state: WorkingReviewState): void {
+    if (this.startingReview) return;
+    window.clearTimeout(this.reviewTimer);
+    if (state.status === 'running') {
+      if (!this.reviewingChanges()) this.reviewError.set('');
+      this.reviewingChanges.set(true);
+      this.followedReview = state.startedAt;
+      this.reviewTimer = window.setTimeout(() => this.checkWorkingReview(), 2000);
+      return;
+    }
+    this.reviewingChanges.set(false);
+    if (!this.followedReview || state.startedAt !== this.followedReview) return;
+    this.followedReview = '';
+    if (state.status === 'error') this.reviewError.set(state.error);
+    // In VS Code the extension host opens the results in an editor tab.
+    if (state.status === 'done' && !this.vscode.opensWorkingReview) this.openWorkingReview();
+  }
+
+  private openWorkingReview(): void {
+    const url = new URL(window.location.href);
+    url.searchParams.set('guitoView', 'working-review');
+    url.hash = '';
+    if (!window.open(url.toString(), '_blank')) this.reviewLink.set(url.toString());
   }
 
   protected loadMoreCommits(): void {

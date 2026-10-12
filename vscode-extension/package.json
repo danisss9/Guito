@@ -40,7 +40,8 @@
     "onCommand:guito.configureUserDetails",
     "onCommand:guito.configureRemotes",
     "onCommand:guito.reviewPullRequests",
-    "onCommand:guito.generateCommitMessage"
+    "onCommand:guito.generateCommitMessage",
+    "onCommand:guito.reviewChanges"
   ],
   "capabilities": {
     "virtualWorkspaces": false,
@@ -94,6 +95,18 @@
         "title": "Stop Generating Commit Message",
         "category": "Guito",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "guito.reviewChanges",
+        "title": "Code Review Uncommitted Changes",
+        "category": "Guito",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "guito.cancelReviewChanges",
+        "title": "Stop Code Review",
+        "category": "Guito",
+        "icon": "$(debug-stop)"
       }
     ],
     "menus": {
@@ -107,6 +120,16 @@
           "command": "guito.cancelCommitMessage",
           "when": "scmProvider == git && scmProviderRootUri in guito.generatingCommitMessageRoots",
           "group": "navigation@1"
+        },
+        {
+          "command": "guito.reviewChanges",
+          "when": "scmProvider == git && scmProviderRootUri not in guito.reviewingChangesRoots",
+          "group": "navigation@0"
+        },
+        {
+          "command": "guito.cancelReviewChanges",
+          "when": "scmProvider == git && scmProviderRootUri in guito.reviewingChangesRoots",
+          "group": "navigation@0"
         }
       ],
       "commandPalette": [
@@ -117,6 +140,14 @@
         {
           "command": "guito.cancelCommitMessage",
           "when": "guito.generatingCommitMessage"
+        },
+        {
+          "command": "guito.reviewChanges",
+          "when": "workspaceFolderCount != 0"
+        },
+        {
+          "command": "guito.cancelReviewChanges",
+          "when": "guito.reviewingChanges"
         }
       ]
     },
