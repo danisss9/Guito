@@ -94,17 +94,18 @@ export function computeGraph(commits: readonly GitCommit[]): GraphCommit[] {
   }));
 }
 
+/** No yellows: yellow is reserved for tag badges. */
 export const LANE_COLORS = [
   '#3794ff',
   '#4ec9b0',
-  '#d7ba7d',
+  '#a074ff',
   '#c586c0',
   '#89d185',
   '#ce9178',
   '#d16969',
   '#569cd6',
   '#b5cea8',
-  '#dcdcaa',
+  '#c0c0c0',
 ];
 
 export function laneColor(lane: number): string {

@@ -162,12 +162,6 @@
           "scope": "window",
           "description": "Show the Git graph beside the commit history."
         },
-        "guito.showStashes": {
-          "type": "boolean",
-          "default": false,
-          "scope": "window",
-          "description": "Show stash entries above the commit history."
-        },
         "guito.showTags": {
           "type": "boolean",
           "default": true,
@@ -179,6 +173,12 @@
           "default": true,
           "scope": "window",
           "description": "Show remote branches in the repository panel and branch pills."
+        },
+        "guito.grayRefBadges": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Show branch and tag pills in a single neutral gray instead of graph lane colors."
         },
         "guito.fileListView": {
           "type": "string",

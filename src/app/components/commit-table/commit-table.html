@@ -70,55 +70,6 @@
     </div>
   }
 
-  @for (stash of visibleStashes(); track stash.index) {
-    <div
-      class="row stash-row"
-      [style.width.px]="tableWidth()" [style.transform]="horizontalTransform()"
-      [class.selected]="selectedHash() === stash.hash"
-      (click)="commitClick.emit(stashCommit(stash))"
-      (contextmenu)="onStashContextMenu($event, stash)"
-    >
-      @if (showGraph()) {
-        <div class="cell cell-graph" [style.width.px]="graphColumnWidth()">
-          <svg class="stash-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M21 8v13H3V8M1 3h22v5H1z" />
-            <line x1="10" y1="12" x2="14" y2="12" />
-          </svg>
-        </div>
-      }
-      <div class="cell cell-desc" [style.width.px]="descriptionWidth()">
-        <span class="badge badge-stash" [title]="stashLabel(stash)">
-          <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
-            <path d="M21 8v13H3V8M1 3h22v5H1z" />
-            <line x1="10" y1="12" x2="14" y2="12" />
-          </svg>
-          <span class="badge-name">{{ stashLabel(stash) }}</span>
-        </span>
-        <span class="message" [title]="stash.message">
-          @for (segment of highlight(stash.message); track $index) {
-            @if (segment.match) {
-              <mark class="hl">{{ segment.text }}</mark>
-            } @else {
-              {{ segment.text }}
-            }
-          }
-        </span>
-      </div>
-      <div class="cell cell-date" [style.width.px]="columnWidths().date">
-        {{ stash.date ? (stash.date | date: 'd MMM y HH:mm') : '—' }}
-      </div>
-      <div class="cell cell-author" [style.width.px]="columnWidths().author" [title]="stash.author_name">
-        @if (stash.author_name) {
-          <app-author-avatar [name]="stash.author_name" [email]="stash.author_email ?? ''" />
-          {{ stash.author_name }}
-        }
-      </div>
-      <div class="cell cell-commit" [style.width.px]="columnWidths().commit" [title]="stash.hash">
-        {{ stash.hash.slice(0, 8) }}
-      </div>
-    </div>
-  }
-
   </div>
   <div class="table-body">
     @if (pendingLabel()) {
@@ -168,7 +119,7 @@
             @if (showGraph()) {
               <div class="cell cell-graph" [style.width.px]="graphColumnWidth()"></div>
             }
-            <div class="cell cell-desc" [style.width.px]="descriptionWidth()">
+            <div class="cell cell-desc" [class.gray-badges]="grayRefBadges()" [style.width.px]="descriptionWidth()" [style.--lane]="laneColor(entry.lane)">
               @for (badge of badges(entry.commit); track badge.name) {
                 <span
                   [class]="'badge badge-' + badge.type"
@@ -187,6 +138,10 @@
                         d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"
                       />
                       <line x1="7" y1="7" x2="7.01" y2="7" />
+                    </svg>
+                  } @else if (badge.type === 'remote') {
+                    <svg viewBox="0 0 24 24" class="badge-icon" aria-hidden="true">
+                      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
                     </svg>
                   }
                   <span class="badge-name">{{ badge.name }}</span>

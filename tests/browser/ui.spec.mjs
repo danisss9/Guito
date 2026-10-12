@@ -489,11 +489,16 @@ async function setup(page, count = 700, overrides = {}) {
       case '/api/file-content':
         state.contentRequests.push(body);
         return send({ content: `${body.ref}\n` });
-      case '/api/commit/detail':
-        return send({
-          ...commits.find((c) => c.hash === body.hash),
-          body: 'Details',
-        });
+      case '/api/commit/detail': {
+        // Like `git show`, abbreviated hashes resolve to their commit.
+        const detail =
+          commits.find((c) => c.hash === body.hash) ??
+          (body.hash.length < 40 ? commits.find((c) => c.hash.startsWith(body.hash)) : undefined);
+        if (!detail && body.hash.length < 40) {
+          return send({ error: `bad revision '${body.hash}'` }, 400);
+        }
+        return send({ ...detail, body: 'Details' });
+      }
       case '/api/commit/diff':
         return send({ hash: body.hash, files: state.diffFiles });
       default:
@@ -1131,7 +1136,6 @@ test('full settings dialog saves repository and Azure DevOps preferences togethe
     prBranchNameTemplate: 'users/${username}/${randomstring}',
     autoReload: false,
     showGraph: false,
-    showStashes: false,
     fileListView: 'flat',
     sidePanelSectionsExpanded: false,
     searchMode: 'filter',
@@ -1718,7 +1722,7 @@ test('commit detail and working panel share one resizable width', async ({ page 
     .toBe('540');
 
   // The working panel picks up the same customized width.
-  await detail.locator('button.close-btn').click();
+  await detail.locator('.close-btn button').click();
   await expect(page.locator('app-commit-detail')).toHaveCount(0);
   await page.locator('.working-row').click();
   const working = page.locator('app-working-panel');
@@ -2445,61 +2449,18 @@ test('pull request section stays hidden when Azure DevOps is not configured', as
   expect(errors).toEqual([]);
 });
 
-test('stash rows show above the history with a pill, actions, and a settings dialog toggle', async ({
-  page,
-}) => {
-  // Stash rows are hidden by default; the fixture settings turn them on.
-  const { state, errors } = await setup(page, 700, {
-    settings: {
-      azureDevOpsUrl: 'https://azure.example/collection',
-      prBranchNameTemplate: 'pr/${randomstring}',
-      source: 'file',
-      showStashes: true,
-    },
-  });
-  const stashRow = page.locator('.stash-row');
+test('stashes stay out of the commit history and its settings', async ({ page }) => {
+  const { errors } = await setup(page, 700);
 
-  // The stash appears as a pinned row with a stash@{n} pill and its message,
-  // author, and date, above the working row and the history.
-  await expect(stashRow).toHaveCount(1);
-  await expect(stashRow.locator('.badge-stash')).toContainText('stash@{0}');
-  await expect(stashRow).toContainText('fixture stash');
-  await expect(stashRow).toContainText('Stash Author');
-  await expect(stashRow).toContainText('Sep 2026');
+  // The stash is listed in the repository panel only.
+  await page.getByRole('button', { name: 'Toggle repository panel' }).click();
+  await expect(page.locator('.side-panel')).toContainText('fixture stash');
+  await expect(page.locator('app-commit-table')).not.toContainText('fixture stash');
+  await expect(page.locator('app-commit-table .badge-stash')).toHaveCount(0);
 
-  // Clicking opens the stash commit in the details pane.
-  await stashRow.click();
-  const detail = page.locator('app-commit-detail');
-  await expect(detail).toBeVisible();
-  await expect(detail.locator('.subject')).toContainText('fixture stash');
-
-  // Right-clicking offers the stash actions; popping posts the stash index.
-  await stashRow.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Pop Stash...' }).click();
-  const popDialog = page.getByRole('dialog', { name: 'Pop Stash' });
-  await expect(popDialog).toContainText('stash@{0}');
-  await popDialog.getByRole('button', { name: 'Pop', exact: true }).click();
-  await expect
-    .poll(() => state.stashRequests.at(-1))
-    .toEqual({
-      path: '/api/stash/pop',
-      index: 0,
-      restoreIndex: false,
-    });
-
-  // The settings dialog hides the rows and persists the choice.
+  // The settings dialog no longer offers a stash toggle.
   await page.getByTitle('Settings').click();
-  await page.getByLabel('Show stashes').uncheck();
-  await page.getByRole('button', { name: 'Save settings' }).click();
-  await expect.poll(() => state.settings.showStashes).toBe(false);
-  await expect(stashRow).toHaveCount(0);
-
-  // The settings dialog offers the way back.
-  await page.getByTitle('Settings').click();
-  await page.getByLabel('Show stashes').check();
-  await page.getByRole('button', { name: 'Save settings' }).click();
-  await expect.poll(() => state.settings.showStashes).toBe(true);
-  await expect(stashRow).toHaveCount(1);
+  await expect(page.getByLabel('Show stashes')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -2894,5 +2855,88 @@ test('diff dialog shows a code minimap preview that can be toggled', async ({ pa
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(minimap).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('branch pills take their lane color; tags keep a reserved yellow', async ({ page }) => {
+  const { errors } = await setup(page, 700, {
+    firstRefs: 'HEAD -> main, origin/main, tag: v1.0.0',
+  });
+  const row = page.locator('.list-viewport .row').first();
+  const style = (selector, property) =>
+    row.locator(selector).evaluate((el, prop) => getComputedStyle(el)[prop], property);
+  // Row 0 sits on lane 0, whose graph color is #3794ff.
+  await expect(page.locator('.graph-overlay circle[r="5.5"]')).toHaveAttribute('stroke', '#3794ff');
+  expect(await style('.badge-head', 'backgroundColor')).toBe('rgb(55, 148, 255)');
+  expect(await style('.badge-remote', 'color')).toBe('rgb(55, 148, 255)');
+  expect(await style('.badge-remote', 'borderTopStyle')).toBe('solid');
+  expect(await style('.badge-tag', 'color')).toBe('rgb(229, 211, 138)');
+  expect(await style('.badge-tag', 'borderTopLeftRadius')).toBe('10px');
+  expect(errors).toEqual([]);
+});
+
+test('Ctrl+F focuses search and Ctrl+J jumps to the current branch', async ({ page }) => {
+  const { errors } = await setup(page);
+  await page.locator('.list-viewport .row', { hasText: 'Commit 5' }).first().click();
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 5');
+
+  await page.keyboard.press('Control+f');
+  await expect(page.getByPlaceholder('Search commits')).toBeFocused();
+
+  await page.locator('.list-viewport').evaluate((el) => {
+    el.scrollTop = 10000;
+  });
+  await page.keyboard.press('Control+j');
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 0');
+  await expect(page.locator('.list-viewport .row.selected')).toBeInViewport();
+  expect(errors).toEqual([]);
+});
+
+test('Ctrl+G goes to a row number or a commit hash', async ({ page }) => {
+  const { state, commits, errors } = await setup(page);
+  const dialog = page.getByRole('dialog', { name: 'Go to Commit' });
+  const input = dialog.getByPlaceholder('Row number or commit hash');
+  const selected = page.locator('.list-viewport .row.selected');
+
+  await page.keyboard.press('Control+g');
+  await expect(input).toBeFocused();
+  await input.fill('3');
+  await input.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(selected).toContainText('Commit 2');
+
+  // A row past the first loaded page loads history up to it.
+  await page.keyboard.press('Control+g');
+  await input.fill('650');
+  await input.press('Enter');
+  await expect(selected).toContainText('Commit 649');
+  expect(state.historyRequests).toBeGreaterThan(1);
+
+  await page.keyboard.press('Control+g');
+  await input.fill('0000');
+  await input.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('Ambiguous');
+  await input.fill('abcdef12');
+  await input.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText("No commit matches 'abcdef12'");
+  await input.fill('not a hash');
+  await input.press('Enter');
+  await expect(dialog.getByRole('alert')).toContainText('row number or a commit hash');
+  await input.fill(commits[20].hash);
+  await input.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(selected).toContainText('Commit 20');
+  expect(errors).toEqual([]);
+});
+
+test('Ctrl+G resolves a hash outside the loaded history', async ({ page }) => {
+  const { state, commits, errors } = await setup(page);
+  await page.keyboard.press('Control+g');
+  const input = page.getByPlaceholder('Row number or commit hash');
+  // All digits but zero-padded, so it is a hash rather than a row number.
+  await input.fill(commits[600].hash);
+  await input.press('Enter');
+  await expect.poll(() => state.historyRequests).toBeGreaterThan(1);
+  await expect(page.locator('.list-viewport .row.selected')).toContainText('Commit 600');
   expect(errors).toEqual([]);
 });

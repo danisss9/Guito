@@ -24,7 +24,7 @@ export interface CommitSearchResponse {
   indices: Record<string, number>;
 }
 
-export type RefType = 'head' | 'local' | 'remote' | 'tag';
+export type RefType = 'head' | 'local' | 'remote' | 'tag' | 'stash';
 
 export interface RefBadge {
   type: RefType;
@@ -405,12 +405,12 @@ export interface AzureSettings {
   diffViewer?: 'guito' | 'vscode';
   /** Whether the commit table shows the graph column; defaults to true. */
   showGraph?: boolean;
-  /** Whether the commit table shows stash rows; defaults to true. */
-  showStashes?: boolean;
   /** Whether tag badges are shown in commit history. */
   showTags?: boolean;
   /** Whether remote branches are shown in the repository panel and history filter. */
   showRemoteBranches?: boolean;
+  /** Whether branch and tag pills use a single gray instead of lane colors; defaults to false. */
+  grayRefBadges?: boolean;
   /** How changed-file lists (staged, unstaged, commit) are shown; defaults to flat. */
   fileListView?: 'flat' | 'tree';
   /** How branches and tags in the repository panel are shown; defaults to flat. */

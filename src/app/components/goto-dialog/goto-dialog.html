@@ -1,0 +1,26 @@
+<div class="backdrop" (click)="closed.emit()"></div>
+<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="goto-title" (submit)="$event.preventDefault(); submit()">
+  <h3 id="goto-title" class="title">Go to Commit</h3>
+  <input
+    #inputEl
+    class="input"
+    type="text"
+    autocomplete="off"
+    spellcheck="false"
+    placeholder="Row number or commit hash"
+    aria-label="Row number or commit hash"
+    [value]="query()"
+    [readOnly]="busy()"
+    (input)="onInput($event)"
+  />
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <div class="actions">
+    <button class="btn" type="button" [disabled]="busy()" (click)="closed.emit()">Cancel</button>
+    <button class="btn btn-primary" type="submit" [disabled]="busy() || !query().trim()">
+      {{ busy() ? 'Looking up...' : 'Go' }}
+    </button>
+  </div>
+</form>

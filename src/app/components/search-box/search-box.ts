@@ -62,6 +62,13 @@ export class SearchBox {
     }
   }
 
+  /** Focuses the search input and selects its text. */
+  focus(): void {
+    const input = this.searchInput()?.nativeElement;
+    input?.focus();
+    input?.select();
+  }
+
   /** Clears the search; the debounced pipeline emits the empty query itself. */
   protected clearSearch(): void {
     this.searchValue.set('');

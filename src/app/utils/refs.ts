@@ -12,7 +12,8 @@ export function parseRefs(refs: string | undefined): RefBadge[] {
   return refs
     .split(',')
     .map((ref) => ref.trim())
-    .filter(Boolean)
+    // Stashes are listed only in the side panel, never badged in the graph.
+    .filter((ref) => ref && ref !== 'refs/stash')
     .map((ref): RefBadge => {
       if (ref.startsWith('HEAD -> ')) {
         return { type: 'head', name: ref.slice('HEAD -> '.length) };

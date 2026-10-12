@@ -5,6 +5,7 @@ import {
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { SearchBox } from '../search-box/search-box';
 
@@ -33,6 +34,8 @@ export class Toolbar {
   readonly prEnabled = input(false);
   /** Whether the left repository panel is open; reflected on the toggle button. */
   readonly panelOpen = input(false);
+
+  private readonly searchBox = viewChild(SearchBox);
 
   readonly matchIndex = input(-1);
   readonly matchCount = input(0);
@@ -70,6 +73,10 @@ export class Toolbar {
   protected chooseSettings(): void {
     this.openMenu.set(null);
     this.settingsClick.emit();
+  }
+
+  focusSearch(): void {
+    this.searchBox()?.focus();
   }
 
   @HostListener('document:click')

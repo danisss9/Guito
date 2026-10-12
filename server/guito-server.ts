@@ -42,9 +42,9 @@ export interface GuitoHostSettings {
   autoReload?: boolean;
   diffViewer?: 'guito' | 'vscode';
   showGraph?: boolean;
-  showStashes?: boolean;
   showTags?: boolean;
   showRemoteBranches?: boolean;
+  grayRefBadges?: boolean;
   issueRegex?: string;
   issueUrl?: string;
   fileListView?: 'flat' | 'tree';
@@ -90,9 +90,9 @@ export interface GuitoServerOptions {
   diffViewer?: 'guito' | 'vscode';
   /** VS Code overrides for repository display preferences. */
   showGraph?: boolean;
-  showStashes?: boolean;
   showTags?: boolean;
   showRemoteBranches?: boolean;
+  grayRefBadges?: boolean;
   issueRegex?: string;
   issueUrl?: string;
   fileListView?: 'flat' | 'tree';
@@ -410,9 +410,9 @@ export async function startGuitoServer({
   autoReload,
   diffViewer,
   showGraph,
-  showStashes,
   showTags,
   showRemoteBranches,
+  grayRefBadges,
   issueRegex,
   issueUrl,
   allowMerge,
@@ -938,9 +938,9 @@ export async function startGuitoServer({
     autoReload: boolean;
     diffViewer: 'guito' | 'vscode';
     showGraph: boolean;
-    showStashes: boolean;
     showTags: boolean;
     showRemoteBranches: boolean;
+    grayRefBadges: boolean;
     fileListView: 'flat' | 'tree';
     refListView: 'flat' | 'tree';
     sidePanelSectionsExpanded: boolean;
@@ -955,10 +955,11 @@ export async function startGuitoServer({
     const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
     const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
     const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
-    const fileShowStashes = typeof file.showStashes === 'boolean' ? file.showStashes : undefined;
     const fileShowTags = typeof file.showTags === 'boolean' ? file.showTags : undefined;
     const fileShowRemoteBranches =
       typeof file.showRemoteBranches === 'boolean' ? file.showRemoteBranches : undefined;
+    const fileGrayRefBadges =
+      typeof file.grayRefBadges === 'boolean' ? file.grayRefBadges : undefined;
     const fileFileListView =
       file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
     const fileRefListView =
@@ -1028,12 +1029,13 @@ export async function startGuitoServer({
       autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
       diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
       showGraph: typeof showGraph === 'boolean' ? showGraph : (fileShowGraph ?? true),
-      showStashes: typeof showStashes === 'boolean' ? showStashes : (fileShowStashes ?? false),
       showTags: typeof showTags === 'boolean' ? showTags : (fileShowTags ?? true),
       showRemoteBranches:
         typeof showRemoteBranches === 'boolean'
           ? showRemoteBranches
           : (fileShowRemoteBranches ?? true),
+      grayRefBadges:
+        typeof grayRefBadges === 'boolean' ? grayRefBadges : (fileGrayRefBadges ?? false),
       fileListView: fileListView ?? fileFileListView ?? 'flat',
       refListView: refListView ?? fileRefListView ?? 'flat',
       sidePanelSectionsExpanded:
@@ -1111,6 +1113,8 @@ export async function startGuitoServer({
           author_email: '%aE',
           parents: '%P',
         },
+        // Stashes are listed only in the side panel, never in the history graph.
+        '--exclude=refs/stash': null,
         '--all': null,
       };
       if (Number.isFinite(limit) && limit > 0) {
@@ -1122,7 +1126,7 @@ export async function startGuitoServer({
 
       const [log, count, identity] = await Promise.all([
         git.log(options as Parameters<typeof git.log>[0]),
-        git.raw(['rev-list', '--count', '--all']),
+        git.raw(['rev-list', '--count', '--exclude=refs/stash', '--all']),
         configuredIdentity(),
       ]);
 
@@ -1165,7 +1169,7 @@ export async function startGuitoServer({
       // NUL separators are safe because Git commit messages cannot contain
       // NUL bytes. Searching in JS lets insensitive mode fold accents too,
       // which Git's --regexp-ignore-case does not do consistently.
-      const raw = await git.raw(['log', '--all', '--format=%H%x00%B%x00']);
+      const raw = await git.raw(['log', '--exclude=refs/stash', '--all', '--format=%H%x00%B%x00']);
       const fields = raw.split('\0');
       const normalizedQuery = normalizeSearchText(query, caseSensitive);
       const hashes: string[] = [];
@@ -2149,14 +2153,14 @@ export async function startGuitoServer({
       if (typeof body.autoReload === 'boolean') {
         settings.autoReload = body.autoReload;
       }
-      if (typeof body.showStashes === 'boolean') {
-        settings.showStashes = body.showStashes;
-      }
       if (typeof body.showTags === 'boolean') {
         settings.showTags = body.showTags;
       }
       if (typeof body.showRemoteBranches === 'boolean') {
         settings.showRemoteBranches = body.showRemoteBranches;
+      }
+      if (typeof body.grayRefBadges === 'boolean') {
+        settings.grayRefBadges = body.grayRefBadges;
       }
       if (body.fileListView === 'tree' || body.fileListView === 'flat') {
         settings.fileListView = body.fileListView;
@@ -4183,7 +4187,6 @@ export async function startGuitoServer({
       autoReload = settings.autoReload;
       diffViewer = settings.diffViewer;
       showGraph = settings.showGraph;
-      showStashes = settings.showStashes;
       fileListView = settings.fileListView;
       sidePanelSectionsExpanded = settings.sidePanelSectionsExpanded;
       searchMode = settings.searchMode;
@@ -4192,6 +4195,7 @@ export async function startGuitoServer({
       prSort = settings.prSort;
       showTags = settings.showTags;
       showRemoteBranches = settings.showRemoteBranches;
+      grayRefBadges = settings.grayRefBadges;
       issueRegex = settings.issueRegex;
       issueUrl = settings.issueUrl;
       allowMerge = settings.allowMerge;

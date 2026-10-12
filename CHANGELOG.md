@@ -4,6 +4,19 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Added
+
+- Keyboard shortcuts for the commit history. **Ctrl+F** focuses the commit search box, **Ctrl+J** selects and scrolls to the current branch's commit (or the checked-out commit when HEAD is detached), and **Ctrl+G** opens a **Go to Commit** dialog. Type a row number to jump to that row of the list as currently shown, or a commit hash (at least 4 characters) to jump to that commit. History that isn't loaded yet is fetched as needed, and the dialog explains when a row is out of range, a hash is ambiguous or unknown, or the commit is hidden by the current branch or search filter. On macOS, Cmd works in place of Ctrl. The shortcuts do nothing while a dialog is open.
+
+### Changed
+
+- Ref pills in the commit history now match the graph. Each branch pill takes the color of its graph line; the current branch stays filled, now in its line color instead of a fixed blue. Local and remote branches and tags share one pill style. Remote branches get a cloud icon and tags keep the tag icon, and tags use a soft yellow that no graph line uses. To keep that yellow unique, the graph's two yellowish line colors were replaced with violet and silver. Prefer a quieter look? The new **Gray branch and tag pills** setting (`guito.grayRefBadges` in VS Code, off by default) draws every branch and tag pill in one neutral gray, with the current branch filled.
+- The close buttons on the uncommitted changes panel, commit detail, settings, pull request, diff and merge conflict views, and the error banner's dismiss button now share one look and behavior, matching the commit panel's close button.
+
+### Removed
+
+- Stashes no longer appear in the commit history. The "Show stashes" setting (`guito.showStashes` in VS Code) is gone, and the latest stash commit is no longer drawn in the graph; stashes are listed only in the repository panel.
+
 ## [1.0.10] - 2026-10-10
 
 ### Added

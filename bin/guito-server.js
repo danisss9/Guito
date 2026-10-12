@@ -250,7 +250,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showStashes, showTags, showRemoteBranches, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, worktreeSort, prSort, aiReview, azureRequestImpl, aiReviewModelImpl, avatarFetchImpl, onLog, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showTags, showRemoteBranches, grayRefBadges, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, worktreeSort, prSort, aiReview, azureRequestImpl, aiReviewModelImpl, avatarFetchImpl, onLog, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -674,9 +674,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
         const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
         const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
-        const fileShowStashes = typeof file.showStashes === 'boolean' ? file.showStashes : undefined;
         const fileShowTags = typeof file.showTags === 'boolean' ? file.showTags : undefined;
         const fileShowRemoteBranches = typeof file.showRemoteBranches === 'boolean' ? file.showRemoteBranches : undefined;
+        const fileGrayRefBadges = typeof file.grayRefBadges === 'boolean' ? file.grayRefBadges : undefined;
         const fileFileListView = file.fileListView === 'tree' || file.fileListView === 'flat' ? file.fileListView : undefined;
         const fileRefListView = file.refListView === 'tree' || file.refListView === 'flat' ? file.refListView : undefined;
         const fileSidePanelSectionsExpanded = typeof file.sidePanelSectionsExpanded === 'boolean'
@@ -735,11 +735,11 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
             diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
             showGraph: typeof showGraph === 'boolean' ? showGraph : (fileShowGraph ?? true),
-            showStashes: typeof showStashes === 'boolean' ? showStashes : (fileShowStashes ?? false),
             showTags: typeof showTags === 'boolean' ? showTags : (fileShowTags ?? true),
             showRemoteBranches: typeof showRemoteBranches === 'boolean'
                 ? showRemoteBranches
                 : (fileShowRemoteBranches ?? true),
+            grayRefBadges: typeof grayRefBadges === 'boolean' ? grayRefBadges : (fileGrayRefBadges ?? false),
             fileListView: fileListView ?? fileFileListView ?? 'flat',
             refListView: refListView ?? fileRefListView ?? 'flat',
             sidePanelSectionsExpanded: typeof sidePanelSectionsExpanded === 'boolean'
@@ -804,6 +804,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     author_email: '%aE',
                     parents: '%P',
                 },
+                // Stashes are listed only in the side panel, never in the history graph.
+                '--exclude=refs/stash': null,
                 '--all': null,
             };
             if (Number.isFinite(limit) && limit > 0) {
@@ -814,7 +816,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             const [log, count, identity] = await Promise.all([
                 git.log(options),
-                git.raw(['rev-list', '--count', '--all']),
+                git.raw(['rev-list', '--count', '--exclude=refs/stash', '--all']),
                 configuredIdentity(),
             ]);
             const commits = log.all.map((commit) => ({
@@ -850,7 +852,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             // NUL separators are safe because Git commit messages cannot contain
             // NUL bytes. Searching in JS lets insensitive mode fold accents too,
             // which Git's --regexp-ignore-case does not do consistently.
-            const raw = await git.raw(['log', '--all', '--format=%H%x00%B%x00']);
+            const raw = await git.raw(['log', '--exclude=refs/stash', '--all', '--format=%H%x00%B%x00']);
             const fields = raw.split('\0');
             const normalizedQuery = normalizeSearchText(query, caseSensitive);
             const hashes = [];
@@ -1851,14 +1853,14 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             if (typeof body.autoReload === 'boolean') {
                 settings.autoReload = body.autoReload;
             }
-            if (typeof body.showStashes === 'boolean') {
-                settings.showStashes = body.showStashes;
-            }
             if (typeof body.showTags === 'boolean') {
                 settings.showTags = body.showTags;
             }
             if (typeof body.showRemoteBranches === 'boolean') {
                 settings.showRemoteBranches = body.showRemoteBranches;
+            }
+            if (typeof body.grayRefBadges === 'boolean') {
+                settings.grayRefBadges = body.grayRefBadges;
             }
             if (body.fileListView === 'tree' || body.fileListView === 'flat') {
                 settings.fileListView = body.fileListView;
@@ -3667,7 +3669,6 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             autoReload = settings.autoReload;
             diffViewer = settings.diffViewer;
             showGraph = settings.showGraph;
-            showStashes = settings.showStashes;
             fileListView = settings.fileListView;
             sidePanelSectionsExpanded = settings.sidePanelSectionsExpanded;
             searchMode = settings.searchMode;
@@ -3676,6 +3677,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             prSort = settings.prSort;
             showTags = settings.showTags;
             showRemoteBranches = settings.showRemoteBranches;
+            grayRefBadges = settings.grayRefBadges;
             issueRegex = settings.issueRegex;
             issueUrl = settings.issueUrl;
             allowMerge = settings.allowMerge;

@@ -175,40 +175,6 @@
   border-color: rgba(215, 186, 125, 0.4);
 }
 
-.stash-row {
-  flex: none;
-  background: rgba(197, 134, 192, 0.04);
-}
-
-.stash-row:hover {
-  background: rgba(197, 134, 192, 0.08);
-}
-
-.stash-row.selected {
-  background: #4d2a49;
-}
-
-.stash-row:last-child {
-  border-bottom: 1px solid var(--border);
-}
-
-.stash-icon {
-  width: 14px;
-  height: 14px;
-  margin-left: 4px;
-  fill: none;
-  stroke: #c586c0;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.badge-stash {
-  background: rgba(197, 134, 192, 0.14);
-  color: #c586c0;
-  border-color: rgba(197, 134, 192, 0.4);
-}
-
 .count-badge {
   flex: none;
   padding: 1px 7px;
@@ -264,27 +230,41 @@
   white-space: nowrap;
 }
 
+/* Branch badges use their row's graph lane color (--lane, set per row). */
 .badge-head {
-  background: #0078d4;
-  color: #fff;
+  background: var(--lane, #3794ff);
+  border-color: var(--lane, #3794ff);
+  color: #1e1e1e;
+  font-weight: 600;
 }
 
-.badge-local {
-  background: rgba(55, 148, 255, 0.14);
-  color: #4fc1ff;
-  border-color: rgba(55, 148, 255, 0.4);
-}
-
+.badge-local,
 .badge-remote {
+  background: color-mix(in srgb, var(--lane, #3794ff) 14%, transparent);
+  color: var(--lane, #3794ff);
+  border-color: color-mix(in srgb, var(--lane, #3794ff) 45%, transparent);
+}
+
+/* Tags use a yellow kept out of the lane palette. */
+.badge-tag {
+  background: rgba(229, 211, 138, 0.12);
+  color: #e5d38a;
+  border-color: rgba(229, 211, 138, 0.4);
+}
+
+/* Optional monochrome style: every branch and tag pill in one neutral gray. */
+.gray-badges .badge-local,
+.gray-badges .badge-remote,
+.gray-badges .badge-tag {
   background: rgba(255, 255, 255, 0.06);
   color: #b8b8b8;
   border-color: #4a4a4a;
 }
 
-.badge-tag {
-  background: rgba(215, 186, 125, 0.12);
-  color: #d7ba7d;
-  border-color: rgba(215, 186, 125, 0.4);
+.gray-badges .badge-head {
+  background: #4a4a4a;
+  border-color: #4a4a4a;
+  color: #e8e8e8;
 }
 
 .badge-icon {

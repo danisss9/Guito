@@ -406,9 +406,9 @@ export class GitService {
     prBranchNameTemplate?: string;
     autoReload?: boolean;
     showGraph?: boolean;
-    showStashes?: boolean;
     showTags?: boolean;
     showRemoteBranches?: boolean;
+    grayRefBadges?: boolean;
     fileListView?: 'flat' | 'tree';
     refListView?: 'flat' | 'tree';
     sidePanelSectionsExpanded?: boolean;

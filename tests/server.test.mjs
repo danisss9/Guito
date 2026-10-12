@@ -1844,7 +1844,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: false,
     fileListView: 'flat',
     refListView: 'flat',
     sidePanelSectionsExpanded: true,
@@ -1860,7 +1859,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: false,
     fileListView: 'flat',
     searchMode: 'navigate',
   });
@@ -1928,7 +1926,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: false,
     fileListView: 'flat',
     searchMode: 'navigate',
   });
@@ -1947,31 +1944,12 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
-    showStashes: false,
     fileListView: 'flat',
     searchMode: 'navigate',
   });
   const fileAfterHide = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
   assert.equal(fileAfterHide.showGraph, false);
   assert.equal(fileAfterHide.autoReload, false);
-
-  // Hiding the commit-table stash rows persists the same way.
-  const stashesHidden = await fetch(`${server.address}/api/settings`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ showStashes: false }),
-  });
-  assert.equal(stashesHidden.status, 200);
-  assertSettings(await stashesHidden.json(), {
-    azureDevOpsUrl: '',
-    source: '',
-    autoReload: false,
-    diffViewer: 'guito',
-    showGraph: false,
-    showStashes: false,
-    fileListView: 'flat',
-    searchMode: 'navigate',
-  });
 
   // Switching the file lists to the tree view persists, an invalid value is
   // ignored, and unrelated keys survive.
@@ -1987,7 +1965,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
-    showStashes: false,
     fileListView: 'tree',
     searchMode: 'navigate',
   });
@@ -2015,7 +1992,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
-    showStashes: false,
     fileListView: 'tree',
     refListView: 'tree',
     searchMode: 'navigate',
@@ -2137,7 +2113,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'vscode',
     showGraph: false,
-    showStashes: false,
     fileListView: 'tree',
     sidePanelSectionsExpanded: true,
     searchMode: 'navigate',
@@ -2150,7 +2125,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: true,
     fileListView: 'flat',
     sidePanelSectionsExpanded: undefined,
     searchMode: undefined,
@@ -2163,7 +2137,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: true,
     fileListView: 'flat',
     sidePanelSectionsExpanded: false,
     searchMode: 'filter',
@@ -2187,7 +2160,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: false,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: false,
     fileListView: 'flat',
     searchMode: 'navigate',
     searchCaseSensitive: false,
@@ -2207,7 +2179,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
-    showStashes: false,
     fileListView: 'flat',
     searchMode: 'navigate',
     searchCaseSensitive: false,

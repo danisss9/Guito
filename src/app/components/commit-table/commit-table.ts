@@ -28,7 +28,6 @@ import {
   GitIdentity,
   IssueLinkingSettings,
   RefBadge,
-  StashEntry,
   WORKING_HASH,
   WorkingChanges,
 } from '../../models/git.models';
@@ -129,11 +128,9 @@ export class CommitTable implements OnDestroy {
   readonly selectedBranches = input<string[]>([]);
   readonly showRemote = input(true);
   readonly workingChanges = input<WorkingChanges | null>(null);
-  /** Stash stack rendered as pinned rows above the history. */
-  readonly stashes = input<StashEntry[]>([]);
-  /** Whether stash rows are shown; toggled from the settings menu. */
-  readonly showStashes = input(false);
   readonly showTags = input(true);
+  /** Renders branch and tag pills in a single gray instead of lane colors. */
+  readonly grayRefBadges = input(false);
   readonly issueLinking = input<IssueLinkingSettings | null>(null);
   readonly unloaded = input(0);
   readonly historyLoading = input(false);
@@ -477,27 +474,6 @@ export class CommitTable implements OnDestroy {
     parents: [],
   }));
 
-  /** Stash rows pinned above the history; empty when hidden or none exist. */
-  protected readonly visibleStashes = computed(() => (this.showStashes() ? this.stashes() : []));
-
-  /** Builds the pseudo commit handed to the detail pane for a stash row. */
-  protected stashCommit(stash: StashEntry): GitCommit {
-    return {
-      hash: stash.hash,
-      date: stash.date ?? '',
-      message: stash.message,
-      refs: '',
-      author_name: stash.author_name ?? '',
-      author_email: stash.author_email ?? '',
-      parents: [],
-    };
-  }
-
-  /** Display name of a stash, e.g. stash@{0}. */
-  protected stashLabel(stash: StashEntry): string {
-    return `stash@{${stash.index}}`;
-  }
-
   // ==================== Column resizing ====================
 
   private resizeState: {
@@ -602,16 +578,6 @@ export class CommitTable implements OnDestroy {
     });
   }
 
-  protected onStashContextMenu(event: MouseEvent, stash: StashEntry): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.contextMenu.emit({
-      x: event.clientX,
-      y: event.clientY,
-      target: { kind: 'stash', stash },
-    });
-  }
-
   // ==================== Search highlighting ====================
 
   protected highlight(text: string): HighlightSegment[] {
@@ -678,6 +644,9 @@ export class CommitTable implements OnDestroy {
       return selectedBranches.includes(badge.name);
     });
   }
+
+  /** Badges take the color of their row's graph lane. */
+  protected readonly laneColor = laneColor;
 
   protected isHead(commit: GitCommit): boolean {
     return isHeadCommit(commit);

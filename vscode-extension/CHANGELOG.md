@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add keyboard shortcuts while the Guito panel has focus. Ctrl+F focuses the commit search box, Ctrl+J jumps to the current branch, and Ctrl+G opens a Go to Commit dialog that accepts a row number or a commit hash and loads more history when needed.
+- Branch pills in the commit history take the color of their graph line, and the current branch stays filled in its line color. Remote branches show a cloud icon. Tags use a soft yellow that no graph line uses. Enable the new `guito.grayRefBadges` setting to show every branch and tag pill in one neutral gray instead.
+- The close buttons on the uncommitted changes, commit detail, settings, pull request, diff and merge conflict views, and the error banner's dismiss button now share one look and behavior.
+- Remove the `guito.showStashes` setting. Stashes no longer appear in the commit history or graph and are listed only in the repository panel.
+
 ## 1.0.10
 
 - Sort the repository panel's worktrees and pull requests with the new `guito.worktreeSort` and `guito.prSort` settings: worktrees offer Default order, Name A–Z and Name Z–A, while pull requests offer Newest first, Oldest first, Title A–Z and Title Z–A.

@@ -7,6 +7,7 @@
     #searchInput
     type="text"
     placeholder="Search commits"
+    title="Search commits (Ctrl+F)"
     [value]="searchValue()"
     (input)="onSearch($event)"
     (keydown)="onSearchKeydown($event)"

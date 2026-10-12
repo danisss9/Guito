@@ -76,9 +76,8 @@
         [selectedBranches]="selectedBranches()"
         [showRemote]="showRemote()"
         [workingChanges]="workingChanges()"
-        [stashes]="stashes()"
-        [showStashes]="showStashes()"
         [showTags]="showTags()"
+        [grayRefBadges]="grayRefBadges()"
         [issueLinking]="issueLinking()"
         [unloaded]="unloadedCommits()"
         [historyLoading]="historyLoading()"
@@ -152,6 +151,13 @@
     [error]="worktreeDialogError()"
     (created)="createWorktree($event)"
     (closed)="worktreeDialogOpen.set(false)"
+  />
+  } @if (gotoDialogOpen()) {
+  <app-goto-dialog
+    [busy]="gotoBusy()"
+    [error]="gotoError()"
+    (submitted)="goto($event)"
+    (closed)="closeGotoDialog()"
   />
   } @if (prDialogOpen()) {
   <app-create-pr-dialog

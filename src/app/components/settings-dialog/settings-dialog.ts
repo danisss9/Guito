@@ -33,9 +33,9 @@ export interface GuitoSettingsUpdate {
   prBranchNameTemplate: string;
   autoReload: boolean;
   showGraph: boolean;
-  showStashes: boolean;
   showTags: boolean;
   showRemoteBranches: boolean;
+  grayRefBadges: boolean;
   fileListView: 'flat' | 'tree';
   refListView: 'flat' | 'tree';
   sidePanelSectionsExpanded: boolean;
@@ -71,9 +71,9 @@ export class SettingsDialog {
   protected readonly prBranchNameTemplate = signal('pr/${randomstring}');
   protected readonly autoReload = signal(true);
   protected readonly showGraph = signal(true);
-  protected readonly showStashes = signal(false);
   protected readonly showTags = signal(true);
   protected readonly showRemoteBranches = signal(true);
+  protected readonly grayRefBadges = signal(false);
   protected readonly fileListView = signal<'flat' | 'tree'>('flat');
   protected readonly refListView = signal<'flat' | 'tree'>('flat');
   protected readonly sidePanelSectionsExpanded = signal(true);
@@ -122,9 +122,9 @@ export class SettingsDialog {
       this.prBranchNameTemplate.set(settings.prBranchNameTemplate ?? 'pr/${randomstring}');
       this.autoReload.set(settings.autoReload !== false);
       this.showGraph.set(settings.showGraph !== false);
-      this.showStashes.set(settings.showStashes === true);
       this.showTags.set(settings.showTags !== false);
       this.showRemoteBranches.set(settings.showRemoteBranches !== false);
+      this.grayRefBadges.set(settings.grayRefBadges === true);
       this.fileListView.set(settings.fileListView === 'tree' ? 'tree' : 'flat');
       this.refListView.set(settings.refListView === 'tree' ? 'tree' : 'flat');
       this.sidePanelSectionsExpanded.set(settings.sidePanelSectionsExpanded !== false);
@@ -174,9 +174,9 @@ export class SettingsDialog {
     setting:
       | 'autoReload'
       | 'showGraph'
-      | 'showStashes'
       | 'showTags'
       | 'showRemoteBranches'
+      | 'grayRefBadges'
       | 'sidePanelSectionsExpanded'
       | 'searchCaseSensitive'
       | 'allowMerge'
@@ -192,9 +192,9 @@ export class SettingsDialog {
       prBranchNameTemplate: this.prBranchNameTemplate().trim(),
       autoReload: this.autoReload(),
       showGraph: this.showGraph(),
-      showStashes: this.showStashes(),
       showTags: this.showTags(),
       showRemoteBranches: this.showRemoteBranches(),
+      grayRefBadges: this.grayRefBadges(),
       fileListView: this.fileListView(),
       refListView: this.refListView(),
       sidePanelSectionsExpanded: this.sidePanelSectionsExpanded(),

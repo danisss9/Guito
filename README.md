@@ -97,9 +97,9 @@ The settings dialog also manages preferences that have no VS Code equivalent: th
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `guito.autoReload`               | Reload commits and the working tree automatically when the repository changes outside Guito, for example from a terminal. On by default.                 |
 | `guito.showGraph`                | Show the Git graph beside the commit history. On by default.                                                                                            |
-| `guito.showStashes`              | Show stash entries above the commit history. Off by default.                                                                                            |
 | `guito.showTags`                 | Show tag badges attached to commits. On by default.                                                                                                     |
 | `guito.showRemoteBranches`       | Show remote branches in the repository panel and the branch pills on commits. On by default.                                                            |
+| `guito.grayRefBadges`            | Show branch and tag pills in a single neutral gray instead of graph lane colors. Off by default.                                                        |
 | `guito.fileListView`             | How changed-file lists are shown: `flat` (default) lists every file with its full path, `tree` groups them into collapsible folders.                    |
 | `guito.refListView`              | How branches and tags are shown in the repository panel: `flat` (default) lists full names, `tree` groups them into collapsible namespace folders.      |
 | `guito.sidePanelSectionsExpanded`| Open the repository panel with all sections expanded. On by default.                                                                                    |

@@ -9,6 +9,7 @@ import {
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { forkJoin, Observable, of } from 'rxjs';
@@ -18,6 +19,7 @@ import { CommitTable } from './components/commit-table/commit-table';
 import { ContextMenu } from './components/context-menu/context-menu';
 import { CreatePrDialog } from './components/create-pr-dialog/create-pr-dialog';
 import { GitOperationDialog } from './components/git-operation-dialog/git-operation-dialog';
+import { GotoDialog } from './components/goto-dialog/goto-dialog';
 import { GuitoSettingsUpdate, SettingsDialog } from './components/settings-dialog/settings-dialog';
 import { PromptDialog } from './components/prompt-dialog/prompt-dialog';
 import { PrDialog, PrTab } from './components/pr-dialog/pr-dialog';
@@ -50,6 +52,7 @@ import { GitService } from './services/git.service';
 import { VscodeService } from './services/vscode.service';
 import { copyTextToClipboard } from './utils/clipboard';
 import { authenticatedApiUrl } from './utils/session';
+import { isHeadCommit } from './utils/refs';
 import { normalizeSearchText } from './utils/search-text';
 import { loadJson, saveJson } from './utils/storage';
 
@@ -122,6 +125,7 @@ function loadCommitDraft(): CommitDraft {
     SettingsDialog,
     PrDialog,
     WorktreeDialog,
+    GotoDialog,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -190,8 +194,9 @@ export class App implements OnDestroy {
   /** The commit graph column can be hidden from the settings menu. */
   protected readonly showGraph = computed(() => this.azureSettings()?.showGraph !== false);
   /** Stash rows in the commit table stay hidden until the settings enable them. */
-  protected readonly showStashes = computed(() => this.azureSettings()?.showStashes === true);
   protected readonly showTags = computed(() => this.azureSettings()?.showTags !== false);
+  /** Branch and tag pills use lane colors unless the gray style is enabled. */
+  protected readonly grayRefBadges = computed(() => this.azureSettings()?.grayRefBadges === true);
   protected readonly issueLinking = computed(() => this.azureSettings()?.issueLinking ?? null);
   /** Whether changed-file lists render as a directory tree instead of a flat list. */
   protected readonly fileListView = computed(() =>
@@ -262,6 +267,15 @@ export class App implements OnDestroy {
   protected readonly searchFocusHash = signal('');
   /** Match awaiting focus while pages are still being loaded. */
   private readonly pendingSearchHash = signal('');
+  /** 1-based row awaiting selection by Go To while pages are still being loaded; 0 = none. */
+  private readonly pendingGotoRow = signal(0);
+
+  private readonly toolbar = viewChild(Toolbar);
+  /** Whether the Go To (Ctrl+G) dialog is open. */
+  protected readonly gotoDialogOpen = signal(false);
+  protected readonly gotoError = signal('');
+  protected readonly gotoBusy = signal(false);
+  private gotoSub: Subscription | null = null;
   /** Scroll request for the commit table; the id re-triggers same-hash scrolls. */
   protected readonly scrollRequest = signal<{
     hash: string;
@@ -409,9 +423,7 @@ export class App implements OnDestroy {
       const match = this.displayedCommits().find((commit) => commit.hash === hash);
       if (match) {
         untracked(() => {
-          this.selectedCommit.set(match);
-          this.scrollRequestCounter += 1;
-          this.scrollRequest.set({ hash, id: this.scrollRequestCounter });
+          this.selectAndScroll(match);
           this.pendingSearchHash.set('');
         });
       } else if (this.unloadedCommits() > 0 && !this.historyLoading() && !this.loading()) {
@@ -430,6 +442,29 @@ export class App implements OnDestroy {
       } else if (!this.historyLoading() && !this.loading()) {
         // The match never appeared (e.g. outside the selected branch).
         this.pendingSearchHash.set('');
+      }
+    });
+
+    // Select a Go To row once it is displayed, loading the pages up to it first.
+    effect(() => {
+      const row = this.pendingGotoRow();
+      if (!row) return;
+      if (this.filterFailed()) return;
+      const displayed = this.displayedCommits();
+      if (displayed.length >= row) {
+        untracked(() => {
+          this.selectAndScroll(displayed[row - 1]);
+          this.pendingGotoRow.set(0);
+        });
+      } else if (this.unloadedCommits() > 0 && !this.historyLoading() && !this.loading()) {
+        const missing = row - displayed.length;
+        const limit = Math.ceil(missing / LOAD_PAGE_SIZE) * LOAD_PAGE_SIZE;
+        untracked(() => this.loadHistory(this.git.getCommits(limit, this.commits().length)));
+      } else if (!this.historyLoading() && !this.loading()) {
+        untracked(() => {
+          this.pendingGotoRow.set(0);
+          this.error.set(`Row ${row} is past the end of the list (${displayed.length} rows).`);
+        });
       }
     });
 
@@ -472,6 +507,25 @@ export class App implements OnDestroy {
     this.searchSub?.unsubscribe();
     this.panelSub?.unsubscribe();
     this.prListSub?.unsubscribe();
+    this.gotoSub?.unsubscribe();
+  }
+
+  /** Ctrl+F focuses search, Ctrl+J jumps to the current branch, Ctrl+G opens Go To. */
+  @HostListener('document:keydown', ['$event'])
+  protected onShortcut(event: KeyboardEvent): void {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    const key = event.key.toLowerCase();
+    if (key !== 'f' && key !== 'g' && key !== 'j') return;
+    // Shortcuts are left alone while any modal dialog is open.
+    if (document.querySelector('[aria-modal="true"]')) return;
+    event.preventDefault();
+    if (key === 'f') {
+      this.toolbar()?.focusSearch();
+    } else if (key === 'j') {
+      this.jumpToHead();
+    } else {
+      this.openGotoDialog();
+    }
   }
 
   @HostListener('window:focus')
@@ -1234,6 +1288,97 @@ export class App implements OnDestroy {
   protected openWorktreeDialog(): void {
     this.worktreeDialogError.set('');
     this.worktreeDialogOpen.set(true);
+  }
+
+  private selectAndScroll(commit: GitCommit): void {
+    this.selectedCommit.set(commit);
+    this.scrollRequestCounter += 1;
+    this.scrollRequest.set({ hash: commit.hash, id: this.scrollRequestCounter });
+  }
+
+  /** Selects the checked-out commit (the current branch tip, or a detached HEAD). */
+  private jumpToHead(): void {
+    const hash =
+      this.branches().find((branch) => branch.current)?.commit ??
+      this.commits().find((commit) => isHeadCommit(commit))?.hash;
+    if (hash) this.pendingSearchHash.set(hash);
+  }
+
+  protected openGotoDialog(): void {
+    this.gotoError.set('');
+    this.gotoBusy.set(false);
+    this.gotoDialogOpen.set(true);
+  }
+
+  protected closeGotoDialog(): void {
+    this.gotoSub?.unsubscribe();
+    this.gotoSub = null;
+    this.gotoBusy.set(false);
+    this.gotoDialogOpen.set(false);
+  }
+
+  /**
+   * Jumps to a 1-based row of the displayed list or to a commit hash. Digits
+   * without a leading zero and within the row range are a row number; other
+   * hex text is a hash prefix.
+   */
+  protected goto(query: string): void {
+    this.gotoError.set('');
+    const displayed = this.displayedCommits();
+    const rows = displayed.length + this.unloadedCommits();
+    if (/^[1-9]\d*$/.test(query)) {
+      const row = Number(query);
+      if (row >= 1 && row <= rows) {
+        this.closeGotoDialog();
+        this.pendingGotoRow.set(row);
+        return;
+      }
+    }
+    if (!/^[0-9a-f]{4,40}$/i.test(query)) {
+      this.gotoError.set(
+        /^\d+$/.test(query)
+          ? `Row out of range (1–${rows}).`
+          : 'Enter a row number or a commit hash (at least 4 characters).',
+      );
+      return;
+    }
+    const prefix = query.toLowerCase();
+    const matches = displayed.filter((commit) => commit.hash.startsWith(prefix));
+    if (matches.length === 1) {
+      this.closeGotoDialog();
+      this.selectAndScroll(matches[0]);
+      return;
+    }
+    if (matches.length > 1) {
+      this.gotoError.set('Ambiguous hash; type more characters.');
+      return;
+    }
+    // Not displayed: let git resolve the hash, then load history up to it.
+    this.gotoBusy.set(true);
+    this.gotoSub?.unsubscribe();
+    this.gotoSub = this.git.getCommitDetail(prefix).subscribe({
+      next: (commit) => {
+        this.gotoBusy.set(false);
+        if (!commit?.hash) {
+          this.gotoError.set(`No commit matches '${query}'.`);
+          return;
+        }
+        if (this.commitIndex().has(commit.hash)) {
+          this.gotoError.set('That commit is hidden by the current branch or search filter.');
+          return;
+        }
+        this.closeGotoDialog();
+        this.pendingSearchHash.set(commit.hash);
+      },
+      error: () => {
+        this.gotoBusy.set(false);
+        this.gotoError.set(
+          /^\d+$/.test(query)
+            ? `No row (1–${rows}) or commit matches '${query}'.`
+            : `No commit matches '${query}'.`,
+        );
+      },
+    });
   }
 
   /** Name of the checked-out branch; '' when HEAD is detached. */
