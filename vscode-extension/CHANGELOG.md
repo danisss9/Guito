@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.11
 
 - Add keyboard shortcuts while the Guito panel has focus. Ctrl+F focuses the commit search box, Ctrl+J jumps to the current branch, and Ctrl+G opens a Go to Commit dialog that accepts a row number or a commit hash and loads more history when needed.
 - Add **Code Review Uncommitted Changes** to the Source Control title bar (next to Generate Commit Message) and to Guito's uncommitted changes panel. Claude Code reviews the staged, unstaged and untracked changes, and the button becomes a Stop button while the review runs. The findings then open in a "Code Review" editor tab. Each finding links to its file and line and has an **Auto fix** button that asks Claude Code to fix it in the working tree; Claude Code may only read and edit files during a fix.

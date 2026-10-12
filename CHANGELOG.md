@@ -4,6 +4,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-10-12
+
 ### Added
 
 - Keyboard shortcuts for the commit history. **Ctrl+F** focuses the commit search box, **Ctrl+J** selects and scrolls to the current branch's commit (or the checked-out commit when HEAD is detached), and **Ctrl+G** opens a **Go to Commit** dialog. Type a row number to jump to that row of the list as currently shown, or a commit hash (at least 4 characters) to jump to that commit. History that isn't loaded yet is fetched as needed, and the dialog explains when a row is out of range, a hash is ambiguous or unknown, or the commit is hidden by the current branch or search filter. On macOS, Cmd works in place of Ctrl. The shortcuts do nothing while a dialog is open.
