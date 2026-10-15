@@ -23,6 +23,7 @@ import {
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import {
+  BranchInfo,
   ContextMenuEvent,
   GitCommit,
   GitIdentity,
@@ -127,6 +128,8 @@ export class CommitTable implements OnDestroy {
   /** Branches whose badges are shown; an empty list shows every branch. */
   readonly selectedBranches = input<string[]>([]);
   readonly showRemote = input(true);
+  /** Loaded branches used to resolve badge names to local vs remote. */
+  readonly branches = input<BranchInfo[]>([]);
   readonly workingChanges = input<WorkingChanges | null>(null);
   readonly showTags = input(true);
   /** Renders branch and tag pills in a single gray instead of lane colors. */
@@ -628,7 +631,7 @@ export class CommitTable implements OnDestroy {
     const selectedBranches = this.selectedBranches();
     const showRemote = this.showRemote();
 
-    return parseRefs(commit.refs).filter((badge) => {
+    return parseRefs(commit.refs, this.branches()).filter((badge) => {
       if (badge.type === 'tag' && !this.showTags()) {
         return false;
       }

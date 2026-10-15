@@ -346,8 +346,9 @@ export function buildReviewPrompt(input) {
     const incremental = Boolean(sinceCommit);
     const perFile = Math.max(2000, Math.floor(input.maxDiffChars / Math.max(diffs.length, 1)));
     const body = diffs.map((diff) => renderFileDiff(diff, perFile)).join('\n');
-    const raised = previous.filter((finding) => finding.status !== 'dismissed');
+    const raised = previous.filter((finding) => finding.status === 'pending' || finding.status === 'posted');
     const dismissed = previous.filter((finding) => finding.status === 'dismissed');
+    const fixed = previous.filter((finding) => finding.status === 'fixed');
     const sections = [
         'You are reviewing an Azure DevOps pull request as a careful senior engineer on this team.',
         '',
@@ -373,6 +374,13 @@ export function buildReviewPrompt(input) {
         'POINTS THE USER DISMISSED (never raise these again):',
         dismissed.length
             ? dismissed
+                .map((finding) => `  - ${finding.file || 'pull request'} — ${finding.title}`)
+                .join('\n')
+            : '  None.',
+        '',
+        'POINTS THE USER FIXED (never raise these again):',
+        fixed.length
+            ? fixed
                 .map((finding) => `  - ${finding.file || 'pull request'} — ${finding.title}`)
                 .join('\n')
             : '  None.',
@@ -749,6 +757,22 @@ export function createAiReviewer(deps, initialConfig = DEFAULT_AI_REVIEW_CONFIG,
                     ...current,
                     findings: current.findings.map((finding) => finding.status === 'pending' && wanted.has(finding.id)
                         ? { ...finding, status: 'dismissed', resolvedAt: now().toISOString() }
+                        : finding),
+                };
+                store.pullRequests[String(pullRequestId)] = next;
+                return next;
+            });
+        },
+        async fix(pullRequestId, findingIds) {
+            const wanted = new Set(findingIds);
+            return mutateStore((store) => {
+                const current = store.pullRequests[String(pullRequestId)];
+                if (!current)
+                    throw new Error(`Pull request ${pullRequestId} has not been reviewed yet.`);
+                const next = {
+                    ...current,
+                    findings: current.findings.map((finding) => finding.status === 'pending' && wanted.has(finding.id)
+                        ? { ...finding, status: 'fixed', resolvedAt: now().toISOString() }
                         : finding),
                 };
                 store.pullRequests[String(pullRequestId)] = next;

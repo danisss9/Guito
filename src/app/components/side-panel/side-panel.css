@@ -466,7 +466,8 @@
   stroke: #f48771;
 }
 
-.vote-icon.vote-none {
+.vote-icon.vote-none,
+.vote-icon.vote-declined {
   stroke: var(--text-dim);
 }
 
@@ -517,6 +518,11 @@
   background: rgba(220, 182, 122, 0.18);
   border: 1px solid rgba(220, 182, 122, 0.5);
   color: #dcb67a;
+}
+
+.pr-badge.declined {
+  border: 1px solid var(--border);
+  color: var(--text-dim);
 }
 
 .pr-meta {

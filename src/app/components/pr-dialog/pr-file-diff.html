@@ -38,6 +38,18 @@
               @if (isExpanded(thread.id)) {
                 <div class="thread-body">
                   @for (comment of thread.comments; track comment.id) {
+                    @if (commentDisplay(comment); as display) {
+                    @if (display.isSystem) {
+                    <div class="comment system-comment" [title]="display.raw">
+                      <div class="comment-main">
+                        <div class="comment-meta system-line">
+                          <span class="system-dot" aria-hidden="true"></span>
+                          <span>{{ display.text }}</span>
+                          {{ formatDate(comment.createdAt) }}
+                        </div>
+                      </div>
+                    </div>
+                    } @else {
                     <div class="comment">
                       <app-author-avatar [name]="comment.author.name" [email]="comment.author.email || ''" />
                       <div class="comment-main">
@@ -48,6 +60,8 @@
                         <app-markdown-text [markdown]="comment.content" />
                       </div>
                     </div>
+                    }
+                    }
                   }
                   <div class="reply-row">
                     <input

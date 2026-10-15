@@ -1221,10 +1221,15 @@ export class App implements OnDestroy {
       });
     } else if (event.target.kind === 'branch') {
       const badgeType = event.target.branch.type;
+      const branchName: string = event.target.branch.name ?? '';
       const isLocal = badgeType === 'head' || badgeType === 'local';
       const isRemote = badgeType === 'remote';
+      // Bare `HEAD` (detached) and symbolic `origin/HEAD` refs are not real
+      // branches: renaming, deleting or pulling them would fail on the server.
+      const isBareHead = branchName === 'HEAD';
+      const isSymbolicHead = isBareHead || branchName.endsWith('/HEAD');
       items.push({ label: 'Checkout Branch...', action: 'checkout-branch' });
-      if (isLocal) {
+      if (isLocal && !isBareHead) {
         items.push({ label: 'Rename Branch...', action: 'rename-branch' });
         items.push({
           label: 'Delete Branch...',
@@ -1234,7 +1239,7 @@ export class App implements OnDestroy {
           disabled: badgeType === 'head',
         });
       }
-      if (isRemote) {
+      if (isRemote && !isSymbolicHead) {
         items.push({
           label: 'Delete Remote Branch...',
           action: 'delete-remote-branch',
@@ -1246,7 +1251,7 @@ export class App implements OnDestroy {
         action: 'merge-branch',
       });
       // Pulling makes sense only for refs that live on a remote.
-      if (isRemote) {
+      if (isRemote && !isSymbolicHead) {
         items.push({
           label: 'Pull into current branch...',
           action: 'pull-branch',
@@ -1257,6 +1262,8 @@ export class App implements OnDestroy {
       items.push({
         label: 'Unselect in Branches Dropdown',
         action: 'unselect-branch',
+        // Only meaningful when the branch is part of the active selection.
+        disabled: !this.selectedBranches().includes(branchName),
       });
       items.push({ separator: true });
       items.push({
@@ -1809,7 +1816,7 @@ export class App implements OnDestroy {
         break;
       case 'checkout-branch': {
         const branch = this.contextMenuTarget()?.branch;
-        if (branch) {
+        if (branch && branch.name && branch.name !== 'HEAD' && !branch.name.endsWith('/HEAD')) {
           const isRemote = branch.type === 'remote';
           const slash = branch.name.indexOf('/');
           this.openGitOperation({
@@ -1825,7 +1832,7 @@ export class App implements OnDestroy {
       case 'delete-remote-branch': {
         const branchName = this.contextMenuTarget()?.branch?.name ?? '';
         const separator = branchName.indexOf('/');
-        if (separator > 0) {
+        if (separator > 0 && !branchName.endsWith('/HEAD')) {
           this.openGitOperation({
             action: 'delete-remote-branch',
             ref: branchName,
@@ -1849,7 +1856,7 @@ export class App implements OnDestroy {
       }
       case 'pull-branch': {
         const branch = this.contextMenuTarget()?.branch;
-        if (branch && branch.type === 'remote') {
+        if (branch && branch.type === 'remote' && !branch.name.endsWith('/HEAD')) {
           const slash = branch.name.indexOf('/');
           this.openGitOperation({
             action: 'pull-branch',
@@ -1907,9 +1914,13 @@ export class App implements OnDestroy {
           this.copyToClipboard(this.contextMenuTarget().branch.name);
         }
         break;
-      case 'unselect-branch':
-        this.selectedBranches.set([]);
+      case 'unselect-branch': {
+        const name = this.contextMenuTarget()?.branch?.name;
+        if (name) {
+          this.selectedBranches.update((names) => names.filter((selected) => selected !== name));
+        }
         break;
+      }
       case 'stash-apply': {
         const stash = this.contextMenuTarget()?.stash;
         if (stash) {
@@ -1994,6 +2005,7 @@ export class App implements OnDestroy {
         break;
       case 'rename-branch': {
         const name = this.contextMenuTarget()?.branch?.name ?? '';
+        if (!name || name === 'HEAD') break;
         this.openGitOperation({
           action: 'rename-branch',
           ref: name,
@@ -2003,6 +2015,7 @@ export class App implements OnDestroy {
       }
       case 'delete-branch': {
         const name = this.contextMenuTarget()?.branch?.name ?? '';
+        if (!name || name === 'HEAD') break;
         this.openGitOperation({
           action: 'delete-branch',
           ref: name,

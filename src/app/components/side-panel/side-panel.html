@@ -420,6 +420,9 @@
                     @if (pr.requiresMe) {
                       <span class="pr-badge required">Required</span>
                     }
+                    @if (pr.myDeclined) {
+                      <span class="pr-badge declined">Declined</span>
+                    }
                   </span>
                   <span class="pr-line pr-meta">
                     {{ pr.author.name }} · {{ pr.sourceBranch }} → {{ pr.targetBranch }}

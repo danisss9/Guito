@@ -507,7 +507,7 @@ export interface AiReviewFinding {
   comment: string;
   /** Merge source commit the finding was made against. */
   commit: string;
-  status: 'pending' | 'posted' | 'dismissed';
+  status: 'pending' | 'posted' | 'dismissed' | 'fixed';
   threadId?: number;
   createdAt: string;
   resolvedAt?: string;
@@ -638,6 +638,8 @@ export interface PrReviewer extends PrIdentity {
   /** 10 approve, 5 approve with suggestions, 0 none, -5 waiting, -10 reject. */
   vote: number;
   isRequired: boolean;
+  /** True when the reviewer declined to review this pull request. */
+  hasDeclined: boolean;
 }
 
 /** One pull request row in the side panel list ("mine": created by or reviewing). */
@@ -656,6 +658,8 @@ export interface PrSummary {
   myVote: number;
   /** Whether the current user is a required reviewer. */
   requiresMe: boolean;
+  /** Whether the current user declined to review this pull request. */
+  myDeclined: boolean;
 }
 
 export type PrVote = 'approve' | 'approveWithSuggestions' | 'waitForAuthor' | 'reject' | 'reset';
@@ -737,6 +741,8 @@ export interface PrComment {
   content: string;
   createdAt: string;
   isDeleted: boolean;
+  /** Azure DevOps comment type ("text", "system", "codeChange", ...). */
+  commentType: string;
 }
 
 /** A pull request comment thread; inline threads anchor to a file line. */

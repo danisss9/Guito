@@ -554,6 +554,9 @@ export class SidePanel implements OnDestroy {
 
   /** Maps the user's vote to a coloring class for the row status icon. */
   protected voteClass(pr: PrSummary): string {
+    if (pr.myDeclined) {
+      return 'vote-declined';
+    }
     switch (pr.myVote) {
       case 10:
         return 'vote-approve';
@@ -571,11 +574,14 @@ export class SidePanel implements OnDestroy {
   /** Row tooltip with everything that does not fit the two-line row. */
   protected prTooltip(pr: PrSummary): string {
     const reviewers = pr.reviewers
-      .map((reviewer) => `${reviewer.name}${reviewer.isRequired ? ' (required)' : ''}`)
+      .map(
+        (reviewer) =>
+          `${reviewer.name}${reviewer.hasDeclined ? ' (declined)' : reviewer.isRequired ? ' (required)' : ''}`,
+      )
       .join(', ');
     return [
       `!${pr.id} ${pr.title}`,
-      `By ${pr.author.name}${pr.isDraft ? ' · draft' : ''}`,
+      `By ${pr.author.name}${pr.isDraft ? ' · draft' : ''}${pr.myDeclined ? ' · declined to review' : ''}`,
       `${pr.sourceBranch} → ${pr.targetBranch}`,
       reviewers ? `Reviewers: ${reviewers}` : '',
     ]

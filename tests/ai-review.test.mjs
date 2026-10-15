@@ -467,6 +467,66 @@ test('a dismissed finding is never raised again', async (context) => {
   assert.match(prompts[1], /never raise these again[\s\S]*Prefer a constant/i);
 });
 
+test('a fixed finding is never raised again', async (context) => {
+  const state = baseState();
+  const { server, prompts } = await startReviewServer(context, state, [
+    cliReply({
+      summary: '',
+      findings: [
+        {
+          file: 'src/app.ts',
+          line: 2,
+          severity: 'concern',
+          title: 'Handle the zero case',
+          comment: 'Division by zero when a is 0.',
+        },
+      ],
+    }),
+    cliReply({
+      summary: '',
+      findings: [
+        {
+          file: 'src/app.ts',
+          line: 2,
+          severity: 'concern',
+          title: 'Handle the zero case',
+          comment: 'Raising the same point again.',
+        },
+      ],
+    }),
+  ]);
+
+  const { state: review } = await json(
+    await fetch(`${server.address}/api/azure-devops/pullrequests/42/ai-review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+  );
+  const { state: afterFix } = await json(
+    await fetch(`${server.address}/api/azure-devops/pullrequests/42/ai-review/fix`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ findingIds: [review.findings[0].id] }),
+    }),
+  );
+
+  assert.equal(afterFix.findings[0].status, 'fixed');
+  assert.ok(afterFix.findings[0].resolvedAt);
+
+  const { state: again } = await json(
+    await fetch(`${server.address}/api/azure-devops/pullrequests/42/ai-review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ force: true }),
+    }),
+  );
+
+  assert.equal(again.findings.length, 1);
+  assert.equal(again.findings[0].status, 'fixed');
+  assert.match(prompts[1], /never raise these again[\s\S]*Handle the zero case/i);
+});
+
 test('the configured model reaches Claude Code and a per-review model overrides it', async (context) => {
   const state = baseState();
   const { server, prompts, cliCalls } = await startReviewServer(

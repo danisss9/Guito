@@ -553,6 +553,15 @@ export class GitService {
     );
   }
 
+  /** Declines (or resumes) the current user's review on a pull request. */
+  declinePr(id: number, declined = true): Observable<unknown> {
+    return this.mutate(() =>
+      this.http.post(`${this.base}/azure-devops/pullrequests/${id}/decline`, {
+        declined,
+      }),
+    );
+  }
+
   /** Adds, updates (required flag), or removes a reviewer. */
   updatePrReviewer(
     id: number,
@@ -560,6 +569,7 @@ export class GitService {
       id: string;
       required?: boolean;
       vote?: number;
+      hasDeclined?: boolean;
       remove?: boolean;
     },
   ): Observable<unknown> {
@@ -752,6 +762,15 @@ export class GitService {
       .post<{
         state: AiReviewState;
       }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review/dismiss`, { findingIds })
+      .pipe(map((response) => response.state));
+  }
+
+  /** Marks findings as fixed; a fixed point is never raised again. */
+  fixAiReviewFindings(id: number, findingIds: string[]): Observable<AiReviewState> {
+    return this.http
+      .post<{
+        state: AiReviewState;
+      }>(`${this.base}/azure-devops/pullrequests/${id}/ai-review/fix`, { findingIds })
       .pipe(map((response) => response.state));
   }
 

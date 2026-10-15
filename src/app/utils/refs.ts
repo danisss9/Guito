@@ -1,10 +1,18 @@
-import { GitCommit, RefBadge } from '../models/git.models';
+import { BranchInfo, GitCommit, RefBadge } from '../models/git.models';
 
 /**
  * Parses the `%D` refs decoration of a commit (e.g.
  * `HEAD -> main, origin/main, origin/HEAD, tag: v1.0`) into badges.
+ *
+ * `%D` only carries short names, so a `/` heuristic cannot tell local
+ * branches like `feature/foo` apart from remote-tracking refs like
+ * `origin/main`. When the loaded branch list is provided, exact names are
+ * resolved against it; otherwise the slash heuristic is kept as a fallback.
  */
-export function parseRefs(refs: string | undefined): RefBadge[] {
+export function parseRefs(
+  refs: string | undefined,
+  knownBranches?: Pick<BranchInfo, 'name' | 'remote'>[],
+): RefBadge[] {
   if (!refs) {
     return [];
   }
@@ -23,6 +31,14 @@ export function parseRefs(refs: string | undefined): RefBadge[] {
       }
       if (ref.startsWith('tag: ')) {
         return { type: 'tag', name: ref.slice('tag: '.length) };
+      }
+      if (knownBranches) {
+        const known = knownBranches.find((branch) => branch.name === ref);
+        if (known) {
+          return { type: known.remote ? 'remote' : 'local', name: ref };
+        }
+        // Unknown refs (e.g. filtered out of the loaded list) keep the
+        // slash heuristic so remote-tracking names still resolve as remote.
       }
       if (ref.includes('/')) {
         return { type: 'remote', name: ref };

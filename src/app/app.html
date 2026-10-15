@@ -73,6 +73,7 @@
         [selectedHash]="selectedCommit()?.hash ?? ''"
         [search]="search()"
         [showGraph]="showGraph() && !filterSearch()"
+        [branches]="branches()"
         [selectedBranches]="selectedBranches()"
         [showRemote]="showRemote()"
         [workingChanges]="workingChanges()"

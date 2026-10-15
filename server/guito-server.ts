@@ -186,6 +186,23 @@ const AZURE_THREAD_STATUSES: Record<string, number> = {
 const azureThreadStatusName = (value: number): string =>
   Object.entries(AZURE_THREAD_STATUSES).find(([, numeric]) => numeric === value)?.[0] ?? 'unknown';
 
+/** Azure DevOps comment types, by their numeric REST value. */
+const AZURE_COMMENT_TYPES: Record<string, number> = {
+  unknown: 0,
+  text: 1,
+  codeChange: 2,
+  system: 3,
+};
+const azureCommentTypeName = (value: unknown): string => {
+  if (typeof value === 'string' && value) {
+    return value;
+  }
+  const numeric = Number(value ?? 0);
+  return (
+    Object.entries(AZURE_COMMENT_TYPES).find(([, entry]) => entry === numeric)?.[0] ?? 'unknown'
+  );
+};
+
 /** Pull request reviewer votes, by their numeric REST value. */
 const AZURE_VOTES: Record<string, number> = {
   reset: 0,
@@ -835,6 +852,7 @@ export async function startGuitoServer({
       email: String(entry?.uniqueName ?? ''),
       vote: Number(entry?.vote ?? 0),
       isRequired: entry?.isRequired === true,
+      hasDeclined: entry?.hasDeclined === true,
     }));
     const mine = me ? reviewers.find((reviewer: any) => reviewer.id === me.id) : undefined;
     return {
@@ -856,6 +874,7 @@ export async function startGuitoServer({
       reviewers,
       myVote: mine ? Number(mine.vote ?? 0) : 0,
       requiresMe: mine?.isRequired === true,
+      myDeclined: mine?.hasDeclined === true,
     };
   };
 
@@ -2842,7 +2861,31 @@ export async function startGuitoServer({
       await azureJson<any>(
         'PUT',
         `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`,
-        JSON.stringify({ vote: AZURE_VOTES[vote] }),
+        JSON.stringify({ vote: AZURE_VOTES[vote], hasDeclined: false }),
+      );
+      return resp.type('application/json').send({ ok: true });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Declines (or resumes) the current user's review on the pull request.
+  // Azure keeps the reviewer on the pull request with hasDeclined set; the
+  // record is read first so the required flag survives the PUT.
+  app.post('/api/azure-devops/pullrequests/:id/decline', async (req: any, resp) => {
+    try {
+      const declined = req.body?.declined !== false;
+      const { base } = await azurePrApiBase(Number(req.params?.id));
+      const me = await azureMe();
+      const reviewerUrl = `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`;
+      const current = await azureJson<any>('GET', reviewerUrl);
+      await azureJson<any>(
+        'PUT',
+        reviewerUrl,
+        JSON.stringify({
+          isRequired: current?.isRequired === true,
+          hasDeclined: declined,
+        }),
       );
       return resp.type('application/json').send({ ok: true });
     } catch (err: any) {
@@ -2870,6 +2913,9 @@ export async function startGuitoServer({
       };
       if (req.body?.vote !== undefined && Number.isFinite(Number(req.body.vote))) {
         payload.vote = Number(req.body.vote);
+      }
+      if (req.body?.hasDeclined !== undefined) {
+        payload.hasDeclined = req.body.hasDeclined === true;
       }
       await azureJson<any>('PUT', reviewerUrl, JSON.stringify(payload));
       return resp.type('application/json').send({ ok: true });
@@ -2997,6 +3043,7 @@ export async function startGuitoServer({
                 content: String(comment?.content ?? ''),
                 createdAt: String(comment?.publishedDate ?? ''),
                 isDeleted: false,
+                commentType: azureCommentTypeName(comment?.commentType),
               })),
           };
         });
@@ -3920,6 +3967,19 @@ export async function startGuitoServer({
         (id: unknown) => String(id),
       );
       const state = await aiReviewer.dismiss(Number(req.params?.id), findingIds);
+      return resp.type('application/json').send({ state });
+    } catch (err: any) {
+      return resp.status(400).type('application/json').send({ error: err.message });
+    }
+  });
+
+  // Marks findings as fixed; a fixed point is never raised again for this PR.
+  app.post('/api/azure-devops/pullrequests/:id/ai-review/fix', async (req: any, resp) => {
+    try {
+      const findingIds = (Array.isArray(req.body?.findingIds) ? req.body.findingIds : []).map(
+        (id: unknown) => String(id),
+      );
+      const state = await aiReviewer.fix(Number(req.params?.id), findingIds);
       return resp.type('application/json').send({ state });
     } catch (err: any) {
       return resp.status(400).type('application/json').send({ error: err.message });

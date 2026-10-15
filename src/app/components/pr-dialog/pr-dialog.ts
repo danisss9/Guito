@@ -23,6 +23,17 @@ import { MarkdownText } from '../markdown-text/markdown-text';
 import { ErrorBanner } from '../error-banner/error-banner';
 import { CloseButton } from '../close-button/close-button';
 import { FileTreeRow, buildFileTreeRows } from '../../utils/file-tree';
+import { loadJson, saveJson } from '../../utils/storage';
+import {
+  CommentKindFilter,
+  CommentLocationFilter,
+  ThreadFilter,
+  filterThreads,
+  friendlyComment,
+  isSystemComment,
+  snippetForThread,
+  threadStatusCounts,
+} from '../../utils/thread-comments';
 import {
   DiffFocus,
   LineCommentRequest,
@@ -36,8 +47,10 @@ import {
   AiReviewFinding,
   AiReviewState,
   AzureSettings,
+  DiffLine,
   FileDiff,
   PrCheck,
+  PrComment,
   PrDetail,
   PrFileChange,
   PrLinkedWorkItem,
@@ -50,6 +63,9 @@ import {
 } from '../../models/git.models';
 
 export type PrTab = 'overview' | 'files' | 'comments' | 'review';
+
+export type CommentStatusFilter = string;
+export type { CommentKindFilter, CommentLocationFilter };
 
 const SEVERITY_LABELS: Record<string, string> = {
   blocker: 'Blocker',
@@ -190,6 +206,31 @@ export class PrDialog implements OnInit {
   // Comment composer on the Comments tab.
   protected readonly newComment = signal('');
 
+  // Comments tab filters: thread status, general vs inline location, and
+  // user-written vs Azure-generated (votes, status changes) entries.
+  protected readonly commentStatusFilter = signal<string>('all');
+  protected readonly commentLocationFilter = signal<CommentLocationFilter>('all');
+  protected readonly commentKindFilter = signal<CommentKindFilter>('all');
+  protected readonly commentFilter = computed<ThreadFilter>(() => ({
+    status: this.commentStatusFilter(),
+    location: this.commentLocationFilter(),
+    kind: this.commentKindFilter(),
+  }));
+  protected readonly commentStatusOptions = computed(() => threadStatusCounts(this.threads()));
+  protected readonly filteredThreads = computed(() =>
+    filterThreads(this.threads(), this.commentFilter()),
+  );
+  protected readonly commentFiltersActive = computed(
+    () =>
+      this.commentStatusFilter() !== 'all' ||
+      this.commentLocationFilter() !== 'all' ||
+      this.commentKindFilter() !== 'all',
+  );
+  // Inline threads whose code context is expanded on the Comments tab.
+  protected readonly expandedContext = signal<Set<number>>(new Set());
+  // Files whose diff is being fetched for comment code context.
+  protected readonly contextLoading = signal<Set<string>>(new Set());
+
   // Review tab: the queued findings from the automated reviewer, plus the
   // ones the user has ticked for posting.
   protected readonly review = signal<AiReviewState | null>(null);
@@ -197,6 +238,11 @@ export class PrDialog implements OnInit {
   protected readonly reviewRunning = signal(false);
   protected readonly reviewError = signal('');
   protected readonly selectedFindings = signal<Set<string>>(new Set());
+  // Dims handled findings via opacity so pending points stand out; on by
+  // default, persisted per browser.
+  protected readonly dimHandledFindings = signal(
+    PrDialog.loadDimHandledFindings(),
+  );
   // The model picker starts from the configured default and only sticks
   // once the user actually chooses one for this pull request.
   protected readonly reviewModel = signal('');
@@ -276,6 +322,13 @@ export class PrDialog implements OnInit {
     { value: 'rebaseMerge', label: 'Semi-linear merge' },
   ];
 
+  /** localStorage key for the "dim handled findings" toggle. */
+  private static readonly DIM_HANDLED_KEY = 'guito.dimHandledFindings';
+
+  private static loadDimHandledFindings(): boolean {
+    return loadJson<boolean>(PrDialog.DIM_HANDLED_KEY, true);
+  }
+
   protected readonly voteOptions: {
     value: PrVote;
     label: string;
@@ -295,10 +348,17 @@ export class PrDialog implements OnInit {
   protected readonly threadStatuses = Object.keys(THREAD_STATUS_LABELS);
 
   protected readonly requiredReviewers = computed(() =>
-    (this.pr()?.reviewers ?? []).filter((reviewer) => reviewer.isRequired),
+    (this.pr()?.reviewers ?? []).filter(
+      (reviewer) => reviewer.isRequired && !reviewer.hasDeclined,
+    ),
   );
   protected readonly otherReviewers = computed(() =>
-    (this.pr()?.reviewers ?? []).filter((reviewer) => !reviewer.isRequired),
+    (this.pr()?.reviewers ?? []).filter(
+      (reviewer) => !reviewer.isRequired && !reviewer.hasDeclined,
+    ),
+  );
+  protected readonly declinedReviewers = computed(() =>
+    (this.pr()?.reviewers ?? []).filter((reviewer) => reviewer.hasDeclined),
   );
   protected readonly generalThreads = computed(() =>
     this.threads().filter((thread) => !thread.filePath),
@@ -567,6 +627,15 @@ export class PrDialog implements OnInit {
     );
   }
 
+  protected toggleDecline(): void {
+    const declined = !(this.pr()?.myDeclined === true);
+    this.reviewMenuOpen.set(false);
+    this.run(
+      () => this.git.declinePr(this.prId(), declined),
+      () => this.reload(),
+    );
+  }
+
   protected startEditing(): void {
     this.editing.set(true);
     this.editTitle.set(this.pr()?.title ?? '');
@@ -622,6 +691,7 @@ export class PrDialog implements OnInit {
           id: reviewer.id,
           required: !reviewer.isRequired,
           vote: reviewer.vote,
+          hasDeclined: reviewer.hasDeclined,
         }),
       () => this.reload(),
     );
@@ -870,7 +940,10 @@ export class PrDialog implements OnInit {
 
   // ---- helpers ----
 
-  protected voteMeta(vote: number): { label: string; cls: string } {
+  protected voteMeta(vote: number, declined = false): { label: string; cls: string } {
+    if (declined) {
+      return { label: 'Declined to review', cls: 'vote-declined' };
+    }
     switch (vote) {
       case 10:
         return { label: 'Approved', cls: 'vote-approve' };
@@ -887,6 +960,111 @@ export class PrDialog implements OnInit {
 
   protected statusLabel(status: string): string {
     return THREAD_STATUS_LABELS[status] ?? status;
+  }
+
+  /** Friendly rendering of a thread comment; system entries read as activity. */
+  protected commentDisplay(comment: PrComment): { text: string; isSystem: boolean; raw: string } {
+    return friendlyComment(comment);
+  }
+
+  protected isSystemComment(comment: PrComment): boolean {
+    return isSystemComment(comment);
+  }
+
+  protected resetCommentFilters(): void {
+    this.commentStatusFilter.set('all');
+    this.commentLocationFilter.set('all');
+    this.commentKindFilter.set('all');
+  }
+
+  /** Focused snippet around an inline thread's anchor line, if it is loaded. */
+  protected threadSnippet(thread: PrThread): DiffLine[] {
+    if (!thread.filePath || thread.line === null) {
+      return [];
+    }
+    return snippetForThread(this.fileDiffs()[thread.filePath], thread);
+  }
+
+  /** Whether the thread's file diff is cached for code context. */
+  protected threadDiff(thread: PrThread): FileDiff | null {
+    if (!thread.filePath) {
+      return null;
+    }
+    return this.fileDiffs()[thread.filePath] ?? null;
+  }
+
+  /** Whether an inline thread anchors to a file missing from the latest changes. */
+  protected threadFileMissing(thread: PrThread): boolean {
+    if (!thread.filePath) {
+      return false;
+    }
+    if (this.fileDiffs()[thread.filePath]) {
+      return false;
+    }
+    return !this.files().some(
+      (file) => file.path === thread.filePath || file.oldPath === thread.filePath,
+    );
+  }
+
+  protected isContextLoading(thread: PrThread): boolean {
+    return Boolean(thread.filePath && this.contextLoading().has(thread.filePath));
+  }
+
+  protected isContextExpanded(threadId: number): boolean {
+    return this.expandedContext().has(threadId);
+  }
+
+  protected toggleContextExpanded(threadId: number): void {
+    this.expandedContext.update((current) => {
+      const next = new Set(current);
+      if (next.has(threadId)) {
+        next.delete(threadId);
+      } else {
+        next.add(threadId);
+      }
+      return next;
+    });
+  }
+
+  /** Fetches the file diff backing an inline thread's code context. */
+  protected loadThreadContext(thread: PrThread): void {
+    if (!thread.filePath || this.fileDiffs()[thread.filePath]) {
+      return;
+    }
+    const file = this.files().find(
+      (entry) => entry.path === thread.filePath || entry.oldPath === thread.filePath,
+    );
+    if (!file || file.changeType === 'binary') {
+      return;
+    }
+    if (this.contextLoading().has(file.path)) {
+      return;
+    }
+    this.contextLoading.update((current) => new Set(current).add(file.path));
+    this.git
+      .getPrFileDiff(this.prId(), file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (diff) => {
+          this.fileDiffs.update((current) => ({
+            ...current,
+            [file.path]: diff,
+          }));
+          this.contextLoading.update((current) => {
+            const next = new Set(current);
+            next.delete(file.path);
+            return next;
+          });
+        },
+        error: (err) => {
+          this.contextLoading.update((current) => {
+            const next = new Set(current);
+            next.delete(file.path);
+            return next;
+          });
+          this.error.set(this.errorMessage(err));
+        },
+      });
   }
 
   protected mergeStatusLabel(status: string): string {
@@ -1026,6 +1204,41 @@ export class PrDialog implements OnInit {
           this.reviewError.set(this.errorMessage(err));
         },
       });
+  }
+
+  /** Marks one finding as fixed; a fixed point is never raised again. */
+  protected fixFinding(id: string): void {
+    if (this.reviewRunning()) {
+      return;
+    }
+    this.reviewRunning.set(true);
+    this.reviewError.set('');
+    this.git
+      .fixAiReviewFindings(this.prId(), [id])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (state) => {
+          this.review.set(state);
+          this.reviewRunning.set(false);
+          this.syncSelection(state);
+        },
+        error: (err) => {
+          this.reviewRunning.set(false);
+          this.reviewError.set(this.errorMessage(err));
+        },
+      });
+  }
+
+  /** Toggles the opacity dimming of handled findings; persisted per browser. */
+  protected toggleDimHandledFindings(): void {
+    const next = !this.dimHandledFindings();
+    this.dimHandledFindings.set(next);
+    saveJson(PrDialog.DIM_HANDLED_KEY, next);
+  }
+
+  /** "Fixed" for a fixed finding, falling back to the posted/dismissed label. */
+  protected findingStatusLabel(status: string): string {
+    return status === 'fixed' ? 'Fixed' : status === 'posted' ? 'Posted' : 'Dismissed';
   }
 
   /** Opens the Files tab at the line a finding is about. */

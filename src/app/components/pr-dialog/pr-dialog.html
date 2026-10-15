@@ -70,6 +70,14 @@
             option.label }}
           </button>
           }
+          <button
+            type="button"
+            role="menuitem"
+            [class.current]="detail.myDeclined"
+            (click)="toggleDecline()"
+          >
+            <span class="vote-dot vote-declined"></span>{{ detail.myDeclined ? 'Resume review' : 'Decline to review' }}
+          </button>
         </div>
         }
       </div>
@@ -327,6 +335,13 @@
           [ngTemplateOutlet]="reviewerRow"
           [ngTemplateOutletContext]="{ $implicit: reviewer }"
         />
+        } } @if (declinedReviewers().length) {
+        <h3>Declined</h3>
+        @for (reviewer of declinedReviewers(); track reviewer.id) {
+        <ng-container
+          [ngTemplateOutlet]="reviewerRow"
+          [ngTemplateOutletContext]="{ $implicit: reviewer }"
+        />
         } } @if (!detail.reviewers.length) {
         <p class="empty">No reviewers.</p>
         } @if (!detail.isDraft) {
@@ -478,7 +493,56 @@
           </button>
         </div>
       </section>
-      @for (thread of threads(); track thread.id) {
+      <section class="comment-filters card" aria-label="Comment filters">
+        <label class="filter-field">
+          Status
+          <select
+            aria-label="Filter by status"
+            [value]="commentStatusFilter()"
+            (change)="commentStatusFilter.set($any($event.target).value)"
+          >
+            <option value="all">All statuses ({{ threads().length }})</option>
+            @for (option of commentStatusOptions(); track option.value) {
+            <option [value]="option.value">
+              {{ option.label }} ({{ option.count }})
+            </option>
+            }
+          </select>
+        </label>
+        <label class="filter-field">
+          Location
+          <select
+            aria-label="Filter by location"
+            [value]="commentLocationFilter()"
+            (change)="commentLocationFilter.set($any($event.target).value)"
+          >
+            <option value="all">All locations</option>
+            <option value="general">General</option>
+            <option value="inline">Inline</option>
+          </select>
+        </label>
+        <label class="filter-field">
+          Type
+          <select
+            aria-label="Filter by comment type"
+            [value]="commentKindFilter()"
+            (change)="commentKindFilter.set($any($event.target).value)"
+          >
+            <option value="all">Comments + activity</option>
+            <option value="user">Comments only</option>
+            <option value="system">Activity only</option>
+          </select>
+        </label>
+        @if (commentFiltersActive()) {
+        <button type="button" class="btn small" (click)="resetCommentFilters()">
+          Clear
+        </button>
+        }
+        <span class="filter-count" role="status"
+          >{{ filteredThreads().length }} of {{ threads().length }}</span
+        >
+      </section>
+      @for (thread of filteredThreads(); track thread.id) {
       <article class="thread-card card">
         <header>
           <span [class]="'thread-status status-' + thread.status"
@@ -492,6 +556,8 @@
           >
             {{ thread.filePath }}:{{ thread.line }}
           </button>
+          } @else {
+          <span class="thread-kind">General</span>
           }
           <select
             aria-label="Thread status"
@@ -504,7 +570,91 @@
             }
           </select>
         </header>
+        @if (thread.filePath) {
+        <div class="thread-context">
+          @if (threadDiff(thread); as diff) {
+          @if (threadSnippet(thread); as snippet) {
+          @if (snippet.length) {
+          <div class="context-snippet" role="group" aria-label="Commented code">
+            @for (line of snippet; track $index) {
+            <div
+              class="context-line"
+              [class.context-add]="line.type === 'add'"
+              [class.context-del]="line.type === 'del'"
+              [class.context-hunk]="line.type === 'hunk'"
+              [class.context-anchor]="
+                (thread.side === 'left' ? line.oldLine : line.newLine) === thread.line
+              "
+            >
+              <span class="context-gutter"
+                >{{ line.oldLine ?? '' }}:{{ line.newLine ?? '' }}</span
+              ><code>{{ line.text }}</code>
+            </div>
+            }
+          </div>
+          } @else {
+          <p class="context-note">
+            This comment anchors to a line outside the latest changes.
+          </p>
+          }
+          <button
+            type="button"
+            class="btn small context-toggle"
+            (click)="toggleContextExpanded(thread.id)"
+          >
+            {{ isContextExpanded(thread.id) ? 'Hide full diff' : 'Show full diff' }}
+          </button>
+          @if (isContextExpanded(thread.id)) {
+          <div class="context-full" role="group" aria-label="Full file diff">
+            @for (line of diff.lines.slice(0, 2000); track $index) {
+            <div
+              class="context-line"
+              [class.context-add]="line.type === 'add'"
+              [class.context-del]="line.type === 'del'"
+              [class.context-hunk]="line.type === 'hunk'"
+              [class.context-anchor]="
+                (thread.side === 'left' ? line.oldLine : line.newLine) === thread.line
+              "
+            >
+              <span class="context-gutter"
+                >{{ line.oldLine ?? '' }}:{{ line.newLine ?? '' }}</span
+              ><code>{{ line.text }}</code>
+            </div>
+            }
+            @if (diff.lines.length > 2000) {
+            <p class="context-note">Diff truncated (file too large).</p>
+            }
+          </div>
+          }
+          }
+          } @else if (isContextLoading(thread)) {
+          <p class="context-note" role="status">Loading code context...</p>
+          } @else if (threadFileMissing(thread)) {
+          <p class="context-note">
+            This file is no longer in the latest changes.
+          </p>
+          } @else {
+          <button
+            type="button"
+            class="btn small context-toggle"
+            (click)="loadThreadContext(thread)"
+          >
+            Show code context
+          </button>
+          }
+        </div>
+        }
         @for (comment of thread.comments; track comment.id) {
+        @if (commentDisplay(comment); as display) {
+        @if (display.isSystem) {
+        <div class="comment system-comment" [title]="display.raw">
+          <div class="system-line">
+            <span class="system-dot" aria-hidden="true"></span>
+            <span>{{ display.text }}</span>
+            <span class="comment-meta">{{ formatDate(comment.createdAt) }}</span>
+          </div>
+        </div>
+        } @else {
         <div class="comment">
           <app-author-avatar
             [name]="comment.author.name"
@@ -518,6 +668,8 @@
             <app-markdown-text [markdown]="comment.content" />
           </div>
         </div>
+        }
+        }
         }
         <div class="reply">
           <input
@@ -536,7 +688,11 @@
         </div>
       </article>
       } @empty {
+      @if (commentFiltersActive()) {
+      <div class="state inline">No comments match these filters.</div>
+      } @else {
       <div class="state inline">No comments yet.</div>
+      }
       }
     </div>
     } @else if (tab() === 'review') {
@@ -686,6 +842,15 @@
             }}</span>
             <strong>{{ finding.title }}</strong>
           </label>
+          <button
+            type="button"
+            class="btn small"
+            (click)="fixFinding(finding.id)"
+            [disabled]="reviewRunning()"
+            title="Mark this point as fixed; it will not be raised again"
+          >
+            I fixed it
+          </button>
           @if (finding.file) {
           <button type="button" class="path-chip" (click)="jumpToFinding(finding)">
             {{ finding.file }}@if (finding.line) {<span>:{{ finding.line }}</span>}
@@ -699,14 +864,24 @@
       } @empty { @if (!reviewLoading() && review()) {
       <div class="state inline">
         Nothing to post. @if (resolvedFindings().length) { Every finding has
-        been posted or dismissed. } @else { The review found no problems worth
+        been posted, fixed, or dismissed. } @else { The review found no problems worth
         a comment. }
       </div>
       } }
 
       @if (resolvedFindings().length) {
-      <section class="resolved-findings">
-        <h2>Already handled</h2>
+      <section class="resolved-findings" [class.dimmed]="dimHandledFindings()">
+        <div class="resolved-head">
+          <h2>Already handled</h2>
+          <label class="dim-toggle" title="Dim handled findings so pending points stand out">
+            <input
+              type="checkbox"
+              [checked]="dimHandledFindings()"
+              (change)="toggleDimHandledFindings()"
+            />
+            Dim handled
+          </label>
+        </div>
         @for (finding of resolvedFindings(); track finding.id) {
         <article class="finding-card card resolved">
           <header>
@@ -714,9 +889,7 @@
               severityLabel(finding.severity)
             }}</span>
             <strong>{{ finding.title }}</strong>
-            <span class="finding-state">{{
-              finding.status === 'posted' ? 'Posted' : 'Dismissed'
-            }}</span>
+            <span class="finding-state" [class.status-fixed]="finding.status === 'fixed'">{{ findingStatusLabel(finding.status) }}</span>
             @if (finding.file) {
             <button
               type="button"
@@ -845,8 +1018,8 @@
       />
       <div class="reviewer-name">
         <span>{{ reviewer.name }}</span
-        ><small [class]="voteMeta(reviewer.vote).cls"
-          >{{ voteMeta(reviewer.vote).label }}</small
+        ><small [class]="voteMeta(reviewer.vote, reviewer.hasDeclined).cls"
+          >{{ voteMeta(reviewer.vote, reviewer.hasDeclined).label }}</small
         >
       </div>
       <button

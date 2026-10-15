@@ -4,6 +4,19 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Added
+
+- Pull request **Comments** tab now shows code context on inline threads: a focused snippet around the commented line with a **Show code context** loader and an expandable full-file diff, so reviewers see what a comment refers to without leaving the tab.
+- Azure-generated comment activity now reads as plain language: vote entries like "changed status to 10" render as "approved" (with suggestions / waiting for author / rejected mapped the same way) and named status changes use friendly labels like Resolved, with the raw text kept as a tooltip.
+- Filter pull request comments by thread status (with counts), location (General vs Inline), and entry kind (comments vs activity), with a **Clear** reset and a distinct "No comments match these filters" empty state.
+- Mark automated review findings as fixed from the PR dialog's **Review** tab with a per-finding **I fixed it** button. Fixed points move to **Already handled** with a green **Fixed** label and are never raised again by future reviews, like dismissed ones. A **Dim handled** toggle dims the handled section via opacity so pending points stand out; it is on by default and remembered per browser.
+- Decline to review a pull request from the PR dialog's **Review** menu (**Decline to review** / **Resume review**). Reviewers who declined appear in their own **Declined** section of the dialog's reviewer list, and the side panel marks pull requests you declined with a **Declined** badge.
+
+### Fixed
+
+- Right-clicking a branch badge in the commit history no longer offers the wrong actions for local branches whose names contain a slash (e.g. `feature/topic`). Badges are now resolved against the loaded branch list instead of guessing from the name, so **Checkout Branch...** opens the local switch dialog and **Delete Branch...** deletes the local branch instead of failing against a misread remote.
+- Detached `HEAD` and symbolic `origin/HEAD` badges no longer offer **Rename**, **Delete** or **Pull** actions that Git would refuse, and **Unselect in Branches Dropdown** now removes only that branch from the history filter (instead of clearing the whole selection) and stays disabled when the branch is not selected.
+
 ## [1.0.11] - 2026-10-12
 
 ### Added

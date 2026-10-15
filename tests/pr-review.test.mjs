@@ -133,12 +133,15 @@ test('lists my pull requests with votes, drafts, and required reviewers', async 
   assert.equal(pullRequests[0].title, 'Needs my vote');
   assert.equal(pullRequests[0].myVote, 10);
   assert.equal(pullRequests[0].requiresMe, true);
+  assert.equal(pullRequests[0].myDeclined, false);
+  assert.equal(pullRequests[0].reviewers[0].hasDeclined, false);
   assert.equal(pullRequests[0].author.name, 'Other');
   assert.equal(pullRequests[0].sourceBranch, 'feature');
   assert.equal(pullRequests[0].targetBranch, 'main');
   assert.equal(pullRequests[1].isDraft, true);
   assert.equal(pullRequests[1].myVote, 0);
   assert.equal(pullRequests[1].requiresMe, false);
+  assert.equal(pullRequests[1].myDeclined, false);
   assert.equal(
     pullRequests[1].webUrl,
     'https://azure.example/DefaultCollection/Project/_git/Repo/pullrequest/101',
@@ -357,7 +360,7 @@ test('votes, adds required reviewers, and removes reviewers', async (context) =>
     calls[1].url,
     'https://azure.example/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests/202/reviewers/me-guid?api-version=5.0-preview',
   );
-  assert.deepEqual(calls[1].payload, { vote: 10 });
+  assert.deepEqual(calls[1].payload, { vote: 10, hasDeclined: false });
 
   const add = await fetch(`${server.address}/api/azure-devops/pullrequests/202/reviewers`, {
     method: 'POST',
@@ -376,6 +379,47 @@ test('votes, adds required reviewers, and removes reviewers', async (context) =>
   assert.equal(remove.status, 200);
   assert.equal(calls[3].method, 'DELETE');
   assert.match(calls[3].url, /\/reviewers\/other-guid\?/);
+});
+
+test('declines and resumes reviews, preserving the required flag', async (context) => {
+  let reviewer = { id: ME.id, displayName: ME.displayName, uniqueName: ME.uniqueName, vote: 0 };
+  const { server, calls } = await startAzureReviewServer(context, (method, url, payload) => {
+    if (url.includes('/_apis/connectionData')) return connectionDataResponse();
+    if (/\/reviewers\/me-guid\?/.test(url) && method === 'GET') {
+      return { status: 200, body: reviewer };
+    }
+    if (/\/reviewers\/me-guid\?/.test(url) && method === 'PUT') {
+      reviewer = { ...reviewer, ...payload };
+      return { status: 200, body: reviewer };
+    }
+    if (/\/pullrequests\/\d+\?/.test(url)) {
+      return { status: 200, body: prRecord(202, { reviewers: [reviewer], labels: [] }) };
+    }
+    return { status: 404, body: { message: `unexpected ${method} ${url}` } };
+  });
+
+  const decline = await fetch(`${server.address}/api/azure-devops/pullrequests/202/decline`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ declined: true }),
+  });
+  assert.equal(decline.status, 200);
+  const declinePut = calls.find((call) => call.method === 'PUT');
+  assert.deepEqual(declinePut.payload, { isRequired: false, hasDeclined: true });
+
+  const detail = await (await fetch(`${server.address}/api/azure-devops/pullrequests/202`)).json();
+  assert.equal(detail.myDeclined, true);
+  assert.equal(detail.reviewers[0].hasDeclined, true);
+
+  const resume = await fetch(`${server.address}/api/azure-devops/pullrequests/202/decline`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ declined: false }),
+  });
+  assert.equal(resume.status, 200);
+  const resumed = await (await fetch(`${server.address}/api/azure-devops/pullrequests/202`)).json();
+  assert.equal(resumed.myDeclined, false);
+  assert.equal(resumed.reviewers[0].hasDeclined, false);
 });
 
 test('completes pull requests and manages auto-complete', async (context) => {
@@ -541,6 +585,7 @@ test('serves comment threads and posts replies, inline comments, and statuses', 
               author: { displayName: 'Other', uniqueName: 'o@e.test' },
               content: 'Please change this',
               publishedDate: '2026-09-10T09:00:00.000Z',
+              commentType: 1,
             },
             {
               id: 2,
@@ -559,6 +604,13 @@ test('serves comment threads and posts replies, inline comments, and statuses', 
               author: { displayName: 'Other', uniqueName: 'o@e.test' },
               content: 'General note',
               publishedDate: '2026-09-10T08:00:00.000Z',
+            },
+            {
+              id: 4,
+              author: { displayName: 'Drs', uniqueName: 'd@e.test' },
+              content: 'Drs changed status to 10',
+              publishedDate: '2026-09-10T08:05:00.000Z',
+              commentType: 3,
             },
           ],
         },
@@ -582,8 +634,13 @@ test('serves comment threads and posts replies, inline comments, and statuses', 
   assert.equal(mapped[0].side, 'right');
   assert.equal(mapped[0].comments.length, 1);
   assert.equal(mapped[0].comments[0].author.name, 'Other');
+  assert.equal(mapped[0].comments[0].commentType, 'text');
   assert.equal(mapped[1].filePath, null);
   assert.equal(mapped[1].line, null);
+  assert.equal(mapped[1].comments.length, 2);
+  assert.equal(mapped[1].comments[0].commentType, 'unknown');
+  assert.equal(mapped[1].comments[1].commentType, 'system');
+  assert.equal(mapped[1].comments[1].content, 'Drs changed status to 10');
 
   const inline = await fetch(`${base}/threads`, {
     method: 'POST',

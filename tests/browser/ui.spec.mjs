@@ -2555,7 +2555,17 @@ test('add tag dialog collects annotation and push options', async ({ page }) => 
 });
 
 test('branch dialogs offer checkout, publishing and remote tracking', async ({ page }) => {
-  const { state, commits, errors } = await setup(page, 30);
+  const { state, commits, errors } = await setup(page, 30, {
+    firstRefs: 'HEAD -> main, feature/topic, origin/main',
+  });
+  // A slash-named local branch: its commit-table badge must resolve as local
+  // (not remote) once the branch list reloads after the first refresh.
+  state.branches.push({
+    name: 'feature/topic',
+    commit: commits[0].hash,
+    current: false,
+    remote: false,
+  });
   await page.getByRole('button', { name: 'Toggle repository panel' }).click();
   const panel = page.locator('.side-panel');
 
@@ -2641,6 +2651,48 @@ test('branch dialogs offer checkout, publishing and remote tracking', async ({ p
       remote: 'origin',
       branch: 'main',
       mode: 'ff-only',
+    });
+
+  // A slash-named local branch badge resolves as local: its menu offers the
+  // local checkout and delete flows, not the remote ones.
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  const badge = page.locator('.badge-local', { hasText: 'feature/topic' }).first();
+  await expect(badge).toBeVisible();
+  await badge.click({ button: 'right' });
+  await expect(
+    page.getByRole('menuitem', { name: 'Delete Remote Branch...' }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('menuitem', { name: 'Pull into current branch...' }),
+  ).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Checkout Branch...' }).click();
+  const badgeCheckout = page.getByRole('dialog', { name: 'Checkout Branch' });
+  await expect(badgeCheckout).toContainText(
+    'Switch the working tree from main to feature/topic',
+  );
+  await badgeCheckout.getByRole('button', { name: 'Checkout' }).click();
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/checkout',
+      ref: 'feature/topic',
+    });
+  await badge.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete Branch...' }).click();
+  const badgeDelete = page.getByRole('dialog', { name: 'Delete Branch' });
+  // Wait for the remote list so the posted remote value is deterministic.
+  await badgeDelete.getByLabel('Also delete the branch on the remote').check();
+  await expect(badgeDelete.getByLabel('Remote', { exact: true })).toHaveValue('origin');
+  await badgeDelete.getByLabel('Also delete the branch on the remote').uncheck();
+  await badgeDelete.getByRole('button', { name: 'Delete Branch' }).click();
+  await expect
+    .poll(() => state.gitMutations.at(-1))
+    .toEqual({
+      path: '/api/branch/delete',
+      name: 'feature/topic',
+      force: false,
+      deleteRemote: false,
+      remote: 'origin',
     });
   expect(errors).toEqual([]);
 });

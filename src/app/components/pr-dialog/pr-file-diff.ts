@@ -14,9 +14,10 @@ import {
 } from "@angular/core";
 import { AuthorAvatar } from "../author-avatar/author-avatar";
 import { MarkdownText } from "../markdown-text/markdown-text";
-import { FileDiff, PrThread, PrThreadStatus } from "../../models/git.models";
+import { FileDiff, PrComment, PrThread, PrThreadStatus } from "../../models/git.models";
 import { MonacoService } from "../../services/monaco.service";
 import { diffMinimapMarks, diffMinimapOptions } from "../../utils/diff-minimap";
+import { friendlyComment, statusLabel } from "../../utils/thread-comments";
 
 /** A comment the user wrote on a specific diff line. */
 export interface LineCommentRequest {
@@ -256,12 +257,19 @@ export class PrFileDiff implements AfterViewInit, OnDestroy {
   }
 
   protected statusLabel(status: string): string {
-    return THREAD_STATUS_LABELS[status] ?? status;
+    return statusLabel(status);
+  }
+
+  protected commentDisplay(comment: PrComment): { text: string; isSystem: boolean; raw: string } {
+    return friendlyComment(comment);
   }
 
   protected threadPreview(thread: PrThread): string {
     const first = thread.comments[0];
-    return first ? `${first.author.name}: ${first.content}` : "Review comment";
+    if (!first) {
+      return "Review comment";
+    }
+    return `${first.author.name}: ${friendlyComment(first).text}`;
   }
 
   protected formatDate(iso: string): string {

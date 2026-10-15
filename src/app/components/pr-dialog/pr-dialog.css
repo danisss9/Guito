@@ -32,9 +32,11 @@ button:disabled { cursor: default; opacity: .55; }
 .vote-approve, .vote-suggestions { color: #89d185 !important; }
 .vote-waiting { color: #dcb67a !important; }
 .vote-reject { color: #f48771 !important; }
+.vote-declined { color: var(--text-dim) !important; }
 .vote-dot.vote-approve, .vote-dot.vote-suggestions { background: #89d185; }
 .vote-dot.vote-waiting { background: #dcb67a; }
 .vote-dot.vote-reject { background: #f48771; }
+.vote-dot.vote-declined { background: transparent; border: 1.5px solid var(--text-dim); }
 .tabs { display: flex; flex: none; height: 38px; padding-left: 14px; border-bottom: 1px solid var(--border); background: var(--bg-alt); }
 .tabs button { padding: 0 15px; border-width: 0 0 2px; border-radius: 0; background: transparent; color: var(--text-dim); }
 .tabs button.active { border-bottom-color: var(--accent); color: var(--text-bright); }
@@ -71,6 +73,28 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .required-toggle.on { border-color: rgba(220,182,122,.5); color: #dcb67a; }
 .comments { display: flex; flex-direction: column; gap: 12px; max-width: 900px; margin: 0 auto; }
 .new-comment h2 { margin-bottom: 10px; }
+.comment-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 12px 14px; }
+.comment-filters .filter-field { display: flex; flex-direction: column; gap: 4px; margin: 0; min-width: 150px; color: var(--text-dim); font-size: 11px; }
+.comment-filters select { height: 28px; }
+.comment-filters .btn { margin-bottom: 1px; }
+.filter-count { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+.thread-kind { color: var(--text-dim); font-size: 10px; font-weight: 600; text-transform: uppercase; }
+.thread-context { margin-bottom: 8px; }
+.context-snippet, .context-full { border: 1px solid var(--border); border-radius: 4px; background: var(--bg); overflow: auto; }
+.context-full { max-height: 320px; margin-top: 8px; }
+.context-line { display: flex; gap: 8px; padding: 1px 8px; font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre; }
+.context-line code { max-width: none; overflow: visible; white-space: pre; }
+.context-gutter { flex: none; width: 64px; color: var(--text-dim); text-align: right; user-select: none; }
+.context-add { background: rgba(137,209,133,.1); }
+.context-del { background: rgba(241,76,76,.1); }
+.context-hunk { color: var(--text-dim); }
+.context-anchor { outline: 1px solid rgba(55,148,255,.55); outline-offset: -1px; background: rgba(55,148,255,.12); }
+.context-note { margin: 4px 0; color: var(--text-dim); font-size: 11px; font-style: italic; }
+.context-toggle { margin-top: 6px; }
+.system-comment { padding: 4px 0; }
+.system-line { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 12px; }
+.system-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+.system-line .comment-meta { margin-left: auto; }
 .thread-card header { gap: 8px; margin-bottom: 12px; }
 .thread-card header select { margin-left: auto; }
 .thread-status { background: rgba(55,148,255,.18); color: var(--accent); text-transform: uppercase; }
@@ -169,6 +193,12 @@ app-pr-file-diff { min-width: 0; overflow: auto; }
 .finding-card.resolved { opacity: .65; }
 .finding-card.resolved header { margin-bottom: 0; }
 .finding-state { flex: none; color: var(--text-dim); font-size: 11px; }
+.finding-state.status-fixed { color: #89d185; }
+.resolved-findings.dimmed .finding-card.resolved { opacity: .4; }
+.resolved-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.resolved-head h2 { margin: 6px 0 0; }
+.dim-toggle { display: flex; flex: none; align-items: center; gap: 6px; margin: 6px 0 0; color: var(--text-dim); font-size: 11px; cursor: pointer; }
+.dim-toggle input { width: 13px; height: 13px; margin: 0; }
 .resolved-findings { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .resolved-findings h2 { margin: 6px 0 0; color: var(--text-dim); font-size: 11px; font-weight: 600; text-transform: uppercase; }
 .path-chip.muted { color: var(--text-dim); cursor: default; }

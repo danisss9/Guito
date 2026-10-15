@@ -61,6 +61,20 @@ const AZURE_THREAD_STATUSES = {
     pending: 7,
 };
 const azureThreadStatusName = (value) => Object.entries(AZURE_THREAD_STATUSES).find(([, numeric]) => numeric === value)?.[0] ?? 'unknown';
+/** Azure DevOps comment types, by their numeric REST value. */
+const AZURE_COMMENT_TYPES = {
+    unknown: 0,
+    text: 1,
+    codeChange: 2,
+    system: 3,
+};
+const azureCommentTypeName = (value) => {
+    if (typeof value === 'string' && value) {
+        return value;
+    }
+    const numeric = Number(value ?? 0);
+    return (Object.entries(AZURE_COMMENT_TYPES).find(([, entry]) => entry === numeric)?.[0] ?? 'unknown');
+};
 /** Pull request reviewer votes, by their numeric REST value. */
 const AZURE_VOTES = {
     reset: 0,
@@ -602,6 +616,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             email: String(entry?.uniqueName ?? ''),
             vote: Number(entry?.vote ?? 0),
             isRequired: entry?.isRequired === true,
+            hasDeclined: entry?.hasDeclined === true,
         }));
         const mine = me ? reviewers.find((reviewer) => reviewer.id === me.id) : undefined;
         return {
@@ -622,6 +637,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             reviewers,
             myVote: mine ? Number(mine.vote ?? 0) : 0,
             requiresMe: mine?.isRequired === true,
+            myDeclined: mine?.hasDeclined === true,
         };
     };
     /** REST base of one pull request (".../pullrequests/{id}") plus repo context. */
@@ -2480,7 +2496,27 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
             const { base } = await azurePrApiBase(Number(req.params?.id));
             const me = await azureMe();
-            await azureJson('PUT', `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`, JSON.stringify({ vote: AZURE_VOTES[vote] }));
+            await azureJson('PUT', `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`, JSON.stringify({ vote: AZURE_VOTES[vote], hasDeclined: false }));
+            return resp.type('application/json').send({ ok: true });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Declines (or resumes) the current user's review on the pull request.
+    // Azure keeps the reviewer on the pull request with hasDeclined set; the
+    // record is read first so the required flag survives the PUT.
+    app.post('/api/azure-devops/pullrequests/:id/decline', async (req, resp) => {
+        try {
+            const declined = req.body?.declined !== false;
+            const { base } = await azurePrApiBase(Number(req.params?.id));
+            const me = await azureMe();
+            const reviewerUrl = `${base}/reviewers/${encodeURIComponent(me.id)}?api-version=${AZURE_API_VERSION}`;
+            const current = await azureJson('GET', reviewerUrl);
+            await azureJson('PUT', reviewerUrl, JSON.stringify({
+                isRequired: current?.isRequired === true,
+                hasDeclined: declined,
+            }));
             return resp.type('application/json').send({ ok: true });
         }
         catch (err) {
@@ -2507,6 +2543,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             };
             if (req.body?.vote !== undefined && Number.isFinite(Number(req.body.vote))) {
                 payload.vote = Number(req.body.vote);
+            }
+            if (req.body?.hasDeclined !== undefined) {
+                payload.hasDeclined = req.body.hasDeclined === true;
             }
             await azureJson('PUT', reviewerUrl, JSON.stringify(payload));
             return resp.type('application/json').send({ ok: true });
@@ -2627,6 +2666,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                         content: String(comment?.content ?? ''),
                         createdAt: String(comment?.publishedDate ?? ''),
                         isDeleted: false,
+                        commentType: azureCommentTypeName(comment?.commentType),
                     })),
                 };
             });
@@ -3404,6 +3444,17 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         try {
             const findingIds = (Array.isArray(req.body?.findingIds) ? req.body.findingIds : []).map((id) => String(id));
             const state = await aiReviewer.dismiss(Number(req.params?.id), findingIds);
+            return resp.type('application/json').send({ state });
+        }
+        catch (err) {
+            return resp.status(400).type('application/json').send({ error: err.message });
+        }
+    });
+    // Marks findings as fixed; a fixed point is never raised again for this PR.
+    app.post('/api/azure-devops/pullrequests/:id/ai-review/fix', async (req, resp) => {
+        try {
+            const findingIds = (Array.isArray(req.body?.findingIds) ? req.body.findingIds : []).map((id) => String(id));
+            const state = await aiReviewer.fix(Number(req.params?.id), findingIds);
             return resp.type('application/json').send({ state });
         }
         catch (err) {

@@ -155,6 +155,24 @@
   font-weight: 600;
 }
 
+.system-comment .comment-main {
+  display: flex;
+}
+
+.system-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.system-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
 .reply-row {
   display: flex;
   gap: 6px;
