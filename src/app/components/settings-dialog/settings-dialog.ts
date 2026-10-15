@@ -29,7 +29,6 @@ import { GitService } from '../../services/git.service';
 import { CloseButton } from '../close-button/close-button';
 
 export interface GuitoSettingsUpdate {
-  azureDevOpsUrl: string;
   prBranchNameTemplate: string;
   autoReload: boolean;
   showGraph: boolean;
@@ -67,7 +66,6 @@ export class SettingsDialog {
   readonly repositoryChanged = output<void>();
   readonly closed = output<void>();
 
-  protected readonly azureDevOpsUrl = signal('');
   protected readonly prBranchNameTemplate = signal('pr/${randomstring}');
   protected readonly autoReload = signal(true);
   protected readonly showGraph = signal(true);
@@ -118,7 +116,6 @@ export class SettingsDialog {
   constructor() {
     effect(() => {
       const settings = this.settings();
-      this.azureDevOpsUrl.set(settings.azureDevOpsUrl ?? '');
       this.prBranchNameTemplate.set(settings.prBranchNameTemplate ?? 'pr/${randomstring}');
       this.autoReload.set(settings.autoReload !== false);
       this.showGraph.set(settings.showGraph !== false);
@@ -188,7 +185,6 @@ export class SettingsDialog {
 
   protected save(): void {
     this.saved.emit({
-      azureDevOpsUrl: this.azureDevOpsUrl().trim(),
       prBranchNameTemplate: this.prBranchNameTemplate().trim(),
       autoReload: this.autoReload(),
       showGraph: this.showGraph(),

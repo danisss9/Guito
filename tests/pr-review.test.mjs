@@ -35,7 +35,6 @@ async function startAzureReviewServer(context, respond) {
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body = '', contentType = '') => {
       const payload = body ? JSON.parse(body) : null;
       calls.push({ method, url, payload, contentType });

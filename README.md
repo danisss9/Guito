@@ -111,9 +111,10 @@ The settings dialog also manages preferences that have no VS Code equivalent: th
 
 ### Azure DevOps
 
+Guito detects Azure DevOps from the repository's remotes: when `origin` (or, failing that, any other remote) has a URL like `https://server/DefaultCollection/Project/_git/Repo`, pull request creation, the pull request panel, and the automated reviewer are enabled for that project. ssh remotes are reached over https on the same host. Requests authenticate with Windows integrated auth.
+
 | Setting                        | Description                                                                                                                                                          |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `guito.azureDevOpsUrl`         | Base URL of your on-prem Azure DevOps Server, for example `https://server/DefaultCollection`. Enables pull request creation and the automated reviewer; requests authenticate with Windows integrated auth. |
 | `guito.prBranchNameTemplate`   | Branch name template used when Guito creates a new branch for a pull request. Defaults to `pr/${randomstring}`. Variables: `${username}`, `${randomstring}`, `${branch}`, `${targetbranch}`, `${title}`, `${repository}`, `${date}` (UTC `YYYY-MM-DD`), `${time}` (UTC `HHmmss`), and `${timestamp}`. |
 | `guito.allowMerge`             | Offer the "No fast-forward (merge commit)" and "Semi-linear merge" pull request completion strategies. On by default.                                                |
 

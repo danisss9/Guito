@@ -157,7 +157,6 @@ async function setup(page, count = 700, overrides = {}) {
     settings: {
       azureDevOpsUrl: 'https://azure.example/collection',
       prBranchNameTemplate: 'pr/${randomstring}',
-      source: 'file',
     },
     remotes: [
       {
@@ -1172,14 +1171,14 @@ test('full settings dialog saves repository and Azure DevOps preferences togethe
   await page.getByLabel('Expand repository panel sections').uncheck();
   await page.getByLabel('Search mode').selectOption('filter');
   await page.getByLabel('Case-sensitive search').check();
-  await page.getByLabel('Server URL').fill('https://devops.example/DefaultCollection');
+  // The Azure DevOps project is detected from the remotes, not configured.
+  await expect(dialog).toContainText('https://azure.example/collection');
   await page.getByLabel('Automatic PR branch name').fill('users/${username}/${randomstring}');
   await page.getByRole('button', { name: 'Save settings' }).click();
 
   await expect(dialog).toHaveCount(0);
   await expect.poll(() => state.settings.autoReload).toBe(false);
   expect(state.settings).toMatchObject({
-    azureDevOpsUrl: 'https://devops.example/DefaultCollection',
     prBranchNameTemplate: 'users/${username}/${randomstring}',
     autoReload: false,
     showGraph: false,
@@ -2182,7 +2181,6 @@ test('pull request panel reviews, edits, comments, diffs, and completes a PR', a
       azureDevOpsUrl: 'https://azure.example/collection',
       prBranchNameTemplate: 'pr/${randomstring}',
       fileListView: 'tree',
-      source: 'file',
     },
     prMergePolicy: ['squash', 'rebase'],
   });
@@ -2487,9 +2485,9 @@ test('pull request tags and related work items support add and remove', async ({
     .toBe(true);
 });
 
-test('pull request section stays hidden when Azure DevOps is not configured', async ({ page }) => {
+test('pull request section stays hidden without an Azure DevOps remote', async ({ page }) => {
   const { errors } = await setup(page, 700, {
-    settings: { azureDevOpsUrl: '', source: '' },
+    settings: { azureDevOpsUrl: '' },
   });
   await page.getByRole('button', { name: 'Toggle repository panel' }).click();
   await expect(page.getByText('Pull Requests', { exact: true })).toHaveCount(0);

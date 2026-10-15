@@ -30,7 +30,7 @@ export type RemoteAction =
 })
 export class Toolbar {
   readonly busy = input.required<boolean>();
-  /** Azure DevOps URL is configured; enables the Create Pull Request menu item. */
+  /** An Azure DevOps remote was detected; enables the Create Pull Request menu item. */
   readonly prEnabled = input(false);
   /** Whether the left repository panel is open; reflected on the toggle button. */
   readonly panelOpen = input(false);

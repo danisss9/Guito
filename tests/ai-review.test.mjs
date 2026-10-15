@@ -123,7 +123,6 @@ async function startReviewServer(context, state, replies, options = {}) {
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     aiReview: { enabled: false, scope: 'reviewer', ...options.config },
     azureRequestImpl: async (method, url, body = '') => {
       const payload = body ? JSON.parse(body) : null;

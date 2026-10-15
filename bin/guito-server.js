@@ -125,47 +125,40 @@ export function parseAzureRemoteUrl(remoteUrl) {
     return { projectPath, repo };
 }
 /**
- * Builds the encoded "{origin}[/{collection}]/{project}" prefix for Azure
- * DevOps REST calls. When the base URL already contains the collection
- * prefix of the remote path it is not duplicated.
+ * Detects the encoded "{origin}/{collection-or-org}/{project}" prefix for
+ * Azure DevOps REST calls from a git remote URL. https remotes keep their
+ * scheme, host and port (credentials are dropped); ssh remotes map to https
+ * on the same host, since ssh carries no web address.
  */
-export function buildAzureProjectPrefix(baseUrl, remoteUrl) {
-    const base = (baseUrl ?? '').trim().replace(/\/+$/, '');
-    if (!base) {
-        return null;
-    }
-    const info = parseAzureRemoteUrl(remoteUrl);
+export function buildAzureProjectPrefix(remoteUrl) {
+    const value = (remoteUrl ?? '').trim();
+    const info = parseAzureRemoteUrl(value);
     if (!info) {
         return null;
     }
-    const encodePath = (value) => value
+    let origin;
+    const httpMatch = value.match(/^(https?):\/\/(?:[^@/]*@)?([^/]+)\//i);
+    if (httpMatch) {
+        origin = `${httpMatch[1].toLowerCase()}://${httpMatch[2]}`;
+    }
+    else {
+        // ssh://[user@]host[:port]/path or scp-style user@host:path.
+        const host = value.match(/^ssh:\/\/(?:[^@/]*@)?([^/:]+)/i)?.[1] ?? value.match(/^[^@/]+@([^:]+):/)?.[1];
+        if (!host) {
+            return null;
+        }
+        origin = `https://${host}`;
+    }
+    const path = info.projectPath
         .split('/')
         .filter(Boolean)
         .map((segment) => encodeURIComponent(segment))
         .join('/');
-    try {
-        const parsed = new URL(base);
-        const decode = (path) => path
-            .split('/')
-            .filter(Boolean)
-            .map((segment) => decodeURIComponent(segment));
-        const baseParts = decode(parsed.pathname);
-        const remoteParts = info.projectPath.split('/').filter(Boolean);
-        let overlap = Math.min(baseParts.length, remoteParts.length);
-        while (overlap &&
-            !baseParts
-                .slice(-overlap)
-                .every((part, index) => part.toLowerCase() === remoteParts[index].toLowerCase()))
-            overlap--;
-        return `${parsed.origin}/${[...baseParts, ...remoteParts.slice(overlap)].map(encodeURIComponent).join('/')}`;
-    }
-    catch {
-        return `${base}/${encodePath(info.projectPath)}`;
-    }
+    return `${origin}/${path}`;
 }
-/** Builds the pullrequests REST URL from the server base URL and origin remote. */
-export function buildAzurePullRequestUrl(baseUrl, remoteUrl) {
-    const prefix = buildAzureProjectPrefix(baseUrl, remoteUrl);
+/** Builds the pullrequests REST URL from an Azure DevOps git remote URL. */
+export function buildAzurePullRequestUrl(remoteUrl) {
+    const prefix = buildAzureProjectPrefix(remoteUrl);
     if (!prefix) {
         return null;
     }
@@ -265,7 +258,7 @@ const azureErrorMessage = (result) => {
         return result.body;
     }
 };
-export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, azureDevOpsUrl, prBranchNameTemplate, autoReload, diffViewer, showGraph, showTags, showRemoteBranches, grayRefBadges, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, worktreeSort, prSort, aiReview, azureRequestImpl, aiReviewModelImpl, avatarFetchImpl, onLog, }) {
+export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 8080, apiToken, prBranchNameTemplate, autoReload, diffViewer, showGraph, showTags, showRemoteBranches, grayRefBadges, issueRegex, issueUrl, allowMerge, fileListView, refListView, sidePanelSectionsExpanded, searchMode, searchCaseSensitive, worktreeSort, prSort, aiReview, azureRequestImpl, aiReviewModelImpl, avatarFetchImpl, onLog, }) {
     // Initialize server
     const app = fastify({
         logger: false,
@@ -510,10 +503,9 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         return branch;
     };
     const repoRoot = async () => (await git.revparse(['--show-toplevel'])).trim();
-    // ==================== Azure DevOps settings ====================
+    // ==================== Settings ====================
     // Settings live in the repository's git directory so they are per-repo and
-    // never committed. The VS Code extension passes its own setting via
-    // azureDevOpsUrl, which wins over the file.
+    // never committed.
     let settingsPath = '';
     let reviewStorePath = '';
     // Per worktree: each one has its own uncommitted changes.
@@ -541,33 +533,39 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
     };
     const azureRequest = azureRequestImpl ?? defaultAzureRequest;
-    const effectiveAzureUrl = async () => {
-        const configuredAzureUrl = azureDevOpsUrl?.trim() ?? '';
-        if (configuredAzureUrl) {
-            return { url: configuredAzureUrl, source: 'vscode' };
-        }
-        const settings = await readSettings();
-        const url = typeof settings.azureDevOpsUrl === 'string' ? settings.azureDevOpsUrl.trim() : '';
-        return { url, source: url ? 'file' : '' };
-    };
-    /** Resolves the Azure DevOps project prefix or throws a user-facing error. */
-    const azureProjectContext = async () => {
-        const effective = await effectiveAzureUrl();
-        if (!effective.url) {
-            throw new Error('Azure DevOps URL is not configured. Set it in Settings (gear icon) or the guito.azureDevOpsUrl VS Code setting.');
-        }
-        let remoteUrl = '';
+    /**
+     * Detects the Azure DevOps remote: "origin" when it points to Azure DevOps,
+     * else the first remote that does. Null when no remote is an Azure DevOps
+     * git URL.
+     */
+    const detectAzureRemote = async () => {
+        let remotes = [];
         try {
-            remoteUrl = (await git.remote(['get-url', 'origin'])).trim();
+            remotes = await git.getRemotes(true);
         }
         catch {
-            throw new Error('No "origin" remote is configured for this repository.');
+            return null;
         }
-        const prefix = buildAzureProjectPrefix(effective.url, remoteUrl);
-        if (!prefix) {
-            throw new Error(`The origin remote does not point to an Azure DevOps project: ${remoteUrl}`);
+        const ordered = [
+            ...remotes.filter((entry) => entry.name === 'origin'),
+            ...remotes.filter((entry) => entry.name !== 'origin'),
+        ];
+        for (const entry of ordered) {
+            const remoteUrl = entry.refs.fetch.trim();
+            const prefix = buildAzureProjectPrefix(remoteUrl);
+            if (prefix) {
+                return { remote: entry.name, remoteUrl, prefix };
+            }
         }
-        return { prefix, remoteUrl };
+        return null;
+    };
+    /** Resolves the Azure DevOps remote and project prefix or throws a user-facing error. */
+    const azureProjectContext = async () => {
+        const detected = await detectAzureRemote();
+        if (!detected) {
+            throw new Error('No remote of this repository points to an Azure DevOps project (expected a URL like https://server/Collection/Project/_git/Repo).');
+        }
+        return detected;
     };
     /** Human identity of the authenticated Windows/Azure user; cached per run. */
     let cachedAzureMe = null;
@@ -692,7 +690,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
     };
     /** Merges the VS Code settings with the server-side settings file. */
     const effectiveSettings = async () => {
-        const [file, azure] = await Promise.all([readSettings(), effectiveAzureUrl()]);
+        const [file, azure] = await Promise.all([readSettings(), detectAzureRemote()]);
         const fileAutoReload = typeof file.autoReload === 'boolean' ? file.autoReload : undefined;
         const fileShowGraph = typeof file.showGraph === 'boolean' ? file.showGraph : undefined;
         const fileShowTags = typeof file.showTags === 'boolean' ? file.showTags : undefined;
@@ -750,9 +748,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             }
         }
         return {
-            azureDevOpsUrl: azure.url,
+            azureDevOpsUrl: azure?.prefix ?? '',
             prBranchNameTemplate: prBranchNameTemplate?.trim() || filePrBranchNameTemplate || DEFAULT_PR_BRANCH_NAME_TEMPLATE,
-            source: azure.source,
             autoReload: typeof autoReload === 'boolean' ? autoReload : (fileAutoReload ?? true),
             diffViewer: diffViewer === 'vscode' ? 'vscode' : 'guito',
             showGraph: typeof showGraph === 'boolean' ? showGraph : (fileShowGraph ?? true),
@@ -1834,15 +1831,8 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
         try {
             const body = req.body ?? {};
             const settings = await readSettings();
-            if ('azureDevOpsUrl' in body) {
-                const url = String(body.azureDevOpsUrl ?? '').trim();
-                if (url && !/^https?:\/\//i.test(url)) {
-                    return resp.status(400).type('application/json').send({
-                        error: 'The Azure DevOps URL must start with http:// or https://.',
-                    });
-                }
-                settings.azureDevOpsUrl = url;
-            }
+            // Superseded by detection from the remotes; drop values older versions stored.
+            delete settings.azureDevOpsUrl;
             if ('prBranchNameTemplate' in body) {
                 const template = String(body.prBranchNameTemplate ?? '').trim();
                 if (template.length > 200) {
@@ -1974,7 +1964,12 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             if (!targetBranch) {
                 return resp.status(400).type('application/json').send({ error: 'targetBranch required' });
             }
-            const { prefix, remoteUrl } = await azureProjectContext();
+            const { remote, prefix, remoteUrl } = await azureProjectContext();
+            // Branch names may arrive as remote-tracking refs ("origin/main").
+            const stripRemote = (name) => {
+                const branch = name.replace(/^refs\/heads\//, '');
+                return branch.startsWith(`${remote}/`) ? branch.slice(remote.length + 1) : branch;
+            };
             const info = parseAzureRemoteUrl(remoteUrl);
             if (!info) {
                 return resp.status(400).type('application/json').send({
@@ -1999,9 +1994,7 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     username: computerUsername,
                     randomstring: randomBranchSuffix(),
                     branch: (await git.revparse(['--abbrev-ref', 'HEAD'])).trim(),
-                    targetbranch: String(targetBranch)
-                        .replace(/^refs\/heads\//, '')
-                        .replace(/^origin\//, ''),
+                    targetbranch: stripRemote(String(targetBranch)),
                     title: String(title ?? '').trim() || 'pull-request',
                     repository: basename(await repoRoot()),
                     date: now.toISOString().slice(0, 10),
@@ -2017,23 +2010,23 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     });
                 }
                 const existingBranch = await git
-                    .raw(['ls-remote', '--heads', 'origin', `refs/heads/${name}`])
+                    .raw(['ls-remote', '--heads', remote, `refs/heads/${name}`])
                     .catch(() => '');
                 if (existingBranch.trim()) {
                     return resp.status(400).send({
-                        error: `The pull request branch already exists on origin: ${name}`,
+                        error: `The pull request branch already exists on ${remote}: ${name}`,
                     });
                 }
-                await git.push(['origin', `HEAD:refs/heads/${name}`]);
+                await git.push([remote, `HEAD:refs/heads/${name}`]);
                 source = name;
             }
             else {
                 if (!source) {
                     return resp.status(400).type('application/json').send({ error: 'sourceBranch required' });
                 }
-                if (source.startsWith('origin/')) {
+                if (source.startsWith(`${remote}/`)) {
                     // Remote-tracking branch: the PR source is the branch name on the remote.
-                    source = source.slice('origin/'.length);
+                    source = source.slice(remote.length + 1);
                 }
                 else {
                     // Publish the branch first when the remote does not have it yet.
@@ -2043,23 +2036,21 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
                     // simple-git, so list the tracking refs instead.
                     const trackingRefs = await git.raw([
                         'for-each-ref',
-                        'refs/remotes/origin',
+                        `refs/remotes/${remote}`,
                         '--format=%(refname)',
                     ]);
                     const published = trackingRefs
                         .split('\n')
-                        .some((line) => line.trim() === `refs/remotes/origin/${source}`);
+                        .some((line) => line.trim() === `refs/remotes/${remote}/${source}`);
                     if (!published) {
-                        await git.push(['origin', source]);
+                        await git.push([remote, source]);
                     }
                 }
             }
             const payload = {
                 isDraft: req.body?.isDraft === true,
                 sourceRefName: `refs/heads/${source}`,
-                targetRefName: `refs/heads/${String(targetBranch)
-                    .replace(/^refs\/heads\//, '')
-                    .replace(/^origin\//, '')}`,
+                targetRefName: `refs/heads/${stripRemote(String(targetBranch))}`,
             };
             const trimmedTitle = String(title ?? '').trim();
             const trimmedDescription = String(description ?? '').trim();
@@ -3796,7 +3787,6 @@ export async function startGuitoServer({ repositoryPath, uiRoot, host, port = 80
             await app.close();
         },
         updateSettings: (settings) => {
-            azureDevOpsUrl = settings.azureDevOpsUrl;
             prBranchNameTemplate = settings.prBranchNameTemplate;
             autoReload = settings.autoReload;
             diffViewer = settings.diffViewer;

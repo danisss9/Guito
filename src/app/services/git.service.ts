@@ -435,7 +435,6 @@ export class GitService {
 
   /** Persists the given settings keys server-side; omitted keys keep their value. */
   saveSettings(settings: {
-    azureDevOpsUrl?: string;
     prBranchNameTemplate?: string;
     autoReload?: boolean;
     showGraph?: boolean;

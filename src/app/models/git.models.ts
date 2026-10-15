@@ -394,11 +394,10 @@ export const PR_SORT_OPTIONS: { value: PrSort; label: string }[] = [
 
 /** Azure DevOps integration settings served by the Guito server. */
 export interface AzureSettings {
+  /** Azure DevOps project URL detected from the repository remotes; empty when none matches. */
   azureDevOpsUrl: string;
   /** Template used for remote-only branches created for pull requests. */
   prBranchNameTemplate?: string;
-  /** Where the effective URL comes from: the VS Code setting or the server-side file. */
-  source: 'vscode' | 'file' | '';
   /** Whether Guito polls the repository and refreshes automatically; defaults to true. */
   autoReload?: boolean;
   /** Where file diffs open; 'vscode' only inside the VS Code extension. */

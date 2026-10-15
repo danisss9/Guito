@@ -1263,7 +1263,6 @@ function readDiffViewerSetting(): 'guito' | 'vscode' {
 function readHostSettings(): GuitoHostSettings {
   const configuration = vscode.workspace.getConfiguration('guito');
   return {
-    azureDevOpsUrl: configuration.get<string>('azureDevOpsUrl')?.trim() || undefined,
     prBranchNameTemplate: configuration
       .get<string>('prBranchNameTemplate', 'pr/${randomstring}')
       .trim(),

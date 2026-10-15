@@ -38,6 +38,7 @@ select:focus { border-color: var(--accent); }
 .text-setting { align-items: stretch; flex-direction: column; gap: 8px; }
 .text-setting input { box-sizing: border-box; width: 100%; padding: 8px 10px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font: inherit; outline: none; }
 .text-setting input:focus { border-color: var(--accent); }
+.detected-url { overflow-wrap: anywhere; font-size: 12px; }
 footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border); }
 .btn { padding: 7px 14px; color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 4px; font: inherit; cursor: pointer; }
 .btn:hover:not(:disabled) { color: var(--text-bright); background: var(--bg-hover); }

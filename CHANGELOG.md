@@ -4,6 +4,10 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+### Changed
+
+- Azure DevOps is now detected from the repository's remotes instead of configured. Guito derives the project from `origin` (or the first other remote pointing to Azure DevOps) and creates pull requests against that remote; the settings dialog shows the detected project. The `guito.azureDevOpsUrl` VS Code setting and the Server URL field in the settings dialog are removed.
+
 ### Added
 
 - Pull request **Comments** tab now shows code context on inline threads: a focused snippet around the commented line with a **Show code context** loader and an expandable full-file diff, so reviewers see what a comment refers to without leaving the tab.

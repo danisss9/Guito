@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Detect Azure DevOps from the repository's remotes and remove the `guito.azureDevOpsUrl` setting. Pull request features turn on automatically when `origin` (or another remote) points to an Azure DevOps project.
+
 ## 1.0.11
 
 - Add keyboard shortcuts while the Guito panel has focus. Ctrl+F focuses the commit search box, Ctrl+J jumps to the current branch, and Ctrl+G opens a Go to Commit dialog that accepts a row number or a commit hash and loads more history when needed.

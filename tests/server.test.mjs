@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
+  buildAzureProjectPrefix,
   buildAzurePullRequestUrl,
   formatPrBranchName,
   parseAzureRemoteUrl,
@@ -1465,32 +1466,44 @@ test('parses Azure DevOps remote URLs', () => {
   assert.equal(parseAzureRemoteUrl(''), null);
 });
 
+test('detects the Azure DevOps project from the remote URL', () => {
+  assert.equal(
+    buildAzureProjectPrefix('https://server/DefaultCollection/Project/_git/Repo.git'),
+    'https://server/DefaultCollection/Project',
+  );
+  // Credentials are dropped; the scheme and port are kept.
+  assert.equal(
+    buildAzureProjectPrefix('http://user@server:8080/tfs/Collection/Project/_git/Repo'),
+    'http://server:8080/tfs/Collection/Project',
+  );
+  assert.equal(
+    buildAzureProjectPrefix('https://org@dev.azure.com/org/Project/_git/Repo'),
+    'https://dev.azure.com/org/Project',
+  );
+  // ssh remotes map to https on the same host.
+  assert.equal(
+    buildAzureProjectPrefix('ssh://git@server:22/DefaultCollection/Project/_git/Repo'),
+    'https://server/DefaultCollection/Project',
+  );
+  assert.equal(
+    buildAzureProjectPrefix('git@server:DefaultCollection/Project/_git/Repo.git'),
+    'https://server/DefaultCollection/Project',
+  );
+  assert.equal(buildAzureProjectPrefix('https://github.com/x/y.git'), null);
+  assert.equal(buildAzureProjectPrefix(''), null);
+});
+
 test('builds the pull request REST URL', () => {
-  const remote = 'https://server/DefaultCollection/Project/_git/Repo.git';
   assert.equal(
-    buildAzurePullRequestUrl('https://server/DefaultCollection', remote),
-    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
-  );
-  // A bare host base must not lose the collection path.
-  assert.equal(
-    buildAzurePullRequestUrl('https://server', remote),
-    'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
-  );
-  // Trailing slashes on the base are trimmed.
-  assert.equal(
-    buildAzurePullRequestUrl('https://server/DefaultCollection/', remote),
+    buildAzurePullRequestUrl('https://server/DefaultCollection/Project/_git/Repo.git'),
     'https://server/DefaultCollection/Project/_apis/git/repositories/Repo/pullrequests?api-version=5.0-preview',
   );
   // Encoded project segments are re-encoded in the REST URL.
   assert.equal(
-    buildAzurePullRequestUrl(
-      'https://server/tfs',
-      'https://server/tfs/My%20Project/_git/My%20Repo',
-    ),
+    buildAzurePullRequestUrl('https://server/tfs/My%20Project/_git/My%20Repo'),
     'https://server/tfs/My%20Project/_apis/git/repositories/My%20Repo/pullrequests?api-version=5.0-preview',
   );
-  assert.equal(buildAzurePullRequestUrl('', remote), null);
-  assert.equal(buildAzurePullRequestUrl('https://server', 'https://github.com/x/y.git'), null);
+  assert.equal(buildAzurePullRequestUrl('https://github.com/x/y.git'), null);
 });
 
 /** Creates a repository whose origin looks like Azure DevOps but pushes to a local bare repo. */
@@ -1539,7 +1552,6 @@ test('creates a pull request through Azure DevOps', async (context) => {
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ url, payload: JSON.parse(body) });
       return {
@@ -1598,7 +1610,6 @@ test('creates a pull request from a new random branch', async (context) => {
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ url, payload: JSON.parse(body) });
       return {
@@ -1650,7 +1661,6 @@ test('publishes a local-only source branch before creating the pull request', as
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async () => ({
       status: 201,
       body: JSON.stringify({
@@ -1672,7 +1682,7 @@ test('publishes a local-only source branch before creating the pull request', as
   assert.ok(remoteBranches(remotePath).includes('refs/heads/feature'));
 });
 
-test('surfaces Azure DevOps errors and requires configuration', async (context) => {
+test('surfaces Azure DevOps errors and requires an Azure DevOps remote', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
 
   const failing = await startGuitoServer({
@@ -1680,7 +1690,6 @@ test('surfaces Azure DevOps errors and requires configuration', async (context) 
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async () => ({
       status: 400,
       body: JSON.stringify({ message: 'TF401027: You need permission.' }),
@@ -1696,7 +1705,10 @@ test('surfaces Azure DevOps errors and requires configuration', async (context) 
   assert.equal(failed.status, 400);
   assert.equal((await failed.json()).error, 'TF401027: You need permission.');
 
-  // Without any configured URL the request is rejected up front.
+  // Without an Azure DevOps remote the request is rejected up front.
+  execFileSync('git', ['remote', 'set-url', 'origin', 'https://github.com/example/Repo.git'], {
+    cwd: repositoryPath,
+  });
   const unconfigured = await startGuitoServer({
     repositoryPath,
     uiRoot: resolve('bin/ui'),
@@ -1711,7 +1723,7 @@ test('surfaces Azure DevOps errors and requires configuration', async (context) 
     body: JSON.stringify({ sourceBranch: 'main', targetBranch: 'main' }),
   });
   assert.equal(missing.status, 400);
-  assert.match((await missing.json()).error, /not configured/i);
+  assert.match((await missing.json()).error, /No remote .* Azure DevOps project/);
 });
 
 test('edits repository identity and remote configuration', async (context) => {
@@ -1788,7 +1800,6 @@ test('creates a pull request branch from the configured name template', async (c
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     prBranchNameTemplate: 'users/${username}/${randomstring}',
     azureRequestImpl: async (_method, _url, body) => {
       calls.push(JSON.parse(body));
@@ -1819,7 +1830,7 @@ test('creates a pull request branch from the configured name template', async (c
   assert.equal(calls[0].sourceRefName, `refs/heads/${created.branch}`);
 });
 
-test('stores the Azure DevOps URL in server-side settings', async (context) => {
+test('detects the Azure DevOps project from the remotes and stores settings server-side', async (context) => {
   const { repositoryPath } = await createAzureRepository(context);
 
   const server = await startGuitoServer({
@@ -1830,17 +1841,16 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   context.after(() => server.close());
 
+  // The project comes from the origin remote; a posted URL is ignored.
   const saved = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      azureDevOpsUrl: 'https://server/DefaultCollection',
+      azureDevOpsUrl: 'https://server/Ignored',
     }),
   });
   assert.equal(saved.status, 200);
   assertSettings(await saved.json(), {
-    azureDevOpsUrl: 'https://server/DefaultCollection',
-    source: 'file',
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
@@ -1854,8 +1864,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   const loaded = await fetch(`${server.address}/api/settings`);
   assert.equal(loaded.status, 200);
   assertSettings(await loaded.json(), {
-    azureDevOpsUrl: 'https://server/DefaultCollection',
-    source: 'file',
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
@@ -1870,7 +1878,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     .toString()
     .trim();
   const settings = JSON.parse(await readFile(join(gitDir, 'guito-settings.json'), 'utf8'));
-  assert.equal(settings.azureDevOpsUrl, 'https://server/DefaultCollection');
+  assert.equal(settings.azureDevOpsUrl, undefined);
 
   const namedBranch = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
@@ -1905,24 +1913,24 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   assert.equal(resetBranchTemplate.status, 200);
   assert.equal((await resetBranchTemplate.json()).prBranchNameTemplate, 'pr/${randomstring}');
 
-  // Non-http URLs are rejected.
-  const invalid = await fetch(`${server.address}/api/settings`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ azureDevOpsUrl: 'ftp://server' }),
-  });
-  assert.equal(invalid.status, 400);
+  // Any remote pointing to Azure DevOps is detected, not only "origin".
+  execFileSync('git', ['remote', 'rename', 'origin', 'upstream'], { cwd: repositoryPath });
+  execFileSync(
+    'git',
+    ['remote', 'add', 'origin', 'https://github.com/example/Repo.git'],
+    { cwd: repositoryPath },
+  );
+  const fromUpstream = await fetch(`${server.address}/api/settings`);
+  assert.equal(
+    (await fromUpstream.json()).azureDevOpsUrl,
+    'https://azure.example/DefaultCollection/Project',
+  );
 
-  // An empty value clears the setting.
-  const cleared = await fetch(`${server.address}/api/settings`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ azureDevOpsUrl: '' }),
-  });
+  // Without an Azure DevOps remote the project URL is empty.
+  execFileSync('git', ['remote', 'remove', 'upstream'], { cwd: repositoryPath });
+  const cleared = await fetch(`${server.address}/api/settings`);
   assert.equal(cleared.status, 200);
   assertSettings(await cleared.json(), {
-    azureDevOpsUrl: '',
-    source: '',
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
@@ -1930,8 +1938,7 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     searchMode: 'navigate',
   });
 
-  // Hiding the graph persists it, and a post without the URL keeps the
-  // cleared URL instead of resetting it.
+  // Hiding the graph persists it.
   const hidden = await fetch(`${server.address}/api/settings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -1939,8 +1946,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   assert.equal(hidden.status, 200);
   assertSettings(await hidden.json(), {
-    azureDevOpsUrl: '',
-    source: '',
     autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
@@ -1960,8 +1965,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   assert.equal(treed.status, 200);
   assertSettings(await treed.json(), {
-    azureDevOpsUrl: '',
-    source: '',
     autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
@@ -1987,8 +1990,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   assert.equal(refTree.status, 200);
   assertSettings(await refTree.json(), {
-    azureDevOpsUrl: '',
-    source: '',
     autoReload: false,
     diffViewer: 'guito',
     showGraph: false,
@@ -2094,13 +2095,12 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
     },
   });
 
-  // A VS Code-provided URL wins over the file and is reported as such.
+  // VS Code-provided values win over the file.
   const extension = await startGuitoServer({
     repositoryPath,
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://vscode/Collection',
     autoReload: false,
     diffViewer: 'vscode',
     sidePanelSectionsExpanded: true,
@@ -2110,8 +2110,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   context.after(() => extension.close());
   const fromExtension = await fetch(`${extension.address}/api/settings`);
   assertSettings(await fromExtension.json(), {
-    azureDevOpsUrl: 'https://vscode/Collection',
-    source: 'vscode',
     autoReload: false,
     diffViewer: 'vscode',
     showGraph: false,
@@ -2123,7 +2121,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
 
   // Changes from VS Code become effective in an already-running session.
   extension.updateSettings({
-    azureDevOpsUrl: undefined,
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
@@ -2134,8 +2131,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
   const updatedFromExtension = await fetch(`${extension.address}/api/settings`);
   assertSettings(await updatedFromExtension.json(), {
-    azureDevOpsUrl: '',
-    source: '',
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
@@ -2146,7 +2141,8 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   });
 
   // Auto-reload falls back to the settings file when the extension does not
-  // pass it, and the extension value wins when it does.
+  // pass it, and the extension value wins when it does. A URL left in the
+  // file by older versions is ignored.
   await writeFile(
     join(gitDir, 'guito-settings.json'),
     JSON.stringify({
@@ -2157,8 +2153,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   );
   const fromFile = await fetch(`${server.address}/api/settings`);
   assertSettings(await fromFile.json(), {
-    azureDevOpsUrl: 'https://server/DefaultCollection',
-    source: 'file',
     autoReload: false,
     diffViewer: 'guito',
     showGraph: true,
@@ -2176,8 +2170,6 @@ test('stores the Azure DevOps URL in server-side settings', async (context) => {
   context.after(() => reloaded.close());
   const fromReloaded = await fetch(`${reloaded.address}/api/settings`);
   assertSettings(await fromReloaded.json(), {
-    azureDevOpsUrl: 'https://server/DefaultCollection',
-    source: 'file',
     autoReload: true,
     diffViewer: 'guito',
     showGraph: true,
@@ -2195,7 +2187,6 @@ test('searches reviewers, work items, and tags through Azure DevOps', async (con
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ method, url, payload: body ? JSON.parse(body) : undefined });
       if (url.includes('/_apis/identities')) {
@@ -2306,7 +2297,6 @@ test('creates a pull request with reviewers, work items, and tags', async (conte
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url, body) => {
       calls.push({ method, url, payload: body ? JSON.parse(body) : undefined });
       if (url.includes('/labels')) {
@@ -2497,7 +2487,6 @@ test('PR tags page through history and fetch omitted labels', async (context) =>
     uiRoot: resolve('bin/ui'),
     host: '127.0.0.1',
     port: 0,
-    azureDevOpsUrl: 'https://azure.example/DefaultCollection',
     azureRequestImpl: async (method, url) => {
       calls.push(url);
       const parsed = new URL(url);

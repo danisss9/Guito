@@ -154,12 +154,6 @@
     "configuration": {
       "title": "Guito",
       "properties": {
-        "guito.azureDevOpsUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "window",
-          "description": "Base URL of your on-prem Azure DevOps Server (e.g. https://server/DefaultCollection). Enables the Create Pull Request action in the push menu. Requests authenticate with Windows integrated auth (your current Windows session)."
-        },
         "guito.prBranchNameTemplate": {
           "type": "string",
           "default": "pr/${randomstring}",
