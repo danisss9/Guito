@@ -4,6 +4,8 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-10-15
+
 ### Changed
 
 - Azure DevOps is now detected from the repository's remotes instead of configured. Guito derives the project from `origin` (or the first other remote pointing to Azure DevOps) and creates pull requests against that remote; the settings dialog shows the detected project. The `guito.azureDevOpsUrl` VS Code setting and the Server URL field in the settings dialog are removed.
@@ -11,7 +13,7 @@ All notable changes to Guito are documented in this file. The project follows [S
 ### Added
 
 - Pull request **Comments** tab now shows code context on inline threads: a focused snippet around the commented line with a **Show code context** loader and an expandable full-file diff, so reviewers see what a comment refers to without leaving the tab.
-- Azure-generated comment activity now reads as plain language: vote entries like "changed status to 10" render as "approved" (with suggestions / waiting for author / rejected mapped the same way) and named status changes use friendly labels like Resolved, with the raw text kept as a tooltip.
+- Azure-generated comment activity now reads as plain language: vote entries like "changed status to 10" render as "approved" (with suggestions / waiting for author / rejected mapped the same way) and named status changes use friendly labels like Resolved, with the raw text kept as a tooltip. System entries in an inline thread's diff view render as a quiet one-line note instead of a comment with avatar and markdown, again with the raw text as a tooltip.
 - Filter pull request comments by thread status (with counts), location (General vs Inline), and entry kind (comments vs activity), with a **Clear** reset and a distinct "No comments match these filters" empty state.
 - Mark automated review findings as fixed from the PR dialog's **Review** tab with a per-finding **I fixed it** button. Fixed points move to **Already handled** with a green **Fixed** label and are never raised again by future reviews, like dismissed ones. A **Dim handled** toggle dims the handled section via opacity so pending points stand out; it is on by default and remembered per browser.
 - Decline to review a pull request from the PR dialog's **Review** menu (**Decline to review** / **Resume review**). Reviewers who declined appear in their own **Declined** section of the dialog's reviewer list, and the side panel marks pull requests you declined with a **Declined** badge.

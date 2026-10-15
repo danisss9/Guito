@@ -2,7 +2,15 @@
 
 ## Unreleased
 
+## 1.0.12
+
 - Detect Azure DevOps from the repository's remotes and remove the `guito.azureDevOpsUrl` setting. Pull request features turn on automatically when `origin` (or another remote) points to an Azure DevOps project.
+- Show code context on inline threads in the pull request **Comments** tab: a focused snippet around the commented line with a **Show code context** loader and an expandable full-file diff.
+- Read Azure comment activity as plain language: vote entries like "changed status to 10" show as approved (with suggestions / waiting for author / rejected mapped the same way) and named status changes use friendly labels like Resolved, with the raw text kept as a tooltip. System entries in an inline thread render as a quiet one-line note instead of a comment.
+- Filter pull request comments by thread status (with counts), location (General or Inline) and entry kind (comments or activity), with a **Clear** reset and a distinct "No comments match these filters" empty state.
+- Mark automated review findings as fixed from the **Review** tab with a per-finding **I fixed it** button. Fixed points move to **Already handled** with a green **Fixed** label and are never raised again by future reviews, and a **Dim handled** toggle dims that section by default.
+- Decline to review a pull request from the **Review** menu (**Decline to review** / **Resume review**). Reviewers who declined get their own **Declined** section in the dialog's reviewer list, and the side panel marks pull requests you declined with a **Declined** badge.
+- Fix right-click actions on branch badges whose names contain a slash (for example `feature/topic`), and stop offering Rename, Delete and Pull on detached `HEAD` and symbolic `origin/HEAD` badges.
 
 ## 1.0.11
 
