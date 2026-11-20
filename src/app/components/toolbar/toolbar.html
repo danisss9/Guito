@@ -110,12 +110,23 @@
       }
     </div>
 
-    <button class="icon-btn" title="Refresh" (click)="refresh.emit()">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="23 4 23 10 17 10" />
-        <polyline points="1 20 1 14 7 14" />
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-      </svg>
+    <button
+      class="icon-btn"
+      title="Refresh"
+      aria-label="Refresh"
+      [attr.aria-busy]="refreshing()"
+      [disabled]="refreshing()"
+      (click)="refresh.emit()"
+    >
+      @if (refreshing()) {
+        <span class="spinner" aria-hidden="true"></span>
+      } @else {
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polyline points="23 4 23 10 17 10" />
+          <polyline points="1 20 1 14 7 14" />
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+        </svg>
+      }
     </button>
 
     <button class="icon-btn" title="Settings" aria-label="Settings" (click)="settingsClick.emit()">

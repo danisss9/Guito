@@ -50,6 +50,11 @@
   border-color: var(--accent);
 }
 
+.input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
@@ -57,6 +62,10 @@
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 6px 14px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -65,6 +74,28 @@
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 
 .btn:hover:not(:disabled) {

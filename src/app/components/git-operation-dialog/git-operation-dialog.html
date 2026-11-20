@@ -4,6 +4,7 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="git-op-title"
+  [attr.aria-busy]="busy()"
   (submit)="$event.preventDefault(); submit()"
 >
   <h3 id="git-op-title" class="title">{{ title() }}</h3>
@@ -679,6 +680,9 @@
       [class.btn-danger]="danger()"
       [disabled]="!canSubmit()"
     >
+      @if (busy()) {
+        <span class="spinner" aria-hidden="true"></span>
+      }
       {{ busy() ? 'Working…' : okLabel() }}
     </button>
   </div>

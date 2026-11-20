@@ -7,6 +7,10 @@
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 7px; }
 .btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text); font: 12px inherit; cursor: pointer; }
 .btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-bright); }
-.btn-primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-color: var(--accent); background: var(--accent); color: #fff; }
 .btn-primary:hover:not(:disabled) { background: #2b7cd3; }
 .btn:disabled, .input:disabled { opacity: 0.5; cursor: default; }
+
+.spinner { width: 10px; height: 10px; flex: none; border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

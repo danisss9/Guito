@@ -1,6 +1,13 @@
 <div class="app">
+  @if (showOperationProgress()) {
+  <div class="operation-progress" role="progressbar" aria-label="Git operation in progress">
+    <span class="operation-progress-bar"></span>
+  </div>
+  }
+
   <app-toolbar
     [busy]="busy() || mutationBusy() || statusLoading()"
+    [refreshing]="statusLoading()"
     [prEnabled]="hasAzureUrl()"
     [panelOpen]="panelOpen()"
     [matchIndex]="searchIndex()"
@@ -138,6 +145,7 @@
   />
   <app-prompt-dialog
     [state]="promptState()"
+    [busy]="promptBusy()"
     (confirmed)="onPromptConfirm($event)"
     (cancelled)="onPromptCancel()"
   />

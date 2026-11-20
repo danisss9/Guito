@@ -77,7 +77,9 @@
         @for (item of branchSlice(); track trackBranchItem($index, item)) {
           @switch (item.type) {
             @case ('loading') {
-              <div class="empty section-loading" role="status">Loading...</div>
+              <div class="empty section-loading" role="status">
+                <span class="spinner" aria-hidden="true"></span>Loading...
+              </div>
             }
             @case ('all') {
               <button
@@ -181,7 +183,9 @@
         }
         @for (item of tagSlice(); track trackTagItem($index, item)) {
           @if (item.type === 'loading') {
-            <div class="empty section-loading" role="status">Loading...</div>
+            <div class="empty section-loading" role="status">
+              <span class="spinner" aria-hidden="true"></span>Loading...
+            </div>
           } @else if (item.row.kind === 'dir') {
             <button
               type="button"
@@ -254,7 +258,9 @@
     @if (stashesExpanded()) {
       <div class="tree-body">
         @if (showLoading()) {
-          <div class="empty section-loading" role="status">Loading...</div>
+          <div class="empty section-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span>Loading...
+          </div>
         }
         @for (stash of filteredStashes(); track stash.index) {
           <button
@@ -315,7 +321,9 @@
     @if (worktreesExpanded()) {
       <div class="tree-body">
         @if (showLoading()) {
-          <div class="empty section-loading" role="status">Loading...</div>
+          <div class="empty section-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span>Loading...
+          </div>
         }
         @for (worktree of filteredWorktrees(); track worktree.path) {
           <button
@@ -380,7 +388,9 @@
           @if (prError()) {
             <div class="pr-error" role="alert">{{ prError() }}</div>
           } @else if (pullRequests() === null) {
-            <div class="empty">Loading pull requests...</div>
+            <div class="empty section-loading" role="status">
+              <span class="spinner" aria-hidden="true"></span>Loading pull requests...
+            </div>
           } @else {
             @for (pr of filteredPullRequests()!; track pr.id) {
               <button

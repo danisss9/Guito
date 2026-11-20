@@ -52,7 +52,6 @@ import {
 import { GitService } from './services/git.service';
 import { VscodeService } from './services/vscode.service';
 import { copyTextToClipboard } from './utils/clipboard';
-import { authenticatedApiUrl } from './utils/session';
 import { isHeadCommit } from './utils/refs';
 import { normalizeSearchText } from './utils/search-text';
 import { loadJson, saveJson } from './utils/storage';
@@ -92,6 +91,7 @@ const MUTATING_MENU_ACTIONS = new Set([
   'stash-working',
   'reset-working',
   'clean-untracked',
+  'create-archive',
 ]);
 
 /** localStorage key holding the persisted commit message draft. */
@@ -195,6 +195,15 @@ export class App implements OnDestroy {
   protected readonly contextMenuState = signal<ContextMenuState | null>(null);
   protected readonly contextMenuTarget = signal<any>(null);
   protected readonly promptState = signal<PromptState | null>(null);
+  /** The confirmed prompt action is running; the dialog stays open with a spinner. */
+  protected readonly promptBusy = signal(false);
+  /**
+   * Indeterminate progress bar for user-triggered Git work. It appears after a
+   * short grace period so quick operations (stage, unstage) never flash it.
+   */
+  protected readonly showOperationProgress = signal(false);
+  /** Git is building a downloadable archive of a ref. */
+  private readonly archiveBusy = signal(false);
   /** Open Git-operation dialog state; null = closed. */
   protected readonly gitOperationState = signal<GitOperationDialogState | null>(null);
   /** Failure of the Git operation behind the open dialog, shown inline. */
@@ -383,6 +392,17 @@ export class App implements OnDestroy {
 
   constructor() {
     this.refresh();
+
+    // Show the top progress bar only when a user-triggered operation outlasts
+    // the grace period; clearing stays immediate once the operation settles.
+    effect((onCleanup) => {
+      if (!this.busy() && !this.mutationBusy() && !this.archiveBusy()) {
+        this.showOperationProgress.set(false);
+        return;
+      }
+      const timer = setTimeout(() => this.showOperationProgress.set(true), 200);
+      onCleanup(() => clearTimeout(timer));
+    });
 
     // A review started elsewhere (the Source Control button) shows here too:
     // look again whenever the working tree changes.
@@ -858,6 +878,7 @@ export class App implements OnDestroy {
   }
 
   protected onPromptCancel(): void {
+    if (this.promptBusy()) return;
     this.pendingDiscard.set(null);
     this.promptState.set(null);
   }
@@ -1341,7 +1362,7 @@ export class App implements OnDestroy {
     this.contextMenuState.set({
       x: event.x,
       y: event.y,
-      items: this.busy() || this.mutationBusy()
+      items: this.busy() || this.mutationBusy() || this.archiveBusy()
         ? items.map((item) =>
             item.action && MUTATING_MENU_ACTIONS.has(item.action)
               ? { ...item, disabled: true }
@@ -1713,7 +1734,7 @@ export class App implements OnDestroy {
     // Background refreshes supersede safely; only user-initiated remote
     // operations and in-flight mutations block menu actions (visibly
     // disabled while the menu is open).
-    if (this.busy() || this.mutationBusy()) return;
+    if (this.busy() || this.mutationBusy() || this.promptBusy() || this.archiveBusy()) return;
     const selected = this.contextMenuTarget()?.commit ?? this.selectedCommit();
 
     switch (action) {
@@ -1874,7 +1895,7 @@ export class App implements OnDestroy {
         // their ref name, which git archive resolves the same way.
         const ref = target?.commit?.hash ?? target?.branch?.name;
         if (ref) {
-          window.open(authenticatedApiUrl(`/api/archive?ref=${encodeURIComponent(ref)}`), '_blank');
+          this.createArchive(ref);
         }
         break;
       }
@@ -2101,22 +2122,20 @@ export class App implements OnDestroy {
 
   protected onPromptConfirm(value: string): void {
     // Background refreshes supersede safely; see onContextAction.
-    if (this.busy() || this.mutationBusy()) return;
+    if (this.busy() || this.mutationBusy() || this.promptBusy()) return;
     const state = this.promptState();
     if (!state) {
       return;
     }
-    this.promptState.set(null);
-
-    const commit = this.contextMenuTarget()?.commit;
 
     if (state.title === 'Delete worktree?') {
       const worktree = this.contextMenuTarget()?.worktree;
       if (worktree && !worktree.current && !worktree.bare) {
-        this.git.removeWorktree(worktree.path).subscribe({
-          next: () => this.loadSidePanelData(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+        this.runPromptOperation(this.git.removeWorktree(worktree.path), () =>
+          this.loadSidePanelData(),
+        );
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
@@ -2124,19 +2143,15 @@ export class App implements OnDestroy {
     if (state.title === 'Push tag?') {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
-        this.git.pushTag({ name }).subscribe({
-          next: () => this.refresh(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+        this.runPromptOperation(this.git.pushTag({ name }), () => this.refresh());
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
 
     if (state.title === 'Force push?') {
-      this.git.push(true).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
+      this.runPromptOperation(this.git.push(true), () => this.refresh());
       return;
     }
 
@@ -2144,35 +2159,29 @@ export class App implements OnDestroy {
       const files = this.pendingDiscard();
       this.pendingDiscard.set(null);
       if (files?.length) {
-        this.git.discard(files, 'unstaged').subscribe({
-          next: () => this.refreshWorking(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+        this.runPromptOperation(this.git.discard(files, 'unstaged'), () =>
+          this.refreshWorking(),
+        );
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
 
     if (state.title === 'Stash uncommitted changes') {
-      this.git.stashSave(value ? { message: value } : {}).subscribe({
-        next: () => this.refresh(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
+      this.runPromptOperation(this.git.stashSave(value ? { message: value } : {}), () =>
+        this.refresh(),
+      );
       return;
     }
 
     if (state.title === 'Reset uncommitted changes?') {
-      this.git.resetWorking().subscribe({
-        next: () => this.refreshWorking(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
+      this.runPromptOperation(this.git.resetWorking(), () => this.refreshWorking());
       return;
     }
 
     if (state.title === 'Clean untracked files?') {
-      this.git.cleanUntracked().subscribe({
-        next: () => this.refreshWorking(),
-        error: (err) => this.error.set(this.errorMessage(err)),
-      });
+      this.runPromptOperation(this.git.cleanUntracked(), () => this.refreshWorking());
       return;
     }
 
@@ -2180,16 +2189,15 @@ export class App implements OnDestroy {
       const name = this.contextMenuTarget()?.branch?.name;
       const newName = value.trim();
       if (name && newName && newName !== name) {
-        this.git.renameBranch({ oldName: name, newName }).subscribe({
-          next: () => {
-            // Keep the branch selection on the renamed branch.
-            this.selectedBranches.update((names) =>
-              names.map((selected) => (selected === name ? newName : selected)),
-            );
-            this.refresh();
-          },
-          error: (err) => this.error.set(this.errorMessage(err)),
+        this.runPromptOperation(this.git.renameBranch({ oldName: name, newName }), () => {
+          // Keep the branch selection on the renamed branch.
+          this.selectedBranches.update((names) =>
+            names.map((selected) => (selected === name ? newName : selected)),
+          );
+          this.refresh();
         });
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
@@ -2197,14 +2205,13 @@ export class App implements OnDestroy {
     if (state.title === 'Delete branch?') {
       const name = this.contextMenuTarget()?.branch?.name;
       if (name) {
-        this.git.deleteBranch({ name }).subscribe({
-          next: () => {
-            // Fall back to Show All when the selected branch is gone.
-            this.selectedBranches.update((names) => names.filter((selected) => selected !== name));
-            this.refresh();
-          },
-          error: (err) => this.error.set(this.errorMessage(err)),
+        this.runPromptOperation(this.git.deleteBranch({ name }), () => {
+          // Fall back to Show All when the selected branch is gone.
+          this.selectedBranches.update((names) => names.filter((selected) => selected !== name));
+          this.refresh();
         });
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
@@ -2212,10 +2219,9 @@ export class App implements OnDestroy {
     if (state.title === 'Drop stash?') {
       const index = this.contextMenuTarget()?.stash?.index;
       if (index !== undefined) {
-        this.git.stashDrop(index).subscribe({
-          next: () => this.refresh(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+        this.runPromptOperation(this.git.stashDrop(index), () => this.refresh());
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
@@ -2223,13 +2229,32 @@ export class App implements OnDestroy {
     if (state.title === 'Rebase from branch') {
       const branch = value.trim();
       if (branch) {
-        this.git.rebaseRef({ branch }).subscribe({
-          next: () => this.refresh(),
-          error: (err) => this.error.set(this.errorMessage(err)),
-        });
+        this.runPromptOperation(this.git.rebaseRef({ branch }), () => this.refresh());
+      } else {
+        this.promptState.set(null);
       }
       return;
     }
+  }
+
+  /**
+   * Runs the mutation behind a confirmation dialog while keeping that dialog
+   * open, disabled and spinning. The dialog closes when the work settles.
+   */
+  private runPromptOperation(request: Observable<unknown>, done: () => void): void {
+    this.promptBusy.set(true);
+    request.subscribe({
+      next: () => {
+        this.promptBusy.set(false);
+        this.promptState.set(null);
+        done();
+      },
+      error: (err) => {
+        this.promptBusy.set(false);
+        this.promptState.set(null);
+        this.error.set(this.errorMessage(err));
+      },
+    });
   }
 
   private ancestorsOf(head: string): Set<string> {
@@ -2250,6 +2275,56 @@ export class App implements OnDestroy {
     }
 
     return seen;
+  }
+
+  /** Downloads a zip of the ref, keeping the progress bar visible while git builds it. */
+  private createArchive(ref: string): void {
+    if (this.archiveBusy()) return;
+    this.archiveBusy.set(true);
+    this.error.set('');
+    this.git.getArchive(ref).subscribe({
+      next: (blob) => {
+        this.archiveBusy.set(false);
+        this.saveArchive(blob, ref);
+      },
+      error: (err) => {
+        this.archiveBusy.set(false);
+        void this.archiveErrorMessage(err).then((message) => this.error.set(message));
+      },
+    });
+  }
+
+  /** Hands the archive blob to the browser's download flow. */
+  private saveArchive(blob: Blob, ref: string): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `guito-${this.archiveSlug(ref)}.zip`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // Keep the blob alive long enough for the browser to finish starting the
+    // download; revoking too early can cancel it on a busy machine.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  /** Filename-safe, short ref label matching the server's archive naming. */
+  private archiveSlug(ref: string): string {
+    return ref.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 8) || 'archive';
+  }
+
+  /** A blob error body holds the server's JSON message instead of an object. */
+  private async archiveErrorMessage(err: unknown): Promise<string> {
+    const body = (err as { error?: unknown })?.error;
+    if (body instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await body.text()) as { error?: string };
+        if (parsed.error) return parsed.error;
+      } catch {
+        /* Not JSON; fall back to the generic message. */
+      }
+    }
+    return this.errorMessage(err);
   }
 
   private errorMessage(err: unknown): string {

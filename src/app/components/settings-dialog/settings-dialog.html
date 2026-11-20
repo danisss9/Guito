@@ -1,5 +1,5 @@
 <div class="backdrop" (click)="!saving() && !busy() && closed.emit()"></div>
-<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" [attr.aria-busy]="saving() || busy()">
   <header class="dialog-header">
     <div><h2 id="settings-title">{{ mode() === 'main' ? 'Settings' : mode() === 'identity' ? 'Edit User Details' : mode() === 'remote' ? (originalRemoteName() ? 'Edit Remote' : 'Add Remote') : 'Issue Linking' }}</h2>@if (mode() === 'main') { <p>Repository preferences and Git configuration.</p> }</div>
     <app-close-button label="Close settings" [disabled]="saving() || busy()" (pressed)="closed.emit()" />
@@ -75,7 +75,7 @@
         }
       </fieldset>
     </div>
-    <footer><button class="btn" type="button" [disabled]="saving()" (click)="closed.emit()">Cancel</button><button class="btn primary" type="button" [disabled]="saving() || busy()" (click)="save()">{{ saving() ? 'Saving...' : 'Save settings' }}</button></footer>
+    <footer><button class="btn" type="button" [disabled]="saving()" (click)="closed.emit()">Cancel</button><button class="btn primary" type="button" [disabled]="saving() || busy()" (click)="save()">@if (saving()) {<span class="spinner" aria-hidden="true"></span>}{{ saving() ? 'Saving...' : 'Save settings' }}</button></footer>
   } @else {
     <div class="editor-body">
       @if (mode() === 'identity') {
@@ -92,6 +92,6 @@
         <label class="choice"><input type="checkbox" [checked]="issueGlobal()" (change)="issueGlobal.set($any($event.target).checked)" /><span><strong>Use globally</strong><small>Apply this rule to repositories without their own rule.</small></span></label>
       }
     </div>
-    <footer><button class="btn" type="button" [disabled]="busy()" (click)="mode.set('main')">Cancel</button><button class="btn primary" type="button" [disabled]="busy()" (click)="mode() === 'identity' ? saveIdentity() : mode() === 'remote' ? saveRemote() : saveIssueLinking()">{{ busy() ? 'Saving...' : 'Save' }}</button></footer>
+    <footer><button class="btn" type="button" [disabled]="busy()" (click)="mode.set('main')">Cancel</button><button class="btn primary" type="button" [disabled]="busy()" (click)="mode() === 'identity' ? saveIdentity() : mode() === 'remote' ? saveRemote() : saveIssueLinking()">@if (busy()) {<span class="spinner" aria-hidden="true"></span>}{{ busy() ? 'Saving...' : 'Save' }}</button></footer>
   }
 </section>

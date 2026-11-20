@@ -1,6 +1,8 @@
 <div class="file-diff">
   @if (loading() && !diff()) {
-    <div class="diff-status" role="status">Loading diff...</div>
+    <div class="diff-status" role="status">
+      <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading diff...</span>
+    </div>
   } @else if (error()) {
     <div class="diff-status error" role="alert">{{ error() }}</div>
   } @else if (editorError()) {
@@ -11,7 +13,9 @@
     } @else {
       <div class="editor-host" #host></div>
       @if (editorLoading()) {
-        <div class="editor-loading" role="status">Loading diff...</div>
+        <div class="editor-loading" role="status">
+          <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading diff...</span>
+        </div>
       }
       @if (selection()) {
         <section class="review-panel" aria-label="Line review">

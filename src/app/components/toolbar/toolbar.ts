@@ -30,6 +30,8 @@ export type RemoteAction =
 })
 export class Toolbar {
   readonly busy = input.required<boolean>();
+  /** A repository refresh is in flight; spins the refresh button icon. */
+  readonly refreshing = input(false);
   /** An Azure DevOps remote was detected; enables the Create Pull Request menu item. */
   readonly prEnabled = input(false);
   /** Whether the left repository panel is open; reflected on the toggle button. */

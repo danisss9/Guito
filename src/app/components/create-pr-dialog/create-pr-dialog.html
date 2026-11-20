@@ -211,6 +211,9 @@
         Cancel
       </button>
       <button type="button" class="btn btn-primary" [disabled]="!canCreate()" (click)="create()">
+        @if (creating()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
         {{ creating() ? 'Creating...' : 'Create Pull Request' }}
       </button>
     </div>

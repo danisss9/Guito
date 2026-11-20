@@ -6,7 +6,9 @@
   aria-label="Pull request details"
 >
   @if (loading()) {
-  <div class="state" role="status">Loading pull request...</div>
+  <div class="state" role="status">
+    <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading pull request...</span>
+  </div>
   } @else if (pr(); as detail) {
   <header class="dialog-header">
     <div class="heading">
@@ -114,6 +116,11 @@
         [disabled]="busy()"
         (pressed)="closed.emit()"
       />
+      @if (busy()) {
+      <span class="busy-indicator" role="status">
+        <span class="spinner" aria-hidden="true"></span>Updating…
+      </span>
+      }
     </div>
   </header>
 
@@ -212,7 +219,9 @@
             </button>
           </div>
           @if (checksLoading()) {
-          <div class="state inline" role="status">Loading checks...</div>
+          <div class="state inline" role="status">
+            <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading checks...</span>
+          </div>
           } @else if (checksError()) {
           <div class="section-error" role="alert">
             <span>{{ checksError() }}</span>
@@ -414,7 +423,9 @@
           </button>
         </div>
         @if (workItemsLoading()) {
-        <div class="state inline" role="status">Loading work items...</div>
+        <div class="state inline" role="status">
+          <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading work items...</span>
+        </div>
         } @else if (workItemsError()) {
         <div class="section-error" role="alert">
           <span>{{ workItemsError() }}</span>
@@ -628,7 +639,9 @@
           }
           }
           } @else if (isContextLoading(thread)) {
-          <p class="context-note" role="status">Loading code context...</p>
+          <p class="context-note" role="status">
+            <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading code context...</span>
+          </p>
           } @else if (threadFileMissing(thread)) {
           <p class="context-note">
             This file is no longer in the latest changes.
@@ -700,7 +713,9 @@
       <section class="review-header card">
         <div class="review-summary">
           @if (reviewLoading()) {
-          <div class="state inline" role="status">Loading the review...</div>
+          <div class="state inline" role="status">
+            <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading the review...</span>
+          </div>
           } @else if (review(); as state) {
           <p class="review-line">
             @if (state.summary) { {{ state.summary }} } @else { Reviewed at
@@ -773,6 +788,9 @@
             (click)="runReview(false)"
             [disabled]="reviewRunning()"
           >
+            @if (reviewRunning()) {
+            <span class="spinner" aria-hidden="true"></span>
+            }
             {{ reviewRunning() ? 'Reviewing...' : review() ? 'Review new
             commits' : 'Review now' }}
           </button>
@@ -808,6 +826,11 @@
           selected
         </label>
         <div class="form-actions">
+          @if (reviewRunning()) {
+          <span class="busy-indicator" role="status">
+            <span class="spinner" aria-hidden="true"></span>Working…
+          </span>
+          }
           <button
             type="button"
             class="btn small"
@@ -923,7 +946,9 @@
           </button>
         </div>
         } @else if (filesLoading()) {
-        <div class="state inline" role="status">Loading changed files...</div>
+        <div class="state inline" role="status">
+          <span class="loading-line"><span class="spinner" aria-hidden="true"></span>Loading changed files...</span>
+        </div>
         } @else { @for (row of fileRows(); track row.path) { @if (row.kind ===
         "dir") {
         <button
@@ -1082,7 +1107,10 @@
         (click)="abandonPr()"
         [disabled]="busy()"
       >
-        Abandon
+        @if (busy()) {
+        <span class="spinner" aria-hidden="true"></span>
+        }
+        {{ busy() ? 'Abandoning…' : 'Abandon' }}
       </button>
     </div>
     } @else {
@@ -1136,6 +1164,7 @@
         type="button"
         class="btn"
         (click)="completeOpen.set(false); autoCompleteOpen.set(false)"
+        [disabled]="busy()"
       >
         Cancel</button
       ><button
@@ -1144,7 +1173,10 @@
         (click)="completeOpen() ? applyComplete() : applyAutoComplete()"
         [disabled]="busy()"
       >
-        {{ completeOpen() ? 'Complete' : 'Enable' }}
+        @if (busy()) {
+        <span class="spinner" aria-hidden="true"></span>
+        }
+        {{ busy() ? (completeOpen() ? 'Completing…' : 'Enabling…') : (completeOpen() ? 'Complete' : 'Enable') }}
       </button>
     </div>
     }

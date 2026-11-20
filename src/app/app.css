@@ -18,6 +18,45 @@
   min-height: 0;
 }
 
+/* Indeterminate bar for user-triggered Git work; sits above dialogs so the
+   progress stays visible while a confirmation dialog is still open. */
+.operation-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  overflow: hidden;
+  z-index: 500;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.operation-progress-bar {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  animation: operation-progress 1.1s ease-in-out infinite;
+}
+
+@keyframes operation-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(360%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .operation-progress-bar {
+    width: 100%;
+    animation: none;
+  }
+}
+
 .loading-overlay {
   position: fixed;
   inset: 0;

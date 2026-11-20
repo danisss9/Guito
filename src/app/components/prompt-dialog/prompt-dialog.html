@@ -1,6 +1,6 @@
 @if (state(); as s) {
-  <div class="backdrop" (click)="cancelled.emit()"></div>
-  <div class="dialog" role="dialog" aria-modal="true">
+  <div class="backdrop" (click)="!busy() && cancelled.emit()"></div>
+  <div class="dialog" role="dialog" aria-modal="true" [attr.aria-busy]="busy()">
     <h3 class="title">{{ s.title }}</h3>
     @if (s.label) {
       <p class="label">{{ s.label }}</p>
@@ -14,6 +14,7 @@
           placeholder="Search…"
           aria-label="Search options"
           [value]="search()"
+          [disabled]="busy()"
           (input)="onSearch($event)"
           (keydown.enter)="onSearchEnter($event)"
         />
@@ -27,6 +28,7 @@
             [attr.aria-checked]="choice() === option.value"
             [class.selected]="choice() === option.value"
             [class.danger]="option.danger"
+            [disabled]="busy()"
             (click)="choose(option)"
             (dblclick)="confirm()"
           >
@@ -54,23 +56,30 @@
         [attr.placeholder]="s.placeholder || ' '"
         [attr.aria-label]="s.label || s.title"
         title="Enter a value"
+        [disabled]="busy()"
         (input)="onInput($event)"
         (keydown.enter)="confirm()"
       />
     }
     <div class="actions">
-      <button class="btn" type="button" (click)="cancelled.emit()">Cancel</button>
+      <button class="btn" type="button" [disabled]="busy()" (click)="cancelled.emit()">
+        Cancel
+      </button>
       <button
         class="btn btn-primary"
         type="button"
         [class.btn-danger]="s.danger"
         [disabled]="
+          busy() ||
           (options().length === 0 && !s.confirmOnly && !s.allowEmpty && !value().trim()) ||
           (s.searchable && filteredOptions().length === 0)
         "
         (click)="confirm()"
       >
-        {{ s.okLabel || 'OK' }}
+        @if (busy()) {
+          <span class="spinner" aria-hidden="true"></span>
+        }
+        {{ busy() ? 'Working…' : (s.okLabel || 'OK') }}
       </button>
     </div>
   </div>

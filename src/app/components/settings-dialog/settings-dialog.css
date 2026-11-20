@@ -42,6 +42,9 @@ select:focus { border-color: var(--accent); }
 footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border); }
 .btn { padding: 7px 14px; color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 4px; font: inherit; cursor: pointer; }
 .btn:hover:not(:disabled) { color: var(--text-bright); background: var(--bg-hover); }
-.btn.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+.btn.primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: #fff; background: var(--accent); border-color: var(--accent); }
 .btn:disabled { opacity: .55; cursor: default; }
+.spinner { width: 10px; height: 10px; flex: none; border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 @media (max-width: 520px) { .dialog { width: calc(100vw - 16px); max-height: calc(100vh - 16px); } .dialog-header, .settings-body, footer { padding-left: 14px; padding-right: 14px; } }

@@ -384,10 +384,35 @@
 /* The loading notice is a windowed 24px row; the other empties sit outside
    the windowed streams and keep their natural padding-based height. */
 .empty.section-loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   height: 24px;
   box-sizing: border-box;
   padding: 0 8px 0 24px;
   line-height: 24px;
+}
+
+.section-loading .spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-loading .spinner {
+    animation: none;
+  }
 }
 
 /* Stand-in for the hidden rows of a windowed section; height is set inline. */

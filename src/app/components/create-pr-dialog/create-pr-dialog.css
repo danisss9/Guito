@@ -200,6 +200,10 @@ textarea.description {
 }
 
 .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
@@ -207,6 +211,28 @@ textarea.description {
 
 .btn-primary:hover:not(:disabled) {
   background: #2b7cd3;
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 
 .success {

@@ -20,6 +20,7 @@ import { PromptOption, PromptState } from '../../models/git.models';
 })
 export class PromptDialog {
   readonly state = input.required<PromptState | null>();
+  readonly busy = input(false);
   readonly confirmed = output<string>();
   readonly cancelled = output<void>();
 
@@ -66,7 +67,7 @@ export class PromptDialog {
 
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
-    if (this.state()) {
+    if (this.state() && !this.busy()) {
       this.cancelled.emit();
     }
   }
@@ -98,7 +99,7 @@ export class PromptDialog {
 
   protected confirm(): void {
     const state = this.state();
-    if (!state) {
+    if (!state || this.busy()) {
       return;
     }
     if (state.options?.length) {

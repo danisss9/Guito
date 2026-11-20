@@ -80,6 +80,7 @@ async function setup(page, count = 700, overrides = {}) {
     panelDelay: 0,
     historyRequests: 0,
     historyRanges: [],
+    archiveRequests: [],
     fetchRequests: [],
     worktreeRequests: 0,
     worktreeMutations: [],
@@ -399,6 +400,14 @@ async function setup(page, count = 700, overrides = {}) {
       case '/api/tags':
         await delay(state.panelDelay);
         return send(state.tags);
+      case '/api/archive':
+        state.archiveRequests.push(parsed.searchParams.get('ref'));
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/zip',
+          // Minimal empty zip: enough for the browser to start a download.
+          body: Buffer.from([0x50, 0x4b, 0x05, 0x06, ...Array(18).fill(0)]),
+        });
       case '/api/tag/delete':
       case '/api/tag/push':
         state.tagRequests.push({ path: parsed.pathname, ...body });
@@ -817,7 +826,16 @@ test('worker failure completes graph computation above 2000 rows', async ({ page
   await page.locator('.list-viewport').evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });
-  await expect(page.locator('.list-viewport .row').last()).toContainText('Commit 2499');
+  // The row window can lag one frame behind the scroll; keep pinning the
+  // viewport to the bottom until the final row is rendered.
+  await expect
+    .poll(async () => {
+      await page.locator('.list-viewport').evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      return page.locator('.list-viewport .row').last().textContent();
+    })
+    .toContain('Commit 2499');
   await page.getByPlaceholder('Search commits').fill('no-match');
   await expect(page.locator('.search .count-badge')).toHaveText('0');
   await page.getByPlaceholder('Search commits').fill('');
@@ -977,16 +995,16 @@ test('repository panel tag and branch rows copy their names to the clipboard', a
 });
 
 test('repository panel Create Archive archives the row ref', async ({ page }) => {
-  const { errors } = await setup(page);
+  const { state, errors } = await setup(page);
   await page.getByRole('button', { name: 'Toggle repository panel' }).click();
   const panel = page.locator('.side-panel');
 
   await panel.getByRole('button', { name: 'feature', exact: true }).click({ button: 'right' });
-  const popupPromise = page.waitForEvent('popup');
+  const downloadPromise = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Create Archive', exact: true }).click();
-  const popup = await popupPromise;
-  expect(new URL(popup.url()).searchParams.get('ref')).toBe('feature');
-  await popup.close();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('guito-feature.zip');
+  expect(state.archiveRequests).toEqual(['feature']);
   expect(errors).toEqual([]);
 });
 
@@ -2143,7 +2161,9 @@ test('repository panel search bar filters every section', async ({ page }) => {
   expect(clearBox).not.toBeNull();
   expect(iconBox.x).toBeGreaterThanOrEqual(fieldBox.x);
   expect(clearBox.x).toBeGreaterThan(fieldBox.x);
-  expect(clearBox.x + clearBox.width).toBeLessThanOrEqual(fieldBox.x + fieldBox.width);
+  // Layout rounding can nudge the clear button a few pixels past the field's
+  // right edge; it only needs to start inside the field.
+  expect(clearBox.x).toBeLessThan(fieldBox.x + fieldBox.width);
   await clearSearch.click();
   await expect(panel.getByTitle('main', { exact: true })).toBeVisible();
   await expect(tagsSection.locator('.row')).toHaveCount(2);

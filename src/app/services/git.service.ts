@@ -344,6 +344,14 @@ export class GitService {
     return this.http.get<TagInfo[]>(`${this.base}/tags`);
   }
 
+  /** Zip archive of a ref, built by the server on demand. */
+  getArchive(ref: string): Observable<Blob> {
+    return this.http.get(`${this.base}/archive`, {
+      params: new HttpParams().set('ref', ref),
+      responseType: 'blob',
+    });
+  }
+
   createBranch(request: {
     name: string;
     startPoint?: string;
