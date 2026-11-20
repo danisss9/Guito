@@ -4,6 +4,20 @@ All notable changes to Guito are documented in this file. The project follows [S
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-11-20
+
+### Added
+
+- Loading feedback for long-running Git work. A slim indeterminate progress bar appears for fetch, pull, push, sync, commits, archive creation and other user-triggered operations. Delete and rename confirmations stay open with a spinner until the operation finishes, and the Git operation, worktree, Go To Commit, settings, create pull request and pull request dialogs show inline spinners instead of only changing their button text. The repository panel's branch, tag, stash, worktree and pull request loading rows animate, and the toolbar Refresh button spins while a refresh runs.
+
+### Changed
+
+- **Create Archive** now downloads the zip through an authenticated tracked request, so the progress bar stays visible while Git builds it. Archive failures are reported in the app instead of opening a separate tab that could fail silently.
+
+### Fixed
+
+- Confirming a destructive prompt no longer closes the dialog before the operation finishes. Worktree deletion, stash drops, force pushes, resets, cleans and discards now show progress and cannot be submitted twice while they run.
+
 ## [1.0.12] - 2026-10-15
 
 ### Changed

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.0.13
+
+- Add loading feedback for long-running Git work. A slim progress bar covers fetch, pull, push, sync, commits and archive creation; delete and rename confirmations stay open with a spinner until they finish; the Git operation, worktree, Go To Commit, settings and pull request dialogs show inline spinners; repository panel loading rows animate; and the toolbar Refresh button spins during a refresh.
+- Download **Create Archive** zips through an authenticated tracked request so progress stays visible while Git builds them, and report archive failures in the app instead of opening a separate tab that could fail silently.
+- Keep destructive confirmation dialogs open until their operation finishes, preventing duplicate submissions and showing progress for worktree deletion, stash drops, force pushes, resets, cleans and discards.
+
 ## 1.0.12
 
 - Detect Azure DevOps from the repository's remotes and remove the `guito.azureDevOpsUrl` setting. Pull request features turn on automatically when `origin` (or another remote) points to an Azure DevOps project.
